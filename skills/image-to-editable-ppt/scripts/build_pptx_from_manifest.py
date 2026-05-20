@@ -430,6 +430,9 @@ def render_preview(manifest, manifest_path, out_path):
             draw.line(box, fill=outline, width=width)
         elif item.get("type") == "ellipse":
             draw.ellipse(box, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline, width=width)
+        elif item.get("type") == "roundRect" or item.get("preset") == "roundRect":
+            radius = int(float(item.get("radius", 0.12)) * scale)
+            draw.rounded_rectangle(box, radius=radius, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline, width=width)
         else:
             draw.rectangle(box, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline, width=width)
 
