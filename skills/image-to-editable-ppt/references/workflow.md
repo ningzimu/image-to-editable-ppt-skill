@@ -262,6 +262,8 @@ Coordinates use inches. The default widescreen page is 13.333 x 7.5 inches. Put 
 
 Objects may include `z_index` to control visual stacking. Lower values render first. Use this for layered rebuilds: cleaned full-slide background at `0`, native cards/lines at `20`, generated icon assets at `30`, and editable text at `40` or higher.
 
+Text boxes may include `rotation` in degrees for editable axis labels or vertical labels. Line shapes may include `dash` with a DrawingML preset such as `dash`, `sysDot`, or `lgDash` for editable chart grids and timelines.
+
 ```json
 {
   "slide": {
@@ -296,6 +298,7 @@ Objects may include `z_index` to control visual stacking. Lower values render fi
       "bold": true,
       "color": "#111111",
       "align": "left",
+      "rotation": 0,
       "z_index": 40
     }
   ],
@@ -308,6 +311,7 @@ Objects may include `z_index` to control visual stacking. Lower values render fi
       "height": 0,
       "stroke": "#e66b00",
       "stroke_width": 3,
+      "dash": "dash",
       "z_index": 20
     },
     {

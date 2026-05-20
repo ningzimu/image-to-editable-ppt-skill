@@ -13,6 +13,7 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 - Reject page manifests that combine a full-slide source raster background with editable text overlays, preventing baked-text overlap from passing validation.
 - Respect per-object `z_index` and round-rectangle previews in PPTX assembly and preview rendering so cleaned backgrounds, native shapes, generated icons, and editable text can be layered independently.
+- Add manifest support for rotated editable text boxes and dashed editable lines for chart axes, gridlines, and timelines.
 
 ### Documentation
 

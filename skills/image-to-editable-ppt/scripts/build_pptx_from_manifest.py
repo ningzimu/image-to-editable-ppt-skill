@@ -62,12 +62,14 @@ def shape_fill(fill):
     return f'<a:solidFill><a:srgbClr val="{hex_color(fill)}"/></a:solidFill>'
 
 
-def shape_line(stroke, width):
+def shape_line_xml(stroke, width, dash=None):
     if not stroke or stroke == "none":
         return '<a:ln><a:noFill/></a:ln>'
+    dash_xml = f'<a:prstDash val="{xml_text(dash)}"/>' if dash else ""
     return (
         f'<a:ln w="{int(float(width or 1) * 12700)}">'
         f'<a:solidFill><a:srgbClr val="{hex_color(stroke)}"/></a:solidFill>'
+        f"{dash_xml}"
         "</a:ln>"
     )
 
@@ -88,6 +90,8 @@ def text_box_xml(idx, item):
     top = emu(item.get("top", 0))
     width = emu(item.get("width", 1))
     height = emu(item.get("height", 0.4))
+    rotation = item.get("rotation")
+    rotation_attr = f' rot="{int(float(rotation) * 60000)}"' if rotation not in (None, "") else ""
     font_size = int(float(item.get("font_size", 18)) * 100)
     font = xml_text(item.get("font", "PingFang SC"))
     align = item.get("align", "left")
@@ -132,7 +136,7 @@ def text_box_xml(idx, item):
     return f"""
       <p:sp>
         <p:nvSpPr><p:cNvPr id="{idx}" name="TextBox {idx}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
-        <p:spPr><a:xfrm><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr>
+        <p:spPr><a:xfrm{rotation_attr}><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr>
         <p:txBody>
           <a:bodyPr wrap="{xml_text(wrap)}" anchor="{anchor}" lIns="0" tIns="0" rIns="0" bIns="0">{autofit_xml}</a:bodyPr><a:lstStyle/>
           {text_body}
@@ -162,7 +166,7 @@ def shape_xml(idx, item):
     height = emu(item.get("height", 1))
     stroke_width = item.get("stroke_width", 1)
     fill = shape_fill(item.get("fill"))
-    line = shape_line(item.get("stroke", "#000000"), stroke_width)
+    line = shape_line_xml(item.get("stroke", "#000000"), stroke_width, item.get("dash"))
     preset = item.get("preset")
     if not preset:
         preset = "line" if kind == "line" else "ellipse" if kind == "ellipse" else "roundRect" if kind == "roundRect" else "rect"
@@ -427,7 +431,10 @@ def render_preview(manifest, manifest_path, out_path):
         outline = preview_color(item.get("stroke", "#000000"))
         width = max(1, int(float(item.get("stroke_width", 1))))
         if item.get("type") == "line":
-            draw.line(box, fill=outline, width=width)
+            if item.get("dash"):
+                draw_dashed_line(draw, box, outline, width)
+            else:
+                draw.line(box, fill=outline, width=width)
         elif item.get("type") == "ellipse":
             draw.ellipse(box, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline, width=width)
         elif item.get("type") == "roundRect" or item.get("preset") == "roundRect":
@@ -465,14 +472,21 @@ def render_preview(manifest, manifest_path, out_path):
             preview_text = "".join(str(run.get("text", "")) for run in item["runs"])
         else:
             preview_text = item.get("text", "")
-        draw.multiline_text(
-            (item.get("left", 0) * scale, item.get("top", 0) * scale),
-            preview_text,
-            fill=preview_color(item.get("color", "#111111")),
-            font=font,
-            spacing=4,
-            align=item.get("align", "left") if item.get("align", "left") in ("left", "center", "right") else "left",
-        )
+        fill = preview_color(item.get("color", "#111111"))
+        align = item.get("align", "left") if item.get("align", "left") in ("left", "center", "right") else "left"
+        x = int(item.get("left", 0) * scale)
+        y = int(item.get("top", 0) * scale)
+        rotation = float(item.get("rotation", 0) or 0)
+        if rotation:
+            layer_w = max(1, int(item.get("width", 1) * scale))
+            layer_h = max(1, int(item.get("height", 0.4) * scale))
+            layer = Image.new("RGBA", (layer_w, layer_h), (0, 0, 0, 0))
+            layer_draw = ImageDraw.Draw(layer)
+            layer_draw.multiline_text((0, 0), preview_text, fill=fill, font=font, spacing=4, align=align)
+            rotated = layer.rotate(-rotation, expand=True)
+            canvas.paste(rotated, (x, y), rotated)
+            return
+        draw.multiline_text((x, y), preview_text, fill=fill, font=font, spacing=4, align=align)
 
     layered = []
     for index, item in enumerate(manifest.get("shapes", [])):
@@ -499,6 +513,28 @@ def choose_preview_font(preferred):
         if candidate and Path(candidate).exists():
             return candidate
     return None
+
+
+def draw_dashed_line(draw, box, fill, width):
+    x1, y1, x2, y2 = box
+    dash = 8
+    gap = 6
+    if abs(y2 - y1) <= abs(x2 - x1):
+        step = dash + gap
+        x = min(x1, x2)
+        end = max(x1, x2)
+        y = y1
+        while x < end:
+            draw.line((x, y, min(x + dash, end), y), fill=fill, width=width)
+            x += step
+    else:
+        step = dash + gap
+        y = min(y1, y2)
+        end = max(y1, y2)
+        x = x1
+        while y < end:
+            draw.line((x, y, x, min(y + dash, end)), fill=fill, width=width)
+            y += step
 
 
 def main():
