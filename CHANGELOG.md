@@ -8,6 +8,11 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 - Expand the image-to-editable-ppt skill to normalize images, PDFs, and PPT/PPTX inputs into page jobs, assemble deck manifests into multi-page PPTX files, and preserve PPT/PPTX speaker notes.
 - Add skill-local runtime management scripts and dependencies for input preparation, deck assembly, and validation.
+- Add a repeatable page experiment helper for chroma cleanup, asset splitting, PPTX building, validation, and visual QA artifacts.
+
+### Improvements
+
+- Document the end-to-end page reconstruction loop, including page classification, source-geometry preservation, chroma-key selection, contact-sheet inspection, and source/preview QA.
 
 ### Fixes
 

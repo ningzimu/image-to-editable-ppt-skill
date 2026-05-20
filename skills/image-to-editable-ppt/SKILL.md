@@ -134,20 +134,22 @@ Only mark a step complete when the real file, image, manifest, validation report
 
 1. Normalize inputs with `prepare_inputs.py`. Stop if PPT/PPTX input needs LibreOffice and `soffice` is unavailable.
 2. For multi-image, PDF, and PPT/PPTX jobs, dispatch one Codex subagent per page. The parent owns `deck_manifest.json`, `notes_manifest.json`, final assembly, and final validation. Do not proceed to page reconstruction in the parent agent when subagent dispatch is unavailable; stop and ask for explicit single-agent approval.
-3. For each page, inspect `source.png` and identify canvas size, layout regions, all visible text, reusable graphic assets, required non-text visual objects, and which elements must remain editable. Record the page-level `imagegen_required` / `skip_imagegen_allowed` decision and evidence before rebuilding the page.
-4. Choose the visual strategy for that page. For complex photo-background pages with only overlay text, use `$imagegen` image editing to create a no-text background, then skip asset-sheet splitting. For dense infographic or technical-route pages, use the layered imagegen strategy: first generate a clean no-readable-text layout/base layer, and when icons or reusable diagram glyphs need to be movable, ask `$imagegen` to remove those standalone icons from the base too; then generate sparse chroma-key asset sheets for the standalone icons, arrows, checks, magnifiers, pictograms, chart glyphs, and reusable diagram parts. For simpler illustrated slides, use `$imagegen` asset sheets directly. Do not satisfy this step by cropping those visual objects from `source.png`, or by approximating style-bearing icons/pictograms with local drawing code or PowerPoint preset shapes.
-5. Remove the chroma-key background, then split the transparent asset sheet into individual PNG assets. Generate `split_assets_contact.png` for every multi-asset sheet and inspect it before building the page manifest.
-6. Record provenance for the clean base and for each `$imagegen` asset, then create `pages/page_NNN/manifest.json` describing slide size, background/base image placements, independent image placements, editable text boxes, simple shapes, a complete `text_inventory`, required visual object coverage, and `completion_status`.
-7. Validate each page output with `validate_pptx.py output.pptx --manifest manifest.json --report validation.json`. This validator includes the assembly-readiness contract and rejects full-slide `source.png` backgrounds with editable text overlays. Each subagent must write `pages/page_NNN/qa_notes.md` and must not edit the final deck manifest or final PPTX.
-8. Assemble the final PPTX from `deck_manifest.json` with `build_pptx_from_manifest.py --deck-manifest deck_manifest.json --out rebuilt.pptx` only after every page manifest has `completion_status: "ready_for_assembly"` and page validation passes. For PPT/PPTX input, copy notes from `notes_manifest.json` to the matching slide.
-9. Run deck validation with `validate_pptx.py rebuilt.pptx --deck-manifest deck_manifest.json --report validation.json` before reporting completion.
-10. If page or deck validation shows missing words, missing assets, clipped text, broken relationships, notes mismatch, missing page outputs, obvious layout drift, or preview-visible poor icons/assets, repair only the smallest failing scope and rebuild. Do not report completion while the preview contains crude placeholder shapes, wrong icon metaphors, broken pictograms, illegible generated marks, or visually downgraded assets that should be regenerated through `$imagegen`.
+3. For each page, make a reconstruction plan before generating anything: classify the page type, list every readable text string, list required non-text visual objects, decide which objects are native PPT geometry and which require `$imagegen`, and record `imagegen_required` / `skip_imagegen_allowed`.
+4. Preserve source geometry semantics. Rectangular panels, tables, chart frames, and report containers stay `rect`; use `roundRect` only when the source object is visibly rounded, such as pills, badges, buttons, and rounded callouts. Do not add rounded corners, shadows, or decorative styles just because they look modern.
+5. Choose the visual strategy for that page. For complex photo-background pages with only overlay text, use `$imagegen` image editing to create a no-text background. For hand-drawn/manual pages, use `$imagegen` to create a no-readable-text visual layer that preserves hand-drawn frames, arrows, icons, tape, and texture, then rebuild text natively. For dashboard/report pages, rebuild structural cards, tables, charts, axes, gridlines, and simple status badges as native PPT shapes/text, while standalone icons and style-bearing marks come from `$imagegen` asset sheets. Do not satisfy this step by cropping visual objects from `source.png`, or by approximating style-bearing icons/pictograms with local drawing code or PowerPoint preset shapes.
+6. Generate and process `$imagegen` assets. Choose a chroma-key color that is absent from the assets (`#00ff00` is bad for green icons; use `#ff00ff` instead). Remove the key locally, split assets, and inspect `split_assets_contact.png`. Do not enable despill by default; use it only when the contact sheet proves it does not damage icon colors.
+7. Record provenance for the clean base and for each `$imagegen` asset, then create `pages/page_NNN/manifest.json` with explicit `z_index` layers: base/background first, native geometry next, generated icons/assets next, editable text last. Include complete `text_inventory`, required visual object coverage, and `completion_status`.
+8. Build, validate, and visually compare each page. Run `build_pptx_from_manifest.py` with `--preview`, run `validate_pptx.py`, and produce a source/preview/diff comparison. Structural validation is not enough; inspect the preview. Repair only the smallest failing scope: a coordinate, text box, shape type, split asset, or targeted `$imagegen` repair.
+9. Assemble the final PPTX from `deck_manifest.json` with `build_pptx_from_manifest.py --deck-manifest deck_manifest.json --out rebuilt.pptx` only after every page manifest has `completion_status: "ready_for_assembly"`, page validation passes, and page preview QA is acceptable. For PPT/PPTX input, copy notes from `notes_manifest.json` to the matching slide.
+10. Run deck validation with `validate_pptx.py rebuilt.pptx --deck-manifest deck_manifest.json --report validation.json`, then inspect the assembled output or previews before reporting completion.
+11. If page or deck validation shows missing words, missing assets, clipped text, broken relationships, notes mismatch, missing page outputs, obvious layout drift, wrong shape semantics, or preview-visible poor icons/assets, repair only the smallest failing scope and rebuild. Do not report completion while the preview contains crude placeholder shapes, wrong icon metaphors, broken pictograms, illegible generated marks, or visually downgraded assets that should be regenerated through `$imagegen`.
 
 For detailed prompt patterns, manifest schema, and validation criteria, read `references/workflow.md`.
 
 ## Editing Policy
 
 - Prefer visible editable text boxes for all readable text, including labels inside diagrams whenever practical. Hidden, transparent, 1 pt, off-canvas, or metadata-only text boxes do not satisfy text editability.
+- Preserve source shape semantics. Do not convert rectangular panels, tables, cards, or chart frames into rounded rectangles unless the source visibly has rounded corners.
 - Use raster images only for non-text visual assets: clean layout bases, illustrations, icons, handwritten decorations, texture, tape, shadows, folders, cards, backgrounds, chart/diagram glyphs, and decorative marks.
 - For photo-background slides, use one edited no-text background image plus visible editable text boxes. Do not leave baked-in text in the background, and do not accept local blur/darken patches with visible ghosting as final.
 - Keep source images, generated asset sheets, split assets, `split_assets_contact.png`, manifest, PPTX, preview, `original_vs_rebuilt_diff.png`, `diff.json`, and validation report in a single output folder.
@@ -267,11 +269,34 @@ python3 "$SKILL_DIR/scripts/render_diff.py" \
   --report diff.json
 ```
 
+Run the repeatable page experiment loop after a page manifest exists. This can copy a generated asset sheet, remove chroma key, split assets, build the PPTX, validate, and write source/preview QA artifacts:
+
+```bash
+SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/image-to-editable-ppt"
+python3 "$SKILL_DIR/scripts/run_page_experiment.py" pages/page_001 \
+  --preview-scale 144 \
+  --qa-pair original_vs_rebuilt.png \
+  --pixel-diff
+```
+
+When processing a new asset sheet, pass the selected generated image explicitly. Use `--despill` only when the contact sheet proves it does not damage colors:
+
+```bash
+python3 "$SKILL_DIR/scripts/run_page_experiment.py" pages/page_001 \
+  --asset-sheet-source /path/to/generated_sheet.png \
+  --chroma imagegen_icon_sheet_magenta.png \
+  --asset-names icon_a.png,icon_b.png,icon_c.png \
+  --split-sort x \
+  --square-assets \
+  --force-chroma
+```
+
 ## Rules
 
 - Use `$imagegen` clean visual layers as the primary and default decomposition path for non-text visual content. For dense infographic pages, this means a clean layout/base layer plus sparse asset sheets, not one all-purpose generated background.
 - Treat the `imagegen_required` gate as mandatory page metadata. For dashboard, dense infographic, technical-route, and architecture pages, default it to `true`; if the final manifest has `images: []`, the page must document `skip_imagegen_allowed: true` plus concrete evidence that all non-text visuals are only plain primitives.
 - Prompt asset sheets as sparse single-sheet layouts by default: at least 260 px of pure chroma-key spacing for dense pages and at least 220 px for simpler pages, spacing more important than asset size, no touching or cross-asset shadows, and each icon internally complete as one object.
+- Choose chroma-key colors by asset content. Avoid green keys for green assets and avoid magenta keys for magenta/purple assets. Do not enable despill by default; inspect the contact sheet before using it.
 - Prefer `$imagegen` when deciding whether a visual element is a shape or an asset. Keep only simple structural geometry editable; split style-bearing or reusable visual elements into PNG assets.
 - Do not use the "simple primitives" exception for slides with hand-drawn small icons, tape, textured notes, decorative strokes, shadows, or pictograms. Recreate readable text as editable PPT text, but split those non-text visuals with `$imagegen`.
 - Do not crop non-text visual assets directly from the original source image in editable-first mode. Full-page raster mosaics are not object-level editable PPT.
@@ -284,6 +309,7 @@ python3 "$SKILL_DIR/scripts/render_diff.py" \
 - Do not use local blur, dark rectangles, clone-like patches, or threshold masks as the final way to remove text from a complex photo background. They are acceptable only as diagnostic masks or prompt aids before `$imagegen` background repair.
 - Do not use macOS Quick Look thumbnails as the visual acceptance renderer; they can distort PPT text layout. Prefer this skill's manifest preview, PowerPoint/WPS screenshots, or an explicitly trusted renderer.
 - Do not accept a PPTX solely because deterministic validation passes; visually inspect the generated preview or a trusted renderer screenshot.
+- Do not accept a PPTX whose native geometry changes the source semantics, such as turning rectangular tables/cards into rounded rectangles or replacing source line styles with unrelated decorative choices.
 - Treat the visual preview as an active repair trigger, not a passive artifact. If icons, pictograms, badges, or decorative marks look crude, mismatched, placeholder-like, malformed, or obviously worse than the source, stop and repair those assets with `$imagegen` before final reporting.
 - Do not skip the asset contact sheet when multiple assets are extracted; it catches clipped icons, wrong component order, and accidental fragments before PPT assembly.
 - Treat contact-sheet crowding, cross-asset merges, clipped edges, and repeated fragments as blockers. Regenerate the asset sheet when spacing is the cause; use deterministic crop boxes only when one or two assets still need repair.

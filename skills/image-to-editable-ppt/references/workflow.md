@@ -7,7 +7,9 @@
 - [Recommended Output Folder](#recommended-output-folder)
 - [Run Manifests And Provenance](#run-manifests-and-provenance)
 - [Multi-Page Delegation And Assembly](#multi-page-delegation-and-assembly)
+- [Page Reconstruction Loop](#page-reconstruction-loop)
 - [Photo Background With Editable Text](#photo-background-with-editable-text)
+- [Hand-Drawn Manual Pages](#hand-drawn-manual-pages)
 - [Imagegen Asset-Sheet Decomposition](#imagegen-asset-sheet-decomposition)
 - [Manifest Schema](#manifest-schema)
 - [Validation Criteria](#validation-criteria)
@@ -126,6 +128,45 @@ python3 {skill_root}/scripts/validate_pptx.py \
 
 Deck validation also checks the page assembly contract. It rejects pages that use full-slide `source.png` or another user-provided full-slide raster as the background while also overlaying editable text boxes, because that creates baked-text overlap.
 
+## Page Reconstruction Loop
+
+Every page follows the same loop:
+
+1. Classify the page: structural dashboard/report, photo background with overlay text, dense infographic, hand-drawn/manual page, or plain primitive layout.
+2. Inventory readable text and non-text visual objects. Treat OCR as a draft only; inspect the source image and correct the inventory before rebuilding.
+3. Decide layer ownership:
+   - Native PPT text boxes for readable text.
+   - Native PPT shapes for true primitives: straight lines, rectangles, circles, chart bars, table borders, simple status pills, and axis/grid lines.
+   - `$imagegen` assets for icons, pictograms, hand-drawn marks, tape, texture, shadows, illustrated decorations, and other style-bearing objects.
+   - `$imagegen` clean no-text backgrounds for photo or hand-drawn pages where the background itself is not practical native geometry.
+4. Preserve source shape semantics. Rectangular panels, tables, chart frames, and report containers stay `rect`; use `roundRect` only for source objects that visibly have rounded corners.
+5. Build the manifest with explicit `z_index`: background/base `0`, structural shapes `10-20`, generated assets `30`, editable text `40+`.
+6. Run `build_pptx_from_manifest.py` with `--preview`, run `validate_pptx.py`, then inspect source/preview/diff. Fix the smallest failing scope and repeat.
+
+Use `scripts/run_page_experiment.py` when a page manifest already exists and you need a repeatable local loop for chroma cleanup, asset splitting, PPTX build, validation, and source/preview QA:
+
+```bash
+SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/image-to-editable-ppt"
+python3 "$SKILL_DIR/scripts/run_page_experiment.py" pages/page_001 \
+  --preview-scale 144 \
+  --qa-pair original_vs_rebuilt.png \
+  --pixel-diff
+```
+
+If the page uses a new generated asset sheet:
+
+```bash
+python3 "$SKILL_DIR/scripts/run_page_experiment.py" pages/page_001 \
+  --asset-sheet-source /path/to/generated_sheet.png \
+  --chroma imagegen_icon_sheet_magenta.png \
+  --asset-names icon_a.png,icon_b.png,icon_c.png \
+  --split-sort x \
+  --square-assets \
+  --force-chroma
+```
+
+Do not use this script as a substitute for visual judgment. It automates the loop; the agent still must inspect the contact sheet and preview.
+
 ## Photo Background With Editable Text
 
 Use this branch when the slide is one complex photo/texture background with a small number of overlay text blocks. Examples include nature covers, city photos, product photos, abstract backgrounds, and full-bleed posters where the only editable content is typography.
@@ -148,6 +189,20 @@ Edit the provided slide image to remove all overlaid text while preserving the o
 ```
 
 For this branch, strict object-level decomposition is not required for the photo content. The editable objects are the text boxes. The background is a single visual asset unless the user explicitly needs separate editable photo regions.
+
+## Hand-Drawn Manual Pages
+
+Use this branch when the source is a hand-drawn instruction page, sketched workflow, manual, whiteboard-like diagram, or note-style infographic.
+
+Do this:
+
+1. Use `$imagegen` image editing to create a clean no-readable-text visual layer that preserves the paper texture, hand-drawn frames, arrows, tapes, icons, checkbox outlines, warning marks, and other non-text visual structure.
+2. Rebuild all readable text as native PPT text. The visual base must not contain readable baked-in text under editable text.
+3. If icons or arrows should be independently movable, generate them as separate sparse asset sheets instead of leaving them only in the clean base.
+4. Use a handwriting-like font only when it improves resemblance and remains readable; otherwise prefer stable native Chinese fonts over distorted text.
+5. Reject clean bases with pseudo text, ghost text, lost sketch lines, or newly invented decorations.
+
+This branch is not a permission to flatten the source page. The hand-drawn visual layer may be raster; the readable content must still be native editable text.
 
 ## Dense Infographic Layered Imagegen Workflow
 
@@ -209,9 +264,10 @@ python3 "$IMAGEGEN_HELPER" \
   --auto-key border \
   --soft-matte \
   --transparent-threshold 12 \
-  --opaque-threshold 220 \
-  --despill
+  --opaque-threshold 220
 ```
+
+Choose the key color from the asset colors. Do not use `#00ff00` for green icons, green charts, or green badges; use `#ff00ff` or another absent color. Do not enable `--despill` by default because it can wash out same-hue icons. Add `--despill` only after inspecting that it improves edges without damaging colors.
 
 Split the transparent sheet into individual PNG assets. The default splitter uses alpha thresholding, small morphology close, 8-neighbor connected components, and conservative nearby-fragment merging. Always create a contact sheet for visual QA unless there is only one extracted asset:
 
