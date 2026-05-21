@@ -140,8 +140,9 @@ Every page follows the same loop:
    - `$imagegen` assets for icons, pictograms, hand-drawn marks, tape, texture, shadows, illustrated decorations, and other style-bearing objects.
    - `$imagegen` clean no-text backgrounds for photo or hand-drawn pages where the background itself is not practical native geometry.
 4. Preserve source shape semantics. Rectangular panels, tables, chart frames, and report containers stay `rect`; use `roundRect` only for source objects that visibly have rounded corners.
-5. Build the manifest with explicit `z_index`: background/base `0`, structural shapes `10-20`, generated assets `30`, editable text `40+`.
-6. Run `build_pptx_from_manifest.py` with `--preview`, run `validate_pptx.py`, then inspect source/preview/diff. Fix the smallest failing scope and repeat.
+5. Build the manifest in source-image pixel coordinates. Set `source.width_px` and `source.height_px`, then place text, images, and shapes with `box_px: [x, y, width, height]`; use `points_px: [x1, y1, x2, y2]` only for straight line shapes. Keep explicit `z_index`: background/base `0`, structural shapes `10-20`, generated assets `30`, editable text `40+`.
+6. Give editable text boxes layout slack. Start from the source text position, then make the box wider/taller than the visible glyphs so renderer font metrics do not clip or wrap text unexpectedly. For text inside buttons, badges, pills, and callouts, use `valign: "middle"` and a taller box rather than tiny y-coordinate tweaks.
+7. Run `build_pptx_from_manifest.py` with `--preview`, run `validate_pptx.py`, then inspect source/preview/diff. Fix the smallest failing scope and repeat.
 
 Use `scripts/run_page_experiment.py` when a page manifest already exists and you need a repeatable local loop for chroma cleanup, asset splitting, PPTX build, validation, and source/preview QA:
 
@@ -314,11 +315,15 @@ python3 "$SKILL_DIR/scripts/crop_image_asset.py" \
 
 ## Manifest Schema
 
-Coordinates use inches. The default widescreen page is 13.333 x 7.5 inches. Put every readable source string in `text_inventory`; validation treats it like required text.
+Page manifests use source-image pixel coordinates. Set `source.width_px` and `source.height_px` from `source.png`, then use `box_px: [x, y, width, height]` for every positioned text box, image, and shape. Use `points_px: [x1, y1, x2, y2]` for straight line shapes. The builder converts these pixel coordinates to the PowerPoint slide size from `slide.width` and `slide.height`.
+
+Put every readable source string in `text_inventory`; validation treats it like required text.
 
 Objects may include `z_index` to control visual stacking. Lower values render first. Use this for layered rebuilds: cleaned full-slide background at `0`, native cards/lines at `20`, generated icon assets at `30`, and editable text at `40` or higher.
 
 Text boxes may include `rotation` in degrees for editable axis labels or vertical labels. Line shapes may include `dash` with a DrawingML preset such as `dash`, `sysDot`, or `lgDash` for editable chart grids and timelines.
+
+Text box geometry should be forgiving. Do not draw `box_px` exactly around the visible glyph bounds from the source image. A good manifest text box usually has extra horizontal and vertical slack, especially for Chinese text, bold headings, and renderer-sensitive fonts. If text appears clipped or cramped in preview, prefer these repairs in order: enlarge `box_px`, add an explicit line break matching the source layout, set `valign: "middle"` for container labels, then adjust `font_size`. Do not hide clipping by using tiny text or by accepting accidental wrapping that changes the source hierarchy.
 
 ```json
 {
@@ -327,16 +332,17 @@ Text boxes may include `rotation` in degrees for editable axis labels or vertica
     "height": 7.5,
     "background": "#fffaf0"
   },
+  "source": {
+    "width_px": 1920,
+    "height_px": 1080
+  },
   "images": [
     {
       "id": "folder_skill",
       "visual_object_id": "folder_skill",
       "asset_kind": "generated_component",
       "path": "assets/folder_skill.png",
-      "left": 6.8,
-      "top": 2.4,
-      "width": 2.2,
-      "height": 1.6,
+      "box_px": [979, 346, 317, 230],
       "z_index": 30,
       "alt": "Skill folder"
     }
@@ -345,15 +351,13 @@ Text boxes may include `rotation` in degrees for editable axis labels or vertica
     {
       "id": "title",
       "text": "如何设计一个好的 Skill",
-      "left": 0.55,
-      "top": 0.35,
-      "width": 7.5,
-      "height": 0.7,
+      "box_px": [79, 50, 1080, 101],
       "font_size": 34,
       "font": "PingFang SC",
       "bold": true,
       "color": "#111111",
       "align": "left",
+      "valign": "middle",
       "rotation": 0,
       "z_index": 40
     }
@@ -361,10 +365,7 @@ Text boxes may include `rotation` in degrees for editable axis labels or vertica
   "shapes": [
     {
       "type": "line",
-      "left": 0.6,
-      "top": 1.35,
-      "width": 4.8,
-      "height": 0,
+      "points_px": [86, 194, 777, 194],
       "stroke": "#e66b00",
       "stroke_width": 3,
       "dash": "dash",
@@ -372,10 +373,7 @@ Text boxes may include `rotation` in degrees for editable axis labels or vertica
     },
     {
       "type": "rect",
-      "left": 0.5,
-      "top": 1.8,
-      "width": 3.2,
-      "height": 0.9,
+      "box_px": [72, 259, 461, 130],
       "fill": "#fff2bf",
       "stroke": "#111111",
       "stroke_width": 1,
@@ -416,10 +414,7 @@ For a photo-background page, the image entry can be a full-slide no-text backgro
       "visual_object_id": "clean_photo_background",
       "asset_kind": "cleaned_background",
       "path": "assets/background_clean.png",
-      "left": 0,
-      "top": 0,
-      "width": 13.333,
-      "height": 7.5,
+      "box_px": [0, 0, 1920, 1080],
       "z_index": 0,
       "alt": "Clean no-text photo background"
     }
@@ -460,6 +455,7 @@ Passing means:
 - `images` is greater than 0 when visual assets were extracted.
 - All final raster assets have a validator-checked `asset_provenance` entry with valid `source_type`, existing `source`, and `qa_note`.
 - Readable text that is claimed editable is visible native PPT text in the PPTX itself. Hidden, transparent, 1 pt, off-canvas, or metadata-only text boxes do not count, even if the manifest claims a larger font size.
+- Text preview is not visibly clipped, cramped against its container, or accidentally wrapped. Structural validation can pass while text placement is still unacceptable; treat preview-visible typography problems as repair items.
 - Required non-text visual objects are independently present as named `images` or `shapes` with exact `visual_object_id` or `id` matches to the required-object truth. Do not rely on broad aliases or labels. In strict editable reconstruction, raster objects count when they come from `$imagegen` clean bases or generated asset sheets as appropriate: clean bases count for layout/background fidelity, while required independently movable icons/arrows/checks/glyphs must come from separate asset images or native shapes. A tile, grid crop, renamed crop, or large source region that contains several unrelated objects does not count as an extracted visual object.
 - For photo-background pages, the clean background is allowed as one full-slide image when `contains_readable_text` is false and all visible text is represented as native PPT text.
 
@@ -493,6 +489,7 @@ Repair only the smallest failing scope:
    - missing or invalid asset provenance
    - bad crop or chroma-key cleanup
    - bad coordinate or size
+   - clipped, cramped, or accidentally wrapped text box
    - broken PPTX part or relationship
    - preview-only font/rendering issue
 4. Fix the narrowest artifact: `manifest.json`, one crop from the `$imagegen` asset sheet, one `$imagegen` repair job, or the deterministic script.
@@ -503,7 +500,8 @@ Never hide a failure by deleting a `text_inventory` item, removing an asset from
 ## Common Repairs
 
 - Missing words: add text boxes to the manifest rather than regenerating visual assets.
-- Clipped text: increase box width/height, reduce font size, or split into multiple boxes.
+- Clipped or cramped text: increase box width/height first, then add explicit line breaks or `valign: "middle"` for container labels; reduce font size only after the box has enough slack.
+- Accidental wrapping: widen the text box or split the text into source-matching explicit lines. Do not accept new line breaks that change the original visual hierarchy.
 - Chinese glyph boxes in preview: switch preview font to a macOS CJK font such as `/System/Library/Fonts/PingFang.ttc`, `/System/Library/Fonts/STHeiti Medium.ttc`, or another installed Chinese font.
 - Low fidelity clean base: rerun `$imagegen` with a narrower clean-base prompt, explicitly naming leftover text/icons or drift to remove, then keep the existing text/assets when possible.
 - Low fidelity assets: rerun `$imagegen` with a narrower asset sheet prompt, increase padding, request fewer objects per pass, then resplit only the affected assets.

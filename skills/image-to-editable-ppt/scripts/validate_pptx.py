@@ -8,6 +8,8 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from build_pptx_from_manifest import normalize_manifest
+
 
 NS = {
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
@@ -94,6 +96,56 @@ def page_contract_violations(manifest):
     return violations
 
 
+def pixel_authoring_violations(manifest):
+    violations = []
+    source = manifest.get("source", {})
+    if not source.get("width_px") or not source.get("height_px"):
+        violations.append(
+            {
+                "field": "source.width_px/source.height_px",
+                "reason": "page manifest must record the source image pixel size",
+            }
+        )
+
+    for section in ("text_boxes", "images"):
+        for index, item in enumerate(manifest.get(section, [])):
+            if "box_px" not in item:
+                violations.append(
+                    {
+                        "field": f"{section}[{index}].box_px",
+                        "reason": "positioned text and image objects must use source-image pixel coordinates",
+                    }
+                )
+
+    for index, item in enumerate(manifest.get("shapes", [])):
+        if item.get("type") == "line":
+            if "points_px" not in item:
+                violations.append(
+                    {
+                        "field": f"shapes[{index}].points_px",
+                        "reason": "line shapes must use source-image pixel endpoints",
+                    }
+                )
+        elif "box_px" not in item:
+            violations.append(
+                {
+                    "field": f"shapes[{index}].box_px",
+                    "reason": "positioned shapes must use source-image pixel coordinates",
+                }
+            )
+
+    return violations
+
+
+def normalize_for_validation(manifest):
+    violations = pixel_authoring_violations(manifest)
+    try:
+        return normalize_manifest(manifest), violations
+    except Exception as exc:
+        violations.append({"field": "manifest", "reason": str(exc)})
+        return manifest, violations
+
+
 def sha256_text(value):
     return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
 
@@ -165,8 +217,9 @@ def validate_deck(args):
             report["page_manifests_missing"].append(str(manifest_path))
         else:
             try:
-                manifest = read_manifest(manifest_path)
-                violations = page_contract_violations(manifest)
+                raw_manifest = read_manifest(manifest_path)
+                manifest, violations = normalize_for_validation(raw_manifest)
+                violations.extend(page_contract_violations(manifest))
                 if violations:
                     report["page_contract_violations"].append(
                         {"manifest": str(manifest_path), "violations": violations}
@@ -280,7 +333,8 @@ def main():
     if args.deck_manifest:
         validate_deck(args)
 
-    manifest = read_manifest(args.manifest)
+    raw_manifest = read_manifest(args.manifest)
+    manifest, authoring_violations = normalize_for_validation(raw_manifest)
     manifest_base = Path(args.manifest).resolve().parent if args.manifest else Path.cwd()
     required = list(args.required_text)
     required.extend(manifest.get("required_text", []))
@@ -441,7 +495,7 @@ def main():
         if not source_path.exists():
             report["missing_provenance_sources"].append({"path": key, "source": str(source)})
 
-    report["page_contract_violations"] = page_contract_violations(manifest)
+    report["page_contract_violations"] = authoring_violations + page_contract_violations(manifest)
 
     report["passed"] = (
         report["zip_ok"]

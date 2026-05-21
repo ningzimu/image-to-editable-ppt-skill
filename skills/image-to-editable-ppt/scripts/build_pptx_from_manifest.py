@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from copy import deepcopy
 from pathlib import Path
 
 
@@ -43,6 +44,61 @@ def image_ext(path):
 
 def xml_text(value):
     return html.escape(str(value), quote=True)
+
+
+def source_size_px(manifest):
+    source = manifest.get("source", {})
+    width = source.get("width_px")
+    height = source.get("height_px")
+    if width and height:
+        return float(width), float(height)
+    return None
+
+
+def px_to_inches(manifest, x, y, width, height):
+    slide = manifest.get("slide", {})
+    source_size = source_size_px(manifest)
+    if not source_size:
+        raise ValueError("Manifest uses pixel coordinates but lacks source.width_px/source.height_px")
+    source_width, source_height = source_size
+    slide_width = float(slide.get("width", 13.333))
+    slide_height = float(slide.get("height", 7.5))
+    return {
+        "left": float(x) / source_width * slide_width,
+        "top": float(y) / source_height * slide_height,
+        "width": float(width) / source_width * slide_width,
+        "height": float(height) / source_height * slide_height,
+    }
+
+
+def normalize_position_item(manifest, item):
+    item = dict(item)
+    if "box_px" in item:
+        x, y, width, height = item["box_px"]
+        item.update(px_to_inches(manifest, x, y, width, height))
+    if "points_px" in item:
+        x1, y1, x2, y2 = item["points_px"]
+        left = min(float(x1), float(x2))
+        top = min(float(y1), float(y2))
+        width = abs(float(x2) - float(x1))
+        height = abs(float(y2) - float(y1))
+        item.update(px_to_inches(manifest, left, top, width, height))
+        start = px_to_inches(manifest, x1, y1, 0, 0)
+        end = px_to_inches(manifest, x2, y2, 0, 0)
+        item["points"] = [start["left"], start["top"], end["left"], end["top"]]
+        if float(x2) < float(x1):
+            item["flip_h"] = True
+        if float(y2) < float(y1):
+            item["flip_v"] = True
+    return item
+
+
+def normalize_manifest(manifest):
+    """Return a manifest copy with pixel authoring fields resolved to inches."""
+    normalized = deepcopy(manifest)
+    for key in ("text_boxes", "images", "shapes"):
+        normalized[key] = [normalize_position_item(normalized, item) for item in normalized.get(key, [])]
+    return normalized
 
 
 def preview_color(value):
@@ -165,6 +221,8 @@ def shape_xml(idx, item):
     width = emu(item.get("width", 1))
     height = emu(item.get("height", 1))
     stroke_width = item.get("stroke_width", 1)
+    flip_h = ' flipH="1"' if item.get("flip_h") else ""
+    flip_v = ' flipV="1"' if item.get("flip_v") else ""
     fill = shape_fill(item.get("fill"))
     line = shape_line_xml(item.get("stroke", "#000000"), stroke_width, item.get("dash"))
     preset = item.get("preset")
@@ -173,7 +231,7 @@ def shape_xml(idx, item):
     return f"""
       <p:sp>
         <p:nvSpPr><p:cNvPr id="{idx}" name="{xml_text(kind.title())} {idx}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
-        <p:spPr><a:xfrm><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm><a:prstGeom prst="{preset}"><a:avLst/></a:prstGeom>{fill}{line}</p:spPr>
+        <p:spPr><a:xfrm{flip_h}{flip_v}><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm><a:prstGeom prst="{preset}"><a:avLst/></a:prstGeom>{fill}{line}</p:spPr>
         <p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody>
       </p:sp>"""
 
@@ -345,12 +403,16 @@ def write_deck(page_entries, out_path, notes_entries):
     out.parent.mkdir(parents=True, exist_ok=True)
     notes_by_page = {int(entry.get("page_index", 0)): entry for entry in notes_entries if entry.get("text")}
     notes_indices = sorted(notes_by_page)
-    manifests = [entry["manifest"] for entry in page_entries]
+    normalized_entries = [
+        {**entry, "manifest": normalize_manifest(entry["manifest"])}
+        for entry in page_entries
+    ]
+    manifests = [entry["manifest"] for entry in normalized_entries]
     media_index = 1
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("[Content_Types].xml", content_types_xml(manifests, notes_indices))
         write_common_parts(z, len(page_entries), width, height, len(notes_by_page))
-        for slide_index, entry in enumerate(page_entries, start=1):
+        for slide_index, entry in enumerate(normalized_entries, start=1):
             manifest = entry["manifest"]
             notes_index = slide_index if slide_index in notes_by_page else None
             z.writestr(f"ppt/slides/slide{slide_index}.xml", slide_xml(manifest))
@@ -404,6 +466,7 @@ def page_entries_from_deck_manifest(deck_manifest_path):
 def render_preview(manifest, manifest_path, out_path):
     from PIL import Image, ImageColor, ImageDraw, ImageFont
 
+    manifest = normalize_manifest(manifest)
     slide = manifest.get("slide", {})
     width_in = float(slide.get("width", 13.333))
     height_in = float(slide.get("height", 7.5))
@@ -431,6 +494,10 @@ def render_preview(manifest, manifest_path, out_path):
         outline = preview_color(item.get("stroke", "#000000"))
         width = max(1, int(float(item.get("stroke_width", 1))))
         if item.get("type") == "line":
+            if "points" in item:
+                points = [value * scale for value in item["points"]]
+                draw.line(points, fill=outline, width=width)
+                return
             if item.get("dash"):
                 draw_dashed_line(draw, box, outline, width)
             else:
