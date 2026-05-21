@@ -4,7 +4,7 @@
 
 ![Image to Editable PPT project overview](assets/image-to-editable-ppt-overview.png)
 
-A Codex skill for converting images, PDFs, and image-based `.pptx` files into editable PowerPoint `.pptx` output. It normalizes inputs into per-page jobs, then page subagents rebuild editable text, simple shapes, and positioned visual assets.
+A Codex skill for converting images, PDFs, and image-based PPT files into editable PowerPoint `.pptx` output. It normalizes inputs into per-page jobs, then page subagents rebuild editable text, simple shapes, and positioned visual assets.
 
 It is useful when screenshot-like or image-based slides need to become easier to edit again, with text, simple shapes, and visual assets separated where practical.
 
@@ -30,7 +30,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 
 ## Highlights
 
-- Broad input coverage for many slide-reconstruction scenarios: one image, multiple images, multi-page PDFs, and image-based `.pptx` files into editable `.pptx`.
+- Broad input coverage for many slide-reconstruction scenarios: one image, multiple images, multi-page PDFs, and image-based PPT files into editable `.pptx`.
 - Uses a multi-agent architecture: Codex subagents rebuild every page in parallel where possible, speeding up multi-page reconstruction; the parent agent handles dispatch, QA, repair orchestration, and final assembly.
 - Reuses existing Codex capabilities, including subagents and `$imagegen`, in a pure visual reconstruction workflow with no third-party OCR or layout-analysis service dependency.
 - Keep multiple images in the provided order; preserve PDF and `.pptx` page order.
@@ -47,7 +47,7 @@ Output is always a PowerPoint `.pptx` file:
 | 1 image | 1-slide `.pptx` |
 | Multiple images | Multi-slide `.pptx`, one slide per image, in the provided order |
 | Multi-page PDF | Multi-slide `.pptx`; PDF page N maps to output slide N |
-| Image-based `.pptx` | `.pptx` with the same slide count; source slide N maps to output slide N |
+| Image-based PPT | `.pptx` with the same slide count; source slide N maps to output slide N |
 
 Speaker notes are handled only for `.pptx` input. The parent agent copies notes to matching output slides unchanged: no translation, summarization, rewriting, or page-subagent processing.
 
@@ -55,7 +55,7 @@ Speaker notes are handled only for `.pptx` input. The parent agent copies notes 
 
 - Rebuild one or more slide images into a PowerPoint deck whose text and element positions can be adjusted.
 - Convert multiple images or a multi-page PDF into a multi-slide `.pptx`.
-- Convert image-based `.pptx` slides into a more editable `.pptx` while preserving source speaker notes.
+- Convert image-based PPT slides into a more editable `.pptx` while preserving source speaker notes.
 - Recreate a single-slide visual design while keeping text editable.
 - Compare source pages against output slides to find missing text, alignment drift, or missing assets.
 
