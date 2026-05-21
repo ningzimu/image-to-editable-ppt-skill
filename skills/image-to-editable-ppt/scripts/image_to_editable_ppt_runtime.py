@@ -77,9 +77,7 @@ def doctor(_args):
     magick = shutil.which("magick") or shutil.which("convert")
     print(f"ImageMagick: {magick or 'missing'}")
     soffice = shutil.which("soffice") or shutil.which("libreoffice")
-    print(f"LibreOffice/soffice: {soffice or 'missing'}")
-    if not soffice:
-        ok = False
+    print(f"LibreOffice/soffice: {soffice or 'missing'} (optional; only needed for legacy .ppt conversion)")
     return 0 if ok else 1
 
 

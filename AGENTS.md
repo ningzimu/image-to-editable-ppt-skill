@@ -15,7 +15,6 @@ This repository packages the `image-to-editable-ppt` skill.
 - Keep public docs focused on user-facing facts: what the skill does, how to install it, how to use it, and its real limits.
 - Keep `README.md` and `README_en.md` synchronized. When changing one README, update the other in the same change so headings, examples, capabilities, limitations, install steps, and output structure stay equivalent across languages.
 - Do not copy internal discussion notes, temporary decisions, or unpublished release plans into README files.
-- Do not describe full-slide raster output as editable reconstruction.
 
 ## Contribution Flow
 

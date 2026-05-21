@@ -66,14 +66,15 @@ python3 skills/image-to-editable-ppt/scripts/image_to_editable_ppt_runtime.py bo
 python3 skills/image-to-editable-ppt/scripts/image_to_editable_ppt_runtime.py doctor
 ```
 
-运行环境默认创建在 `skills/image-to-editable-ppt/.venv`。PPT/PPTX 输入还需要系统安装 LibreOffice/`soffice`。
+运行环境默认创建在 `skills/image-to-editable-ppt/.venv`。图片版 `.pptx` 会用轻量 OOXML/zip 解析直接提取每页整图，不需要 LibreOffice。
 
 依赖分工：
 
 - Python 包安装到 skill 本地 `.venv`，便于迁移和隔离。
 - PDF 渲染使用 PyMuPDF。
 - 图片处理使用 Pillow。
-- PPT/PPTX 渲染依赖系统里的 LibreOffice/`soffice`，不通过 pip 安装。
+- 图片版 `.pptx` 输入使用标准库解析 slide relationship，并要求每页只有一张整页嵌入图片。
+- 旧 `.ppt` 或原生/复杂 `.pptx` 不走轻量路径；请先导出为 PDF 或逐页图片。
 
 ## 使用方式
 
@@ -98,7 +99,7 @@ skill 通常会完成这些步骤：
 
 这些脚本位于 `skills/image-to-editable-ppt/scripts/`：
 
-- `image_to_editable_ppt_runtime.py`：创建本地 `.venv`、安装依赖、检查 ImageMagick 和 LibreOffice。
+- `image_to_editable_ppt_runtime.py`：创建本地 `.venv`、安装依赖，并检查 Python 包与可选工具。
 - `prepare_inputs.py`：创建 job 目录，把图片/PDF/PPT/PPTX 归一化为 `pages/page_NNN/source.png`，并生成 `deck_manifest.json`。
 - `build_pptx_from_manifest.py`：从单页 `manifest.json` 或多页 `deck_manifest.json` 组装 `.pptx`。
 - `validate_pptx.py`：校验 PPTX 包结构、页数、manifest、资产来源、文本覆盖和备注 hash。
@@ -152,7 +153,7 @@ output/image-to-editable-ppt/{job-id}/
 - 这个 skill 面向输入页面的可编辑重建，不是从零生成整套 PPT 内容。
 - 对照片、插画、纹理、手绘装饰等复杂视觉元素，通常只能作为独立图片资产移动，不能保证内部对象可编辑。
 - 对表格、图表、流程图等结构化区域，会优先保留可编辑语义，但低置信度时应保留为资产并在验证报告里说明。
-- PPT/PPTX 页面渲染依赖 LibreOffice/`soffice`；缺失时会明确报错。
+- 图片版 `.pptx` 只支持每页一张整页嵌入图片；旧 `.ppt` 或原生/复杂 `.pptx` 请先导出为 PDF 或逐页图片。
 - 视觉相似不等于可编辑。最终判断应同时看 PPTX 结构、文本覆盖、资产来源和预览/diff。
 
 ## 仓库结构

@@ -12,6 +12,7 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Improvements
 
+- Normalize image-based `.pptx` inputs with lightweight OOXML/zip extraction instead of requiring LibreOffice for decks that contain one full-slide image per slide.
 - Document the end-to-end page reconstruction loop, including page classification, source-geometry preservation, chroma-key selection, contact-sheet inspection, and source/preview QA.
 
 ### Fixes
@@ -25,6 +26,6 @@ Release notes are generated from this file. Keep changelog entries in English.
 - Add repository README files, contribution guidance, changelog, license, PR template, and lightweight GitHub checks.
 - Add README badges for language switching, GitHub stars, and GitHub forks.
 - Document mandatory one-subagent-per-page dispatch for multi-image, PDF, and PPT/PPTX conversions, including the required blocker behavior when subagents are unavailable.
-- Clarify that dashboard and dense infographic pages require an explicit `$imagegen` gate decision, and that style-bearing icons or pictograms must use `$imagegen` assets.
-- Document that preview-visible crude or placeholder-like icons are blockers that require targeted `$imagegen` asset repair before reporting completion.
-- Require page manifests to declare `completion_status` and block assembly when required `$imagegen` clean visual layers or assets are unavailable.
+- Clarify that dashboard and dense infographic pages require an explicit `image_gen` gate decision, and that style-bearing icons or pictograms must use generated assets.
+- Document that preview-visible crude or placeholder-like icons are blockers that require targeted `image_gen` asset repair before reporting completion.
+- Require page manifests to declare `completion_status` and block assembly when the built-in `image_gen` tool cannot produce required clean visual layers or assets.

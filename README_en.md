@@ -58,14 +58,15 @@ python3 skills/image-to-editable-ppt/scripts/image_to_editable_ppt_runtime.py bo
 python3 skills/image-to-editable-ppt/scripts/image_to_editable_ppt_runtime.py doctor
 ```
 
-The runtime is created at `skills/image-to-editable-ppt/.venv`. PPT/PPTX input also requires LibreOffice/`soffice`.
+The runtime is created at `skills/image-to-editable-ppt/.venv`. Image-based `.pptx` input uses lightweight OOXML/zip parsing to extract one full-slide image per slide, so it does not require LibreOffice.
 
 Dependency split:
 
 - Python packages are installed into the skill-local `.venv` for portability and isolation.
 - PDF rendering uses PyMuPDF.
 - Image processing uses Pillow.
-- PPT/PPTX rendering requires system LibreOffice/`soffice`; it is not installed through pip.
+- Image-based `.pptx` input uses standard-library slide relationship parsing and requires exactly one full-slide embedded picture per slide.
+- Legacy `.ppt` files and native/complex `.pptx` files are outside the lightweight path; export them to PDF or per-slide images first.
 
 ## Usage
 
@@ -90,7 +91,7 @@ The normal workflow is:
 
 These scripts live in `skills/image-to-editable-ppt/scripts/`:
 
-- `image_to_editable_ppt_runtime.py`: Create the local `.venv`, install dependencies, and check ImageMagick and LibreOffice.
+- `image_to_editable_ppt_runtime.py`: Create the local `.venv`, install dependencies, and check Python packages plus optional tools.
 - `prepare_inputs.py`: Create a job folder, normalize images/PDF/PPT/PPTX into `pages/page_NNN/source.png`, and write `deck_manifest.json`.
 - `build_pptx_from_manifest.py`: Assemble `.pptx` output from either a single-page `manifest.json` or a multi-page `deck_manifest.json`.
 - `validate_pptx.py`: Validate PPTX package structure, slide count, manifests, asset provenance, text coverage, and speaker-note hashes.
@@ -144,7 +145,7 @@ output/image-to-editable-ppt/{job-id}/
 - This skill reconstructs input pages; it is not a from-scratch deck content generator.
 - Complex photos, illustrations, textures, and hand-drawn decorations are usually movable image assets, not internally editable PowerPoint objects.
 - Tables, charts, and diagrams should only be rebuilt as native objects when confidence is high enough; otherwise keep them as assets and document the limit.
-- PPT/PPTX page rendering requires LibreOffice/`soffice`; missing renderer support is a hard blocker.
+- Image-based `.pptx` input supports only one full-slide embedded picture per slide; export legacy `.ppt` or native/complex `.pptx` files to PDF or per-slide images first.
 - Visual similarity is not enough. Acceptance should check package structure, editable text coverage, asset provenance, preview, and diff.
 
 ## License
