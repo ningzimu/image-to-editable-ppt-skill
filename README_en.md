@@ -11,6 +11,23 @@ It is useful when screenshot-like or image-based slides need to become easier to
 > [!TIP]
 > This skill does not create new decks from articles, reports, outlines, or ideas. If your goal is to generate a PPT, use [codex-ppt-skill](https://github.com/ningzimu/codex-ppt-skill).
 
+## Conversion Examples
+
+<table>
+  <tr>
+    <th>Original</th>
+    <th>Editable Result</th>
+  </tr>
+  <tr>
+    <td><img src="assets/showcase-origin-market-snapshot.png" alt="Market snapshot original" width="420"></td>
+    <td><img src="assets/showcase-editable-ppt-result-market-snapshot.png" alt="Market snapshot editable result" width="420"></td>
+  </tr>
+  <tr>
+    <td><img src="assets/showcase-origin-status-report.png" alt="Status report original" width="420"></td>
+    <td><img src="assets/showcase-editable-ppt-result-status-report.png" alt="Status report editable result" width="420"></td>
+  </tr>
+</table>
+
 ## Highlights
 
 - Broad input coverage for many slide-reconstruction scenarios: one image, multiple images, multi-page PDFs, and image-based `.pptx` files into editable `.pptx`.

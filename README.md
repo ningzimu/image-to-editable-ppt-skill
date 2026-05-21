@@ -11,6 +11,23 @@
 > [!TIP]
 > 本 skill 不负责从文章、报告、大纲或想法直接生成全新 PPT。如果你要做的是“生成一份 PPT”，可以使用 [codex-ppt-skill](https://github.com/ningzimu/codex-ppt-skill)。
 
+## 转换效果示例
+
+<table>
+  <tr>
+    <th>原图</th>
+    <th>转换后可编辑效果</th>
+  </tr>
+  <tr>
+    <td><img src="assets/showcase-origin-market-snapshot.png" alt="市场概览原图" width="420"></td>
+    <td><img src="assets/showcase-editable-ppt-result-market-snapshot.png" alt="市场概览转换后可编辑效果" width="420"></td>
+  </tr>
+  <tr>
+    <td><img src="assets/showcase-origin-status-report.png" alt="项目进展汇报原图" width="420"></td>
+    <td><img src="assets/showcase-editable-ppt-result-status-report.png" alt="项目进展汇报转换后可编辑效果" width="420"></td>
+  </tr>
+</table>
+
 ## 特点
 
 - 适用场景广泛，支持多种输入：单张图片、多张图片、多页 PDF、图片版 `.pptx` 到可编辑 `.pptx`。
