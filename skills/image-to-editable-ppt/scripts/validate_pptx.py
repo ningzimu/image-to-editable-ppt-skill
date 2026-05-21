@@ -462,14 +462,14 @@ def main():
             continue
         report["asset_provenance_checked"] += 1
         source_type = entry.get("source_type")
-        qa_note = entry.get("qa_note")
+        provenance_note = entry.get("provenance_note") or entry.get("qa_note")
         if source_type not in ALLOWED_SOURCE_TYPES:
             report["invalid_asset_provenance"].append(
                 {"path": key, "field": "source_type", "value": source_type}
             )
-        if not qa_note:
+        if not provenance_note:
             report["invalid_asset_provenance"].append(
-                {"path": key, "field": "qa_note", "value": qa_note}
+                {"path": key, "field": "provenance_note", "value": provenance_note}
             )
         if source_type == "user-approved-rasterization" and not entry.get("approval_note"):
             report["invalid_asset_provenance"].append(

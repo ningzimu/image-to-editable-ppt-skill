@@ -14,7 +14,7 @@ def parse_box(value):
     return left, top, right, bottom
 
 
-def append_provenance(manifest_path, asset_path, source_path, source_type, qa_note, approval_note):
+def append_provenance(manifest_path, asset_path, source_path, source_type, provenance_note, approval_note):
     manifest_file = Path(manifest_path)
     if manifest_file.exists():
         manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
@@ -27,7 +27,7 @@ def append_provenance(manifest_path, asset_path, source_path, source_type, qa_no
         "path": asset_key,
         "source": str(source_path),
         "source_type": source_type,
-        "qa_note": qa_note,
+        "provenance_note": provenance_note,
     }
     if approval_note:
         entry["approval_note"] = approval_note
@@ -46,7 +46,8 @@ def main():
         default="imagegen",
         choices=["imagegen", "user-provided", "user-approved-rasterization"],
     )
-    parser.add_argument("--qa-note", default="Cropped asset visually inspected.")
+    parser.add_argument("--provenance-note", default="Cropped asset visually inspected.")
+    parser.add_argument("--qa-note", help=argparse.SUPPRESS)
     parser.add_argument("--approval-note")
     args = parser.parse_args()
 
@@ -79,7 +80,7 @@ def main():
             asset_path,
             source_path,
             args.source_type,
-            args.qa_note,
+            args.provenance_note or args.qa_note,
             args.approval_note,
         )
 

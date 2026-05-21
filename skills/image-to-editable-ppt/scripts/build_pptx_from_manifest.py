@@ -463,6 +463,16 @@ def page_entries_from_deck_manifest(deck_manifest_path):
     return entries, notes_entries
 
 
+def output_path_from_deck_manifest(deck_manifest_path):
+    deck_path = Path(deck_manifest_path).resolve()
+    deck = json.loads(deck_path.read_text(encoding="utf-8"))
+    root = Path(deck.get("job_dir", deck_path.parent)).resolve()
+    output = Path(deck.get("output", "deck_edited.pptx"))
+    if not output.is_absolute():
+        output = root / output
+    return output
+
+
 def render_preview(manifest, manifest_path, out_path):
     from PIL import Image, ImageColor, ImageDraw, ImageFont
 
@@ -608,16 +618,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("manifest", nargs="?")
     parser.add_argument("--deck-manifest")
-    parser.add_argument("--out", required=True)
+    parser.add_argument("--out")
     parser.add_argument("--preview")
     args = parser.parse_args()
     if args.deck_manifest:
         entries, notes_entries = page_entries_from_deck_manifest(args.deck_manifest)
-        write_deck(entries, args.out, notes_entries)
-        print(f"Wrote {args.out}")
+        out = Path(args.out) if args.out else output_path_from_deck_manifest(args.deck_manifest)
+        write_deck(entries, out, notes_entries)
+        print(f"Wrote {out}")
         return
     if not args.manifest:
         parser.error("manifest is required unless --deck-manifest is used")
+    if not args.out:
+        parser.error("--out is required unless --deck-manifest provides an output")
     manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
     write_pptx(manifest, args.out, args.manifest)
     if args.preview:

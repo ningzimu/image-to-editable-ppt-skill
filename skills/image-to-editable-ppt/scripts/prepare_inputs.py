@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import hashlib
+import io
 import json
 import posixpath
 import shutil
@@ -133,6 +134,88 @@ def collect_notes_from_pptx(pptx_path, notes_dir=None):
     return notes
 
 
+def slide_parts_from_pptx(zip_file):
+    names = set(zip_file.namelist())
+    if "ppt/presentation.xml" not in names or "ppt/_rels/presentation.xml.rels" not in names:
+        raise ValueError("PPTX is missing presentation relationships.")
+    pres = ET.fromstring(zip_file.read("ppt/presentation.xml"))
+    pres_rels = ET.fromstring(zip_file.read("ppt/_rels/presentation.xml.rels"))
+    rels_by_id = {rel.attrib.get("Id"): rel.attrib.get("Target") for rel in pres_rels.findall("rel:Relationship", NS)}
+    slide_parts = []
+    for sld_id in pres.findall(".//p:sldId", NS):
+        rel_id = sld_id.attrib.get(f"{{{NS['r']}}}id")
+        target = rels_by_id.get(rel_id)
+        if target:
+            slide_parts.append(posixpath.normpath(posixpath.join("ppt", target)))
+    if not slide_parts:
+        raise ValueError("PPTX has no slides.")
+    return slide_parts
+
+
+def slide_size_from_pptx(zip_file):
+    pres = ET.fromstring(zip_file.read("ppt/presentation.xml"))
+    size = pres.find(".//p:sldSz", NS)
+    if size is None:
+        raise ValueError("PPTX is missing slide size.")
+    return int(size.attrib["cx"]), int(size.attrib["cy"])
+
+
+def slide_relationships(zip_file, slide_part):
+    rels_name = f"{posixpath.dirname(slide_part)}/_rels/{posixpath.basename(slide_part)}.rels"
+    if rels_name not in zip_file.namelist():
+        return {}
+    root = ET.fromstring(zip_file.read(rels_name))
+    return {rel.attrib.get("Id"): rel for rel in root.findall("rel:Relationship", NS)}
+
+
+def full_slide_picture_target(zip_file, slide_part, slide_cx, slide_cy):
+    slide_root = ET.fromstring(zip_file.read(slide_part))
+    if collect_paragraph_text(slide_root):
+        raise ValueError(f"{slide_part} contains native text and is not an image-based slide.")
+    pictures = slide_root.findall(".//p:pic", NS)
+    if len(pictures) != 1:
+        raise ValueError(f"{slide_part} must contain exactly one full-slide picture; found {len(pictures)}.")
+    picture = pictures[0]
+    blip = picture.find(".//a:blip", NS)
+    if blip is None:
+        raise ValueError(f"{slide_part} picture has no embedded image.")
+    rel_id = blip.attrib.get(f"{{{NS['r']}}}embed")
+    relationships = slide_relationships(zip_file, slide_part)
+    rel = relationships.get(rel_id)
+    if rel is None or not rel.attrib.get("Type", "").endswith("/image"):
+        raise ValueError(f"{slide_part} picture relationship is not an embedded image.")
+
+    off = picture.find(".//a:xfrm/a:off", NS)
+    ext = picture.find(".//a:xfrm/a:ext", NS)
+    if off is None or ext is None:
+        raise ValueError(f"{slide_part} picture has no placement transform.")
+    x, y = int(off.attrib.get("x", 0)), int(off.attrib.get("y", 0))
+    cx, cy = int(ext.attrib.get("cx", 0)), int(ext.attrib.get("cy", 0))
+    tolerance = 2
+    if abs(x) > tolerance or abs(y) > tolerance or abs(cx - slide_cx) > tolerance or abs(cy - slide_cy) > tolerance:
+        raise ValueError(f"{slide_part} picture is not full-slide.")
+
+    return resolve_target(f"{posixpath.dirname(slide_part)}/_rels/{posixpath.basename(slide_part)}.rels", rel.attrib["Target"])
+
+
+def extract_image_based_pptx_pages(pptx_path, pages_dir):
+    outputs = []
+    with zipfile.ZipFile(pptx_path) as z:
+        names = set(z.namelist())
+        slide_cx, slide_cy = slide_size_from_pptx(z)
+        for index, slide_part in enumerate(slide_parts_from_pptx(z), start=1):
+            image_part = full_slide_picture_target(z, slide_part, slide_cx, slide_cy)
+            if image_part not in names:
+                raise ValueError(f"{slide_part} references missing image part: {image_part}")
+            page_dir = pages_dir / f"page_{index:03d}"
+            page_dir.mkdir(parents=True, exist_ok=True)
+            out = page_dir / "source.png"
+            with Image.open(io.BytesIO(z.read(image_part))) as image:
+                image.convert("RGB").save(out)
+            outputs.append(out)
+    return outputs
+
+
 def find_soffice():
     return shutil.which("soffice") or shutil.which("libreoffice")
 
@@ -140,7 +223,7 @@ def find_soffice():
 def convert_office_to_pdf(input_path, out_dir):
     soffice = find_soffice()
     if not soffice:
-        raise RuntimeError("LibreOffice/soffice is required for PPT/PPTX input but was not found.")
+        raise RuntimeError("No local Office converter is available for this input.")
     out_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [soffice, "--headless", "--convert-to", "pdf", "--outdir", str(out_dir), str(input_path)],
@@ -151,7 +234,7 @@ def convert_office_to_pdf(input_path, out_dir):
     )
     pdfs = sorted(out_dir.glob("*.pdf"))
     if not pdfs:
-        raise RuntimeError(f"LibreOffice did not produce a PDF in {out_dir}")
+        raise RuntimeError(f"Office conversion did not produce a PDF in {out_dir}")
     return pdfs[0]
 
 
@@ -160,7 +243,7 @@ def convert_ppt_to_pptx(input_path, out_dir):
         return input_path
     soffice = find_soffice()
     if not soffice:
-        raise RuntimeError("LibreOffice/soffice is required to convert .ppt to .pptx.")
+        raise RuntimeError("No local Office converter is available to normalize .ppt input.")
     out_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [soffice, "--headless", "--convert-to", "pptx", "--outdir", str(out_dir), str(input_path)],
@@ -171,7 +254,7 @@ def convert_ppt_to_pptx(input_path, out_dir):
     )
     pptxs = sorted(out_dir.glob("*.pptx"))
     if not pptxs:
-        raise RuntimeError(f"LibreOffice did not produce a PPTX in {out_dir}")
+        raise RuntimeError(f"Office conversion did not produce a PPTX in {out_dir}")
     return pptxs[0]
 
 
@@ -185,7 +268,6 @@ def page_record(job_dir, page_index, source, input_path, source_page):
         "page_dir": rel_page_dir,
         "manifest": f"{rel_page_dir}/manifest.json",
         "validation": f"{rel_page_dir}/validation.json",
-        "qa_notes": f"{rel_page_dir}/qa_notes.md",
         "input": Path(input_path).name,
         "agent_status": "pending",
     }
@@ -195,6 +277,11 @@ def default_job_dir(out_root, input_paths):
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     stem = Path(input_paths[0]).stem if input_paths else "job"
     return Path(out_root) / f"{stamp}-{stem}"
+
+
+def default_output_name(input_paths):
+    stem = Path(input_paths[0]).stem if input_paths else "deck"
+    return f"{stem}_edited.pptx"
 
 
 def main():
@@ -223,15 +310,27 @@ def main():
         sources = render_pdf_pages(copied[0], pages_dir, args.dpi)
         pages = [page_record(job_dir, i, source, copied[0], i) for i, source in enumerate(sources, start=1)]
     elif len(copied) == 1 and copied[0].suffix.lower() in PPT_EXTS:
-        input_type = "ppt"
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_dir = Path(tmp)
-            source_pptx = convert_ppt_to_pptx(copied[0], tmp_dir)
-            notes = collect_notes_from_pptx(source_pptx, input_dir / "notes")
-            if source_pptx != copied[0]:
-                shutil.copy2(source_pptx, input_dir / source_pptx.name)
-            rendered_pdf = convert_office_to_pdf(copied[0], tmp_dir)
-            sources = render_pdf_pages(rendered_pdf, pages_dir, args.dpi)
+        if copied[0].suffix.lower() == ".pptx":
+            input_type = "pptx"
+            notes = collect_notes_from_pptx(copied[0], input_dir / "notes")
+            try:
+                sources = extract_image_based_pptx_pages(copied[0], pages_dir)
+            except ValueError as exc:
+                raise SystemExit(
+                    "Unsupported PPTX for the lightweight path: "
+                    f"{exc} This skill accepts image-based PPTX files through lightweight extraction. "
+                    "Convert native/complex PPTX slides to PDF or page images first."
+                ) from exc
+        else:
+            input_type = "ppt"
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_dir = Path(tmp)
+                source_pptx = convert_ppt_to_pptx(copied[0], tmp_dir)
+                notes = collect_notes_from_pptx(source_pptx, input_dir / "notes")
+                if source_pptx != copied[0]:
+                    shutil.copy2(source_pptx, input_dir / source_pptx.name)
+                rendered_pdf = convert_office_to_pdf(copied[0], tmp_dir)
+                sources = render_pdf_pages(rendered_pdf, pages_dir, args.dpi)
         pages = [page_record(job_dir, i, source, copied[0], i) for i, source in enumerate(sources, start=1)]
     elif suffixes <= IMG_EXTS:
         input_type = "image" if len(copied) == 1 else "images"
@@ -257,7 +356,7 @@ def main():
         "inputs": [path.relative_to(job_dir).as_posix() for path in copied],
         "pages": pages,
         "notes_manifest": notes_manifest_path.relative_to(job_dir).as_posix(),
-        "output": "rebuilt.pptx",
+        "output": default_output_name(copied),
         "validation": "validation.json",
     }
     deck_manifest_path = job_dir / "deck_manifest.json"

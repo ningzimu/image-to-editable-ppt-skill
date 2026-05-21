@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -100,8 +101,6 @@ def process_asset_sheet(args, page_dir):
         args.split_merge_gap,
         "--merge-union-growth",
         args.split_merge_union_growth,
-        "--contact-sheet",
-        resolve_under_page(page_dir, args.contact_sheet),
         "--manifest",
         resolve_under_page(page_dir, args.split_manifest),
     ]
@@ -119,20 +118,18 @@ def load_manifest(manifest_path, preview_scale):
     return manifest
 
 
-def build_and_validate(args, page_dir):
+def build_and_validate(args, page_dir, preview_path):
     manifest_path = resolve_under_page(page_dir, args.manifest)
     if not manifest_path.exists():
         raise SystemExit(f"Manifest does not exist: {manifest_path}")
 
     pptx_path = resolve_under_page(page_dir, args.out)
-    preview_path = resolve_under_page(page_dir, args.preview)
     validation_path = resolve_under_page(page_dir, args.validation)
 
     manifest = load_manifest(manifest_path, args.preview_scale)
     ppt_builder.write_pptx(manifest, pptx_path, manifest_path)
     ppt_builder.render_preview(manifest, manifest_path, preview_path)
     print(f"Wrote {pptx_path}")
-    print(f"Wrote {preview_path}")
 
     run(
         [
@@ -169,39 +166,11 @@ def write_pair(source_path, preview_path, out_path):
     canvas.paste(source, (0, label_h))
     canvas.paste(rebuilt, (width + gap, label_h))
     draw = ImageDraw.Draw(canvas)
-    draw.text((10, 9), "source", fill="black")
-    draw.text((width + gap + 10, 9), "rebuilt preview", fill="black")
+    draw.text((10, 9), "origin", fill="black")
+    draw.text((width + gap + 10, 9), "preview", fill="black")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     canvas.save(out_path)
     print(f"Wrote {out_path}")
-
-
-def write_metrics(source_path, preview_path, report_path, diff_path=None):
-    from PIL import Image, ImageChops, ImageStat
-
-    source = Image.open(source_path).convert("RGB")
-    rebuilt = Image.open(preview_path).convert("RGB")
-    source = fit_image(source, rebuilt.size)
-    diff = ImageChops.difference(source, rebuilt)
-    stat = ImageStat.Stat(diff)
-    mae = sum(stat.mean) / len(stat.mean)
-    rms = (sum(value * value for value in stat.rms) / len(stat.rms)) ** 0.5
-    report = {
-        "expected": str(source_path.resolve()),
-        "actual": str(preview_path.resolve()),
-        "size": list(rebuilt.size),
-        "mae": mae,
-        "rms": rms,
-        "pixel_diff": str(diff_path.resolve()) if diff_path else None,
-    }
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"Wrote {report_path}")
-    print(f"mae={mae:.4f} rms={rms:.4f}")
-    if diff_path:
-        diff_path.parent.mkdir(parents=True, exist_ok=True)
-        diff.save(diff_path)
-        print(f"Wrote {diff_path}")
 
 
 def write_qa(args, page_dir, preview_path):
@@ -209,24 +178,18 @@ def write_qa(args, page_dir, preview_path):
     if not source_path.exists():
         print(f"Skipping QA pair because source is missing: {source_path}", file=sys.stderr)
         return
-    pair_path = resolve_under_page(page_dir, args.qa_pair)
+    pair_path = resolve_under_page(page_dir, args.contact_sheet)
     write_pair(source_path, preview_path, pair_path)
-
-    if args.skip_metrics:
-        return
-    diff_path = resolve_under_page(page_dir, args.pixel_diff_out) if args.pixel_diff else None
-    write_metrics(source_path, preview_path, resolve_under_page(page_dir, args.metrics), diff_path)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run the repeatable local page experiment loop: optional chroma/split, build, validate, and low-resolution visual QA."
+        description="Run the repeatable local page experiment loop: optional chroma/split, build, validate, and origin/preview contact-sheet QA."
     )
     parser.add_argument("page_dir", help="Page folder containing source.png and manifest.json")
     parser.add_argument("--manifest", default="manifest.json")
     parser.add_argument("--source", default="source.png")
     parser.add_argument("--out", default="page.pptx")
-    parser.add_argument("--preview", default="preview.png")
     parser.add_argument("--validation", default="validation.json")
     parser.add_argument("--preview-scale", type=int, default=72, help="Low-resolution preview scale for tuning; use 144+ for final checks")
 
@@ -246,14 +209,8 @@ def main():
     parser.add_argument("--split-merge-gap", default="18")
     parser.add_argument("--split-merge-union-growth", default="2.4")
     parser.add_argument("--square-assets", action="store_true")
-    parser.add_argument("--contact-sheet", default="split_assets_contact.png")
+    parser.add_argument("--contact-sheet", default="split_assets_contact.png", help="Origin/preview QA image written by this script")
     parser.add_argument("--split-manifest", default="split_assets.json")
-
-    parser.add_argument("--qa-pair", default="original_vs_rebuilt.png")
-    parser.add_argument("--metrics", default="diff.json", help="Numeric diff metrics report; no pixel diff image is written by default")
-    parser.add_argument("--skip-metrics", action="store_true")
-    parser.add_argument("--pixel-diff", action="store_true", help="Also write a pixel-level diff image for debugging")
-    parser.add_argument("--pixel-diff-out", default="diff.png")
     args = parser.parse_args()
 
     page_dir = Path(args.page_dir).resolve()
@@ -261,8 +218,10 @@ def main():
         raise SystemExit(f"Page folder does not exist: {page_dir}")
 
     process_asset_sheet(args, page_dir)
-    preview_path = build_and_validate(args, page_dir)
-    write_qa(args, page_dir, preview_path)
+    with tempfile.TemporaryDirectory() as tmp:
+        preview_path = Path(tmp) / "rendered-page.png"
+        build_and_validate(args, page_dir, preview_path)
+        write_qa(args, page_dir, preview_path)
 
 
 if __name__ == "__main__":
