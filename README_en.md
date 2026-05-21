@@ -83,9 +83,9 @@ The normal workflow is:
 
 1. Create an isolated job folder and normalize inputs into `pages/page_NNN/source.png`.
 2. Dispatch multi-page jobs to per-page subagents.
-3. Build one page manifest per page with editable text, simple shapes, and positioned image assets.
-4. Assemble the final `.pptx`, copy PPT/PPTX notes when present, and run deck validation.
-5. Repair the smallest failing scope if validation or visual QA finds issues.
+3. Build one page manifest per page with editable text, simple shapes, positioned image assets, `preview.png`, and `split_assets_contact.png`.
+4. Combine page previews into `deck_preview_contact.png` for whole-deck review, repair weak pages, then assemble the final `.pptx`.
+5. Copy PPT/PPTX notes when present, run deck validation, and repair the smallest failing scope if validation or visual QA finds issues.
 
 ## Script Entrypoints
 
@@ -95,7 +95,9 @@ These scripts live in `skills/image-to-editable-ppt/scripts/`:
 - `prepare_inputs.py`: Create a job folder, normalize images/PDF/PPT/PPTX into `pages/page_NNN/source.png`, and write `deck_manifest.json`.
 - `build_pptx_from_manifest.py`: Assemble `.pptx` output from either a single-page `manifest.json` or a multi-page `deck_manifest.json`.
 - `validate_pptx.py`: Validate PPTX package structure, slide count, manifests, asset provenance, text coverage, and speaker-note hashes.
-- `render_diff.py`, `split_alpha_components.py`, and `crop_image_asset.py`: Support preview, diff, and asset-splitting workflows.
+- `run_page_experiment.py`: Build a single-page PPTX, write `preview.png` and `split_assets_contact.png`, and run page validation.
+- `make_deck_preview_contact.py`: Combine per-page `preview.png` files into `deck_preview_contact.png` for whole-deck review before final assembly.
+- `split_alpha_components.py` and `crop_image_asset.py`: Split and crop generated transparent asset sheets while recording provenance.
 
 Example:
 
@@ -118,7 +120,8 @@ Use one isolated output directory per conversion. All intermediate files and fin
 output/image-to-editable-ppt/{job-id}/
 ├── input/
 ├── deck_manifest.json
-├── rebuilt.pptx
+├── deck_preview_contact.png
+├── {origin_name}_edited.pptx
 ├── validation.json
 ├── notes_manifest.json
 └── pages/
@@ -127,13 +130,10 @@ output/image-to-editable-ppt/{job-id}/
     │   ├── run_request.json
     │   ├── imagegen-jobs.json
     │   ├── assets/
+    │   ├── preview.png
     │   ├── split_assets_contact.png
     │   ├── manifest.json
-    │   ├── preview.png
-    │   ├── diff.png
-    │   ├── diff.json
-    │   ├── validation.json
-    │   └── qa_notes.md
+    │   └── validation.json
     └── page_002/
         └── ...
 ```

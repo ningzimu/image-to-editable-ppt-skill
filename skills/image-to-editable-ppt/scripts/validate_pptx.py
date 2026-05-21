@@ -61,6 +61,8 @@ def page_contract_violations(manifest):
         violations.append({"field": "completion_status", "reason": "unknown status", "value": completion_status})
     if completion_status == "blocked":
         violations.append({"field": "completion_status", "reason": "blocked page is not ready for deck assembly"})
+        if not str(manifest.get("blocker_reason", "")).strip():
+            violations.append({"field": "blocker_reason", "reason": "blocked page must include a specific blocker reason"})
 
     for image in images:
         path = Path(image.get("path", "")).as_posix()
@@ -196,6 +198,9 @@ def validate_deck(args):
         "slides": 0,
         "page_manifests_missing": [],
         "page_validation_missing": [],
+        "page_previews_missing": [],
+        "page_contact_sheets_missing": [],
+        "deck_preview_missing": [],
         "failed_page_validations": [],
         "page_contract_violations": [],
         "notes_expected": len(notes_manifest.get("notes", [])),
@@ -206,13 +211,26 @@ def validate_deck(args):
         "passed": False,
     }
 
+    deck_preview = root / "deck_preview_contact.png"
+    if not deck_preview.exists():
+        report["deck_preview_missing"].append(str(deck_preview))
+
     for page in deck.get("pages", []):
+        page_dir = Path(page.get("page_dir", ""))
         manifest_path = Path(page.get("manifest", ""))
         validation_path = Path(page.get("validation", ""))
+        if not page_dir.is_absolute():
+            page_dir = root / page_dir
         if not manifest_path.is_absolute():
             manifest_path = root / manifest_path
         if not validation_path.is_absolute():
             validation_path = root / validation_path
+        preview_path = page_dir / "preview.png"
+        contact_path = page_dir / "split_assets_contact.png"
+        if not preview_path.exists():
+            report["page_previews_missing"].append(str(preview_path))
+        if not contact_path.exists():
+            report["page_contact_sheets_missing"].append(str(contact_path))
         if not manifest_path.exists():
             report["page_manifests_missing"].append(str(manifest_path))
         else:
@@ -262,6 +280,9 @@ def validate_deck(args):
         report["slides"] == expected_pages
         and not report["page_manifests_missing"]
         and not report["page_validation_missing"]
+        and not report["page_previews_missing"]
+        and not report["page_contact_sheets_missing"]
+        and not report["deck_preview_missing"]
         and not report["failed_page_validations"]
         and not report["page_contract_violations"]
         and not report["missing_parts"]
@@ -462,7 +483,7 @@ def main():
             continue
         report["asset_provenance_checked"] += 1
         source_type = entry.get("source_type")
-        provenance_note = entry.get("provenance_note") or entry.get("qa_note")
+        provenance_note = entry.get("provenance_note")
         if source_type not in ALLOWED_SOURCE_TYPES:
             report["invalid_asset_provenance"].append(
                 {"path": key, "field": "source_type", "value": source_type}

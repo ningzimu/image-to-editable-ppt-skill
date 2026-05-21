@@ -14,6 +14,8 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 - Normalize image-based `.pptx` inputs with lightweight OOXML/zip extraction instead of requiring LibreOffice for decks that contain one full-slide image per slide.
 - Document the end-to-end page reconstruction loop, including page classification, source-geometry preservation, chroma-key selection, contact-sheet inspection, and source/preview QA.
+- Add page-level `preview.png` output and a deck-level preview contact sheet gate before final PPTX assembly.
+- Enforce page readiness, page preview artifacts, and the deck-level preview contact sheet in deck assembly and validation scripts.
 
 ### Fixes
 

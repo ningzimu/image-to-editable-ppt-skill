@@ -5,7 +5,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -191,6 +190,7 @@ def main():
     parser.add_argument("--source", default="source.png")
     parser.add_argument("--out", default="page.pptx")
     parser.add_argument("--validation", default="validation.json")
+    parser.add_argument("--preview", default="preview.png", help="Rendered page preview written for parent whole-deck review")
     parser.add_argument("--preview-scale", type=int, default=72, help="Low-resolution preview scale for tuning; use 144+ for final checks")
 
     parser.add_argument("--asset-sheet-source", help="Generated chroma-key asset sheet to copy into the page folder")
@@ -218,10 +218,9 @@ def main():
         raise SystemExit(f"Page folder does not exist: {page_dir}")
 
     process_asset_sheet(args, page_dir)
-    with tempfile.TemporaryDirectory() as tmp:
-        preview_path = Path(tmp) / "rendered-page.png"
-        build_and_validate(args, page_dir, preview_path)
-        write_qa(args, page_dir, preview_path)
+    preview_path = resolve_under_page(page_dir, args.preview)
+    build_and_validate(args, page_dir, preview_path)
+    write_qa(args, page_dir, preview_path)
 
 
 if __name__ == "__main__":

@@ -47,7 +47,6 @@ def main():
         choices=["imagegen", "user-provided", "user-approved-rasterization"],
     )
     parser.add_argument("--provenance-note", default="Cropped asset visually inspected.")
-    parser.add_argument("--qa-note", help=argparse.SUPPRESS)
     parser.add_argument("--approval-note")
     args = parser.parse_args()
 
@@ -80,7 +79,7 @@ def main():
             asset_path,
             source_path,
             args.source_type,
-            args.provenance_note or args.qa_note,
+            args.provenance_note,
             args.approval_note,
         )
 

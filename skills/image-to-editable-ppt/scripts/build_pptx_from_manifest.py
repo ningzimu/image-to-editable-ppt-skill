@@ -434,7 +434,67 @@ def write_deck(page_entries, out_path, notes_entries):
                 z.writestr(f"ppt/notesSlides/_rels/notesSlide{notes_index}.xml.rels", notes_rels_xml(slide_index))
 
 
+def resolve_job_path(root, value):
+    path = Path(value)
+    if path.is_absolute():
+        return path
+    return root / path
+
+
+def deck_preflight(deck_manifest_path):
+    deck_path = Path(deck_manifest_path).resolve()
+    deck = json.loads(deck_path.read_text(encoding="utf-8"))
+    root = Path(deck.get("job_dir", deck_path.parent)).resolve()
+    pages = deck.get("pages", [])
+    expected_pages = int(deck.get("page_count", len(pages)))
+    failures = []
+
+    if len(pages) != expected_pages:
+        failures.append(f"deck_manifest page_count is {expected_pages}, but pages has {len(pages)} entries")
+
+    deck_preview = root / "deck_preview_contact.png"
+    if not deck_preview.exists():
+        failures.append(f"missing whole-deck preview: {deck_preview}")
+
+    for page in pages:
+        page_index = int(page.get("page_index", 0))
+        page_label = f"page_{page_index:03d}" if page_index else "page_unknown"
+        page_dir = resolve_job_path(root, page.get("page_dir", ""))
+        manifest_path = resolve_job_path(root, page.get("manifest", ""))
+        validation_path = resolve_job_path(root, page.get("validation", ""))
+        preview_path = page_dir / "preview.png"
+        contact_path = page_dir / "split_assets_contact.png"
+
+        if not manifest_path.exists():
+            failures.append(f"{page_label}: missing manifest {manifest_path}")
+            continue
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        status = manifest.get("completion_status")
+        if status != "ready_for_assembly":
+            failures.append(f"{page_label}: completion_status is {status!r}, expected 'ready_for_assembly'")
+
+        if not validation_path.exists():
+            failures.append(f"{page_label}: missing validation {validation_path}")
+        else:
+            try:
+                validation = json.loads(validation_path.read_text(encoding="utf-8"))
+                if validation.get("passed") is not True:
+                    failures.append(f"{page_label}: validation did not pass {validation_path}")
+            except Exception as exc:
+                failures.append(f"{page_label}: cannot read validation {validation_path}: {exc}")
+
+        if not preview_path.exists():
+            failures.append(f"{page_label}: missing preview {preview_path}")
+        if not contact_path.exists():
+            failures.append(f"{page_label}: missing origin/preview contact sheet {contact_path}")
+
+    if failures:
+        message = "Deck assembly preflight failed:\n" + "\n".join(f"- {failure}" for failure in failures)
+        raise SystemExit(message)
+
+
 def page_entries_from_deck_manifest(deck_manifest_path):
+    deck_preflight(deck_manifest_path)
     deck_path = Path(deck_manifest_path).resolve()
     deck = json.loads(deck_path.read_text(encoding="utf-8"))
     root = Path(deck.get("job_dir", deck_path.parent)).resolve()
