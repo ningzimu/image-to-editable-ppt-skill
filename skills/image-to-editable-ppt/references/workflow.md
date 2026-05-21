@@ -68,6 +68,8 @@ output/image-to-editable-ppt/<job-name>/      # Fresh per-run job folder; keep a
     │   ├── imagegen_asset_sheet_chroma.png  # Optional generated asset sheet on a solid chroma-key background.
     │   ├── imagegen_asset_sheet_alpha.png   # Optional transparent asset sheet after chroma-key removal.
     │   ├── assets/                          # Final per-object PNG assets referenced by manifest.json.
+    │   ├── page.pptx                        # Page-level editable PPTX built from manifest.json.
+    │   ├── preview.png                      # Rendered reconstructed page preview for visual QA.
     │   ├── split_assets_contact.png         # Human QA image with origin and preview side by side.
     │   ├── split_assets.json                # Optional splitter output mapping asset filenames to crop boxes/components.
     │   ├── manifest.json                    # Page reconstruction manifest consumed by build_pptx_from_manifest.py.
@@ -93,11 +95,25 @@ Do not record a visual asset as final unless the underlying source exists and ha
 
 Compatibility names such as `imagegen-jobs.json`, `imagegen_required`, and `source_type: "imagegen"` refer to generated visual assets from the built-in `image_gen` tool. They do not require a separate image-generation skill to be loaded by a subagent.
 
-Every page manifest must include `completion_status`. Use `ready_for_assembly` only when the page passes validation and is acceptable for the final deck. Use `blocked` when a required clean visual layer or generated asset is unavailable because the built-in `image_gen` tool is unavailable or could not produce it. A blocked page is an audit artifact, not a deck input.
+Do not use page readiness status fields. Page manifests should not include `completion_status`, `ready_for_assembly`, `blocked`, or similar assembly gates. A page is assembly input when it has a buildable manifest/page-level PPTX output. Quality issues belong in QA notes, `validation.json`, `imagegen-jobs.json`, or `repair_request.json`, not in a status gate.
+
+Do not stop for an untested guess that generated images may not land in the page folder. When generated visual output is missing, the page agent must attempt the smallest viable artifact handoff and record the evidence: requested artifact, selected output filename, expected page-folder path, existence check result, and the first failed tool or command step. Broad statements such as "cannot reliably save image_gen output" are not actionable unless they include the concrete path and observed failure. If generated assets cannot be produced, create the best editable PPT reconstruction possible with native text and editable geometry, then record the fidelity limit.
+
+Use conventional generated-asset paths so parent repair agents can reason about failures consistently:
+
+- `assets/background_clean.png`: clean no-text background for photo or texture pages.
+- `clean_layout_base.png`: clean no-text layout base for dense infographic, dashboard, diagram, or hand-drawn pages.
+- `imagegen_asset_sheet_chroma.png`: selected sparse asset sheet on chroma-key background.
+- `imagegen_asset_sheet_alpha.png`: transparent asset sheet after chroma-key removal.
+- `assets/*.png`: final split objects referenced by `manifest.json`.
 
 ## Multi-Page Delegation And Assembly
 
-For multi-image, PDF, and PPT/PPTX inputs, the parent agent creates one page job per source page and dispatches one Codex subagent per page when subagents are available. Each subagent owns only its assigned `pages/page_NNN/` directory. The parent may provide source path, allowed write scope, requested outputs, and user constraints, but it must not pre-classify the page or decide whether `image_gen` is required. The subagent must return the page manifest, assets, `split_assets_contact.png`, and validation report.
+For multi-image, PDF, and PPT/PPTX inputs, the parent agent creates one page job per source page and dispatches one Codex subagent per page when runtime subagent tools are available. This is a runtime workflow, not a plugin-manifest registered agent contract: do not depend on a plugin `agents` field or named plugin subagent type. Use ordinary Codex worker subagents, such as `spawn_agent` with `agent_type: "worker"`, and put the full page assignment in the dispatch prompt.
+
+Each subagent owns only its assigned `pages/page_NNN/` directory. The parent may provide source path, allowed write scope, requested outputs, and user constraints, but it must not pre-classify the page or decide whether `image_gen` is required. The subagent must return the page manifest, assets, `preview.png`, `split_assets_contact.png`, and validation report.
+
+The page-worker prompt must be self-contained: include the page folder, source image path, write-scope boundary, required outputs, relevant user constraints, the exact built-in `image_gen` fallback gate from `SKILL.md`, and the rule that the worker must not edit other page folders, job-level manifests, input files, or final deck outputs.
 
 The parent agent alone owns:
 
@@ -135,12 +151,14 @@ Every page follows the same loop:
 3. Decide layer ownership:
    - Native PPT text boxes for readable text.
    - Native PPT shapes for true primitives: straight lines, rectangles, circles, chart bars, table borders, simple status pills, and axis/grid lines.
-   - Built-in `image_gen` assets for icons, pictograms, hand-drawn marks, tape, texture, shadows, illustrated decorations, and other style-bearing objects.
+   - Built-in `image_gen` assets for icons, logos, pictograms, hand-drawn marks, tape, texture, shadows, illustrated decorations, and other style-bearing objects.
    - Built-in `image_gen` clean no-text backgrounds for photo or hand-drawn pages where the background itself is not practical native geometry.
+   - For hand-drawn, manual, dense infographic, dashboard, and diagram pages, explicitly separate base/background structure from foreground semantic marks before generating assets. Base/background can keep paper texture, broad fills, empty panels, empty containers, table/grid lines, and container shadows. Foreground semantic marks include arrows, checkmarks, X marks, warning symbols, numbered badges, pins, tape, lightbulbs, document/gear/terminal/clipboard icons, refresh symbols, question bubbles, pictograms, stickers, and decorative underlines; list them as required visual objects unless the user explicitly accepts them as background-only decoration.
 4. Preserve source shape semantics. Rectangular panels, tables, chart frames, and report containers stay `rect`; use `roundRect` only for source objects that visibly have rounded corners.
 5. Build the manifest in source-image pixel coordinates. Set `source.width_px` and `source.height_px`, then place text, images, and shapes with `box_px: [x, y, width, height]`; use `points_px: [x1, y1, x2, y2]` only for straight line shapes. Keep explicit `z_index`: background/base `0`, structural shapes `10-20`, generated assets `30`, editable text `40+`.
 6. Give editable text boxes layout slack. Start from the source text position, then make the box wider/taller than the visible glyphs so renderer font metrics do not clip or wrap text unexpectedly. For text inside buttons, badges, pills, and callouts, use `valign: "middle"` and a taller box rather than tiny y-coordinate tweaks.
-7. Run `build_pptx_from_manifest.py`, run `validate_pptx.py`, then inspect `split_assets_contact.png`, which must show `origin` and `preview` side by side. Fix the smallest failing scope and repeat.
+7. If `image_gen` is required, save the selected generated output under the conventional page-folder filename, verify that the file exists, and only then run deterministic cleanup/splitting. If this handoff fails, write the exact failed path and step into `imagegen-jobs.json` or `repair_request.json`, then fall back to the best editable reconstruction that can still produce a page-level PPTX.
+8. Run `build_pptx_from_manifest.py`, run `validate_pptx.py`, then inspect `preview.png` and `split_assets_contact.png`, which must show `origin` and `preview` side by side. Fix the smallest failing scope when practical, but do not require a readiness status before assembly.
 
 Use `scripts/run_page_experiment.py` when a page manifest already exists and you need a repeatable local loop for chroma cleanup, asset splitting, PPTX build, validation, and origin/preview QA:
 
@@ -162,7 +180,7 @@ python3 "$SKILL_DIR/scripts/run_page_experiment.py" pages/page_001 \
   --force-chroma
 ```
 
-Do not use this script as a substitute for visual judgment. It automates the loop; the agent still must inspect `split_assets_contact.png`.
+Do not use this script as a substitute for visual judgment. It automates the loop; the agent still must inspect `preview.png` and `split_assets_contact.png`.
 
 ## Photo Background With Editable Text
 
@@ -172,7 +190,7 @@ Do this:
 
 1. Save the original as `source.png`.
 2. Use built-in `image_gen` image editing to remove all overlaid text and generate a no-text background.
-3. Inspect the clean background before building the PPT. Reject backgrounds with old text ghosting, blur patches, dark boxes, generated replacement text, logos, or new unrelated objects.
+3. Inspect the clean background before building the PPT. Repair old text ghosting, blur patches, dark boxes, generated replacement text, logos, or new unrelated objects when practical; if they remain, record them as fidelity limits instead of using a readiness status.
 4. Place the clean background as one full-slide image.
 5. Recreate every readable string as visible native PPT text boxes.
 6. Record provenance for the background as `source_type: "imagegen"` with a manifest provenance note explaining that it is an edited no-text background derived from the user-provided slide.
@@ -193,11 +211,12 @@ Use this branch when the source is a hand-drawn instruction page, sketched workf
 
 Do this:
 
-1. Use built-in `image_gen` image editing to create a clean no-readable-text visual layer that preserves the paper texture, hand-drawn frames, arrows, tapes, icons, checkbox outlines, warning marks, and other non-text visual structure.
-2. Rebuild all readable text as native PPT text. The visual base must not contain readable baked-in text under editable text.
-3. If icons or arrows should be independently movable, generate them as separate sparse asset sheets instead of leaving them only in the clean base.
-4. Use a handwriting-like font only when it improves resemblance and remains readable; otherwise prefer stable native Chinese fonts over distorted text.
-5. Reject clean bases with pseudo text, ghost text, lost sketch lines, or newly invented decorations.
+1. Create a required foreground-object list before generating the clean base. Treat hand-drawn arrows, checks, X marks, warning symbols, numbered badges, pins, tape, lightbulbs, document/gear/terminal/clipboard icons, refresh symbols, question bubbles, pictograms, stickers, and decorative underlines as foreground unless the user explicitly says they may remain baked into the background.
+2. Use built-in `image_gen` image editing to create a clean no-readable-text visual layer that preserves only background/layout structure: paper texture, empty frames, empty panels, empty table/grid lines, container shadows, and spacing. Remove foreground objects that will be overlaid separately, leaving clean blank areas.
+3. Generate foreground objects as separate sparse asset sheets, then split them into independently placed assets. Do this by default for any semantic mark a user could reasonably want to move, delete, recolor, or replace.
+4. Rebuild all readable text as native PPT text. The visual base must not contain readable baked-in text under editable text.
+5. Use a handwriting-like font only when it improves resemblance and remains readable; otherwise prefer stable native Chinese fonts over distorted text.
+6. Repair clean bases with pseudo text, ghost text, lost sketch lines, newly invented decorations, or foreground semantic marks that were supposed to be independently extracted when practical; if they remain, record them as fidelity limits.
 
 This branch is not a permission to flatten the source page. The hand-drawn visual layer may be raster; the readable content must still be native editable text.
 
@@ -225,9 +244,11 @@ Suggested icon-sheet `image_gen` prompt:
 Using the provided slide image as visual reference, create a sparse asset sheet containing only reusable non-text visual objects: icons, arrows, check marks, magnifiers, badges, pictograms, chart glyphs, and reusable diagram parts. Use a perfectly flat solid #00ff00 chroma-key background. Keep at least 260 px of pure #00ff00 space between every visible object. No touching objects, no cross-object shadows, generous padding, and each icon internally complete as one object. Shrink assets if needed to preserve spacing. No readable text, labels, letters, numbers, pseudo text, full cards, photos, panels, or large diagram backgrounds.
 ```
 
-Inspect the clean base before assembly. Reject it if it still contains readable text, obvious text ghosts, duplicated standalone icons that should be separate, generated pseudo labels, or large layout drift. Inspect extracted assets before assembly. If objects are missing or merged, regenerate a smaller sheet with fewer assets rather than forcing a bad split.
+Inspect the clean base before assembly. Repair it if it still contains readable text, obvious text ghosts, duplicated standalone icons that should be separate, generated pseudo labels, or large layout drift. Inspect extracted assets before assembly. If objects are missing or merged, regenerate a smaller sheet with fewer assets rather than forcing a bad split when practical; otherwise keep the editable fallback and document the limitation.
 
 Use the source image for alignment and object inventory, but not as the default visual asset source. Cropping source regions is only allowed in explicit visual-99 mode or for diagnostic comparisons.
+
+If the clean base preserves a semantic foreground object, the page is not finished merely because the preview looks close. Either extract that object separately and remove it from the base, or record a specific user-approved reason why it is background-only decoration. Broad labels such as "decorative marks" or "hand-drawn layer" are not enough for required-object coverage.
 
 Do not repair text overlap by moving editable text over the original raster. The original raster already contains the text. The only acceptable repair is a clean no-text visual base.
 
@@ -235,9 +256,11 @@ Do not repair text overlap by moving editable text over the original raster. The
 
 Use the built-in `image_gen` tool as the required default decomposition path for non-text visual assets and base visual elements. For dense pages, the reliable pattern is: whole slide reference -> clean no-text/no-standalone-icon layout base -> sparse chroma-key asset sheets -> local alpha cleanup -> deterministic split -> PPT images + editable text boxes. For simpler pages, the shorter asset-sheet-only pattern is acceptable. Do not replace this default path with direct crops from `source.png` or locally drawn approximations.
 
-Near-original fidelity does not loosen the editable reconstruction contract. Source-region crop assets improve visual fidelity and position accuracy, but reduce object-level editability; if they would be required for the page to look correct, block and explain the tradeoff instead of marking the page ready for assembly.
+Near-original fidelity does not loosen the editable reconstruction contract. Source-region crop assets improve visual fidelity and position accuracy, but reduce object-level editability; if they would be required for the page to look correct, prefer a rougher editable reconstruction and explain the tradeoff in QA notes instead of flattening the slide.
 
-Skip `image_gen` only when the source page is truly plain and the non-text layer contains only structural geometry that must remain editable, such as straight lines, rectangles, round rectangles, or circles. Prefer `image_gen` when in doubt, especially for hand-drawn icons, pictograms, tapes, shadows, textured notes, decorative strokes, sketchy arrows, underlines, badges, and other style-bearing or reusable visual parts.
+Skip `image_gen` only when the source page is truly plain and the non-text layer contains only structural geometry that must remain editable, such as straight lines, rectangles, round rectangles, simple chart bars, table borders, axes, or grid lines. Prefer `image_gen` when in doubt, especially for hand-drawn icons, logos, pictograms, tapes, shadows, textured notes, decorative strokes, sketchy arrows, underlines, badges, and other style-bearing or reusable visual parts.
+
+Semantic icon-like marks must use `image_gen` asset sheets unless the user supplied an editable vector/logo asset to reuse. This includes trend arrows inside icon boxes, funnel icons, star icons, refresh/sync icons, bar-chart mini-icons, target/bullseye icons, document/clipboard icons, gear icons, warning triangles, checkmarks, circled step numbers, hand-drawn question marks, lightbulbs, pencil badges, layer/background badges, and other UI/dashboard pictograms. Native PPT primitives may recreate the surrounding card, border, chart axis, table, timeline line, or simple filled block; they should not be used to fake the icon symbol itself.
 
 Ask for an asset sheet:
 
@@ -246,7 +269,7 @@ Using the provided slide image as visual reference, create ONE sparse asset shee
 Keep every asset separated by at least 260 px of pure #ff00ff empty space for dense pages, or at least 220 px for simpler pages. Spacing is more important than asset size; shrink assets if needed.
 No asset may touch, overlap, visually connect to, cast shadow onto, or have antialiased edges blending into another asset.
 Each listed asset must be internally complete and connected as one visual object. Do not split one icon into disconnected parts.
-Include the major standalone non-text visual assets: icons, arrows, underlines, tapes, textured paper pieces, decorations, chart glyphs, pictograms, badges, and other reusable visual parts. For dense infographic pages, keep large cards, panels, and photo/chart context in the clean layout base unless the user needs them independently movable.
+Include the major standalone non-text visual assets: icons, logos, trend arrows, funnel/star/refresh/chart/target/document/gear/warning/check symbols, circled step numbers, underlines, tapes, textured paper pieces, decorations, chart glyphs, pictograms, badges, and other reusable visual parts. For dense infographic pages, keep large cards, panels, and photo/chart context in the clean layout base unless the user needs them independently movable.
 Omit all long readable text; text will be recreated as editable PPT text boxes.
 Do not add new objects. Every asset must be fully visible, unclipped, and surrounded by generous #ff00ff padding.
 ```
@@ -439,7 +462,7 @@ python3 "$SKILL_DIR/scripts/validate_pptx.py" {origin_name}_edited.pptx \
   --report validation.json
 ```
 
-Passing means:
+Structural validation passing means:
 
 - `zip_ok` is true.
 - Required package parts and relationship targets exist.
@@ -450,20 +473,20 @@ Passing means:
 - `images` is greater than 0 when visual assets were extracted.
 - All final raster assets have a validator-checked `asset_provenance` entry with valid `source_type`, existing `source`, and manifest-recorded provenance note.
 - Readable text that is claimed editable is visible native PPT text in the PPTX itself. Hidden, transparent, 1 pt, off-canvas, or metadata-only text boxes do not count, even if the manifest claims a larger font size.
-- Text in `split_assets_contact.png` is not visibly clipped, cramped against its container, or accidentally wrapped. Structural validation can pass while text placement is still unacceptable; treat contact-sheet-visible typography problems as repair items.
-- Required non-text visual objects are independently present as named `images` or `shapes` with exact `visual_object_id` or `id` matches to the required-object truth. Do not rely on broad aliases or labels. In strict editable reconstruction, raster objects count when they come from built-in `image_gen` clean bases or generated asset sheets as appropriate: clean bases count for layout/background fidelity, while required independently movable icons/arrows/checks/glyphs must come from separate asset images or native shapes. A tile, grid crop, renamed crop, or large source region that contains several unrelated objects does not count as an extracted visual object.
+- Text in `preview.png` and `split_assets_contact.png` is inspected for clipping, cramped containers, or accidental wrapping. Structural validation can pass while text placement is still rough; treat preview-visible typography problems as repair items or known limitations.
+- Required non-text visual objects are independently present as named `images` or `shapes` with exact `visual_object_id` or `id` matches to the required-object truth when practical. Do not rely on broad aliases or labels. In strict editable reconstruction, raster objects count when they come from built-in `image_gen` clean bases or generated asset sheets as appropriate: clean bases count for layout/background fidelity, while required independently movable icons/arrows/checks/glyphs should come from separate asset images or native shapes. A tile, grid crop, renamed crop, or large source region that contains several unrelated objects does not count as an extracted visual object.
 - For photo-background pages, the clean background is allowed as one full-slide image when `contains_readable_text` is false and all visible text is represented as native PPT text.
 
 For research or strict QA, keep an independent required-object truth file and run the evaluator with `--required-objects`. The truth should list every icon, arrow, note, tape, checkbox, underline, chart glyph, badge, and illustration that must be independently movable/editable.
 
-Use `split_assets_contact.png` as the default visual QA artifact. It must place the source `origin` and rebuilt `preview` side by side. Do not use macOS Quick Look thumbnails as an acceptance signal because they can distort PPT text layout and produce false line-break failures.
+Use `preview.png` as the page rendered preview and `split_assets_contact.png` as the source comparison artifact. The contact sheet must place the source `origin` and rebuilt `preview` side by side. Do not use macOS Quick Look thumbnails as an acceptance signal because they can distort PPT text layout and produce false line-break failures.
 
 ## Repair Workflow
 
 Repair only the smallest failing scope:
 
 1. Run validation and inspect `validation.json`.
-2. Inspect `split_assets_contact.png` or a real renderer screenshot.
+2. Inspect `preview.png`, `split_assets_contact.png`, or a real renderer screenshot.
 3. Classify the failure:
    - text inventory or OCR miss
    - missing or visibly degraded asset
@@ -475,6 +498,8 @@ Repair only the smallest failing scope:
    - contact-sheet-only font/rendering issue
 4. Fix the narrowest artifact: `manifest.json`, one crop from the generated asset sheet, one `image_gen` repair job, or the deterministic script.
 5. Rebuild and rerun validation.
+
+When repairing a page with known limitations, do not accept the previous worker's capability judgment as ground truth. If the limitation lacks a concrete failed path or failed command/tool step, run a fresh minimal image-generation handoff attempt first: produce one clean base or one small sparse asset sheet, save it to the conventional page-folder filename, verify existence, and continue from that artifact if it succeeds. If it fails, keep the editable fallback page and record the evidence.
 
 Never hide a failure by deleting a `text_inventory` item, removing an asset from the expected layout, or accepting a placeholder as final. If the user explicitly accepts a lower-fidelity result, record the limitation in the final response and in the run notes.
 

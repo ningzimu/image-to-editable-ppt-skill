@@ -18,7 +18,6 @@ NS = {
 }
 
 ALLOWED_SOURCE_TYPES = {"imagegen", "user-provided", "user-approved-rasterization"}
-ALLOWED_COMPLETION_STATUS = {"ready_for_assembly", "blocked"}
 
 
 def read_manifest(path):
@@ -52,16 +51,6 @@ def page_contract_violations(manifest):
         for entry in manifest.get("asset_provenance", [])
         if entry.get("path")
     }
-    completion_status = manifest.get("completion_status")
-    imagegen_required = bool(manifest.get("imagegen_required"))
-
-    if not completion_status:
-        violations.append({"field": "completion_status", "reason": "missing completion status"})
-    elif completion_status not in ALLOWED_COMPLETION_STATUS:
-        violations.append({"field": "completion_status", "reason": "unknown status", "value": completion_status})
-    if completion_status == "blocked":
-        violations.append({"field": "completion_status", "reason": "blocked page is not ready for deck assembly"})
-
     for image in images:
         path = Path(image.get("path", "")).as_posix()
         provenance = provenance_by_path.get(path, {})
@@ -80,16 +69,6 @@ def page_contract_violations(manifest):
                     "field": "asset_provenance",
                     "path": path,
                     "reason": "full-slide user-provided raster background cannot be assembled with editable text",
-                }
-            )
-
-    if imagegen_required:
-        has_imagegen_asset = any(entry.get("source_type") == "imagegen" for entry in provenance_by_path.values())
-        if not has_imagegen_asset:
-            violations.append(
-                {
-                    "field": "imagegen_required",
-                    "reason": "page requires imagegen clean visual layers or imagegen assets before assembly",
                 }
             )
 

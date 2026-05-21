@@ -103,7 +103,8 @@ skill 通常会完成这些步骤：
 - `prepare_inputs.py`：创建 job 目录，把图片/PDF/PPT/PPTX 归一化为 `pages/page_NNN/source.png`，并生成 `deck_manifest.json`。
 - `build_pptx_from_manifest.py`：从单页 `manifest.json` 或多页 `deck_manifest.json` 组装 `.pptx`。
 - `validate_pptx.py`：校验 PPTX 包结构、页数、manifest、资产来源、文本覆盖和备注 hash。
-- `render_diff.py`、`split_alpha_components.py`、`crop_image_asset.py`：辅助预览、差异检查和资产拆分。
+- `run_page_experiment.py`：构建单页 PPTX，生成 `preview.png` 和 `split_assets_contact.png`，并运行页面验证。
+- `split_alpha_components.py`、`crop_image_asset.py`：拆分和裁剪生成的透明资源表，并记录资产来源。
 
 示例：
 
@@ -135,13 +136,10 @@ output/image-to-editable-ppt/{job-id}/
     │   ├── run_request.json
     │   ├── imagegen-jobs.json
     │   ├── assets/
+    │   ├── preview.png
     │   ├── split_assets_contact.png
     │   ├── manifest.json
-    │   ├── preview.png
-    │   ├── diff.png
-    │   ├── diff.json
-    │   ├── validation.json
-    │   └── qa_notes.md
+    │   └── validation.json
     └── page_002/
         └── ...
 ```

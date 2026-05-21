@@ -25,7 +25,9 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 - Add repository README files, contribution guidance, changelog, license, PR template, and lightweight GitHub checks.
 - Add README badges for language switching, GitHub stars, and GitHub forks.
-- Document mandatory one-subagent-per-page dispatch for multi-image, PDF, and PPT/PPTX conversions, including the required blocker behavior when subagents are unavailable.
+- Document mandatory one-subagent-per-page dispatch for multi-image, PDF, and PPT/PPTX conversions, including how to report subagent-dispatch issues.
 - Clarify that dashboard and dense infographic pages require an explicit `image_gen` gate decision, and that style-bearing icons or pictograms must use generated assets.
-- Document that preview-visible crude or placeholder-like icons are blockers that require targeted `image_gen` asset repair before reporting completion.
-- Require page manifests to declare `completion_status` and block assembly when the built-in `image_gen` tool cannot produce required clean visual layers or assets.
+- Clarify foreground/background separation for hand-drawn and dense infographic pages so semantic marks are not left only in clean base images.
+- Document that preview-visible crude or placeholder-like icons should trigger targeted `image_gen` asset repair when practical, with unresolved cases recorded as fidelity limits.
+- Remove page readiness status gates from the workflow; subagents must return editable page-level PPTX outputs for assembly and record quality limits separately.
+- Clarify that page subagents are runtime Codex workers dispatched by the parent agent, not named agent types registered by the plugin manifest.

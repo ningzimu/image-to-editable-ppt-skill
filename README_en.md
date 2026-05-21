@@ -95,7 +95,8 @@ These scripts live in `skills/image-to-editable-ppt/scripts/`:
 - `prepare_inputs.py`: Create a job folder, normalize images/PDF/PPT/PPTX into `pages/page_NNN/source.png`, and write `deck_manifest.json`.
 - `build_pptx_from_manifest.py`: Assemble `.pptx` output from either a single-page `manifest.json` or a multi-page `deck_manifest.json`.
 - `validate_pptx.py`: Validate PPTX package structure, slide count, manifests, asset provenance, text coverage, and speaker-note hashes.
-- `render_diff.py`, `split_alpha_components.py`, and `crop_image_asset.py`: Support preview, diff, and asset-splitting workflows.
+- `run_page_experiment.py`: Build a single-page PPTX, write `preview.png` and `split_assets_contact.png`, and run page validation.
+- `split_alpha_components.py` and `crop_image_asset.py`: Split and crop generated transparent asset sheets while recording provenance.
 
 Example:
 
@@ -127,13 +128,10 @@ output/image-to-editable-ppt/{job-id}/
     │   ├── run_request.json
     │   ├── imagegen-jobs.json
     │   ├── assets/
+    │   ├── preview.png
     │   ├── split_assets_contact.png
     │   ├── manifest.json
-    │   ├── preview.png
-    │   ├── diff.png
-    │   ├── diff.json
-    │   ├── validation.json
-    │   └── qa_notes.md
+    │   └── validation.json
     └── page_002/
         └── ...
 ```
