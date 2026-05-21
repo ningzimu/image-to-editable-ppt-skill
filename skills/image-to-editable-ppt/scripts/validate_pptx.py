@@ -17,7 +17,18 @@ NS = {
     "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
 }
 
-ALLOWED_SOURCE_TYPES = {"imagegen", "user-provided", "user-approved-rasterization"}
+ALLOWED_SOURCE_TYPES = {
+    "imagegen",
+    "user-provided",
+    "user-approved-rasterization",
+    "source-derived-rasterization",
+}
+REQUIRED_QUALITY_CHECKS = {
+    "font_size_calibrated",
+    "visual_inventory_matched",
+    "background_strategy_checked",
+    "shape_corner_geometry_checked",
+}
 
 
 def read_manifest(path):
@@ -63,16 +74,117 @@ def page_contract_violations(manifest):
                     "reason": "full-slide source.png background with editable text overlays causes baked-text overlap",
                 }
             )
-        if is_full_slide_image(image, slide) and source_type in {"user-provided", "user-approved-rasterization"} and text_boxes:
+        if (
+            is_full_slide_image(image, slide)
+            and source_type in {"user-provided", "user-approved-rasterization", "source-derived-rasterization"}
+            and text_boxes
+        ):
             violations.append(
                 {
                     "field": "asset_provenance",
                     "path": path,
-                    "reason": "full-slide user-provided raster background cannot be assembled with editable text",
+                    "reason": "full-slide raster background cannot be assembled with editable text",
                 }
             )
 
     return violations
+
+
+def source_region_size(entry):
+    region = entry.get("source_region_px")
+    if isinstance(region, list) and len(region) == 4:
+        return float(region[2]), float(region[3])
+    bbox = entry.get("source_bbox_px")
+    if isinstance(bbox, list) and len(bbox) == 4:
+        return abs(float(bbox[2]) - float(bbox[0])), abs(float(bbox[3]) - float(bbox[1]))
+    return None
+
+
+def quality_contract_violations(manifest):
+    violations = []
+
+    if "visual_inventory" not in manifest:
+        violations.append(
+            {
+                "field": "visual_inventory",
+                "reason": "page manifest must record the non-text visual inventory, even when it is empty",
+            }
+        )
+    elif not isinstance(manifest.get("visual_inventory"), list):
+        violations.append({"field": "visual_inventory", "reason": "visual_inventory must be a list"})
+
+    background_strategy = manifest.get("background_strategy")
+    if not background_strategy:
+        violations.append(
+            {
+                "field": "background_strategy",
+                "reason": "page manifest must record how the background was rebuilt or preserved",
+            }
+        )
+
+    quality_checks = manifest.get("quality_checks")
+    if not isinstance(quality_checks, dict):
+        violations.append({"field": "quality_checks", "reason": "quality_checks must be an object"})
+    else:
+        for key in sorted(REQUIRED_QUALITY_CHECKS):
+            if quality_checks.get(key) is not True:
+                violations.append(
+                    {
+                        "field": f"quality_checks.{key}",
+                        "reason": "required page QA check must be explicitly true",
+                    }
+                )
+
+    for index, shape in enumerate(manifest.get("shapes", [])):
+        is_round_rect = shape.get("type") == "roundRect" or shape.get("preset") == "roundRect"
+        if is_round_rect and not shape.get("source_corner_radius_px"):
+            violations.append(
+                {
+                    "field": f"shapes[{index}]",
+                    "reason": "roundRect requires source_corner_radius_px; use rect for source straight-corner containers",
+                }
+            )
+        if is_round_rect and shape.get("source_corner_radius_px") and shape.get("box_px"):
+            box = shape.get("box_px")
+            radius = float(shape.get("source_corner_radius_px") or 0)
+            min_dim = max(1.0, min(float(box[2]), float(box[3])))
+            if radius > min_dim / 2:
+                violations.append(
+                    {
+                        "field": f"shapes[{index}].source_corner_radius_px",
+                        "reason": "roundRect source radius cannot exceed half of the smaller shape dimension",
+                    }
+                )
+
+    return violations
+
+
+def alpha_edge_violations(image_path, edge_padding=3):
+    try:
+        from PIL import Image
+    except Exception as exc:
+        return [{"field": "asset_alpha", "reason": f"unable to import Pillow for asset edge check: {exc}"}]
+
+    try:
+        image = Image.open(image_path).convert("RGBA")
+    except Exception as exc:
+        return [{"field": "asset_alpha", "reason": f"unable to open asset for edge check: {exc}"}]
+
+    alpha = image.getchannel("A")
+    bbox = alpha.point(lambda value: 255 if value > 8 else 0).getbbox()
+    if not bbox:
+        return [{"field": "asset_alpha", "reason": "asset has no visible opaque pixels"}]
+    left, top, right, bottom = bbox
+    width, height = image.size
+    problems = []
+    if left < edge_padding or top < edge_padding or width - right < edge_padding or height - bottom < edge_padding:
+        problems.append(
+            {
+                "field": "asset_alpha",
+                "reason": "visible pixels touch the asset edge; inspect source/contact sheet or add safe padding when this asset requires edge-safe alpha",
+            }
+        )
+    return problems
 
 
 def pixel_authoring_violations(manifest):
@@ -199,6 +311,7 @@ def validate_deck(args):
                 raw_manifest = read_manifest(manifest_path)
                 manifest, violations = normalize_for_validation(raw_manifest)
                 violations.extend(page_contract_violations(manifest))
+                violations.extend(quality_contract_violations(raw_manifest))
                 if violations:
                     report["page_contract_violations"].append(
                         {"manifest": str(manifest_path), "violations": violations}
@@ -454,7 +567,7 @@ def main():
             report["invalid_asset_provenance"].append(
                 {"path": key, "field": "approval_note", "value": entry.get("approval_note")}
             )
-        if source_type == "user-approved-rasterization" and not (
+        if source_type in {"user-approved-rasterization", "source-derived-rasterization"} and not (
             entry.get("source_region_px") or entry.get("source_bbox_px")
         ):
             report["invalid_asset_provenance"].append(
@@ -464,6 +577,12 @@ def main():
                     "value": entry.get("source_region_px") or entry.get("source_bbox_px"),
                 }
             )
+        if source_type == "source-derived-rasterization":
+            region_size = source_region_size(entry)
+            if region_size and (region_size[0] <= 0 or region_size[1] <= 0):
+                report["invalid_asset_provenance"].append(
+                    {"path": key, "field": "source_region_px/source_bbox_px", "value": entry.get("source_region_px") or entry.get("source_bbox_px")}
+                )
         source = entry.get("source")
         if not source:
             report["missing_provenance_sources"].append({"path": key, "source": source})
@@ -473,8 +592,16 @@ def main():
             source_path = manifest_base / source_path
         if not source_path.exists():
             report["missing_provenance_sources"].append({"path": key, "source": str(source)})
+        if source_type == "source-derived-rasterization" and entry.get("require_edge_safe_alpha") is True:
+            asset_file = Path(key)
+            if not asset_file.is_absolute():
+                asset_file = manifest_base / asset_file
+            for problem in alpha_edge_violations(asset_file):
+                report["invalid_asset_provenance"].append({"path": key, **problem})
 
-    report["page_contract_violations"] = authoring_violations + page_contract_violations(manifest)
+    report["page_contract_violations"] = (
+        authoring_violations + page_contract_violations(manifest) + quality_contract_violations(raw_manifest)
+    )
 
     report["passed"] = (
         report["zip_ok"]

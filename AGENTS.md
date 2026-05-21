@@ -37,6 +37,16 @@ This repository packages the `image-to-editable-ppt` skill.
 - Changelog entries should be written in English.
 - Add the PR reference after the PR is opened, for example `(#12)`.
 
+## Release Flow
+
+- Release changes should go through a release PR before tagging.
+- Move the relevant `## Unreleased` entries into a version section such as `## 0.1.0`; omit empty subsections.
+- After the release PR is merged, tag the merge commit with a SemVer tag such as `v0.1.0`, then push the tag.
+- Pushing `v*` tags triggers `.github/workflows/release.yml`.
+- The release workflow extracts GitHub Release notes from the matching `CHANGELOG.md` version section.
+- The release workflow uploads `image-to-editable-ppt-skill-v*.zip`, which contains only the installable `image-to-editable-ppt` skill directory.
+- This repository does not use a ClawHub publish flow.
+
 ## Verification
 
 - Before opening a PR, run `git status --short` and review the changed file list.

@@ -90,6 +90,9 @@ def normalize_position_item(manifest, item):
             item["flip_h"] = True
         if float(y2) < float(y1):
             item["flip_v"] = True
+    if item.get("source_corner_radius_px") is not None and "radius" not in item:
+        radius = float(item.get("source_corner_radius_px") or 0)
+        item["radius"] = px_to_inches(manifest, 0, 0, radius, radius)["width"]
     return item
 
 
@@ -228,12 +231,39 @@ def shape_xml(idx, item):
     preset = item.get("preset")
     if not preset:
         preset = "line" if kind == "line" else "ellipse" if kind == "ellipse" else "roundRect" if kind == "roundRect" else "rect"
+    geometry = preset_geometry_xml(preset, item)
     return f"""
       <p:sp>
         <p:nvSpPr><p:cNvPr id="{idx}" name="{xml_text(kind.title())} {idx}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
-        <p:spPr><a:xfrm{flip_h}{flip_v}><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm><a:prstGeom prst="{preset}"><a:avLst/></a:prstGeom>{fill}{line}</p:spPr>
+        <p:spPr><a:xfrm{flip_h}{flip_v}><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm>{geometry}{fill}{line}</p:spPr>
         <p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody>
       </p:sp>"""
+
+
+def round_rect_adjustment(item):
+    box_px = item.get("box_px")
+    if item.get("source_corner_radius_px") is not None and box_px and len(box_px) == 4:
+        radius = float(item.get("source_corner_radius_px") or 0)
+        min_dim = max(1.0, min(float(box_px[2]), float(box_px[3])))
+    elif item.get("radius") is not None:
+        radius = float(item.get("radius") or 0)
+        min_dim = max(0.01, min(float(item.get("width", 1)), float(item.get("height", 1))))
+    else:
+        return None
+    return max(0, min(50000, int(round(radius / min_dim * 100000))))
+
+
+def preset_geometry_xml(preset, item):
+    if preset != "roundRect":
+        return f'<a:prstGeom prst="{preset}"><a:avLst/></a:prstGeom>'
+    adjustment = round_rect_adjustment(item)
+    if adjustment is None:
+        return '<a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom>'
+    return (
+        '<a:prstGeom prst="roundRect"><a:avLst>'
+        f'<a:gd name="adj" fmla="val {adjustment}"/>'
+        '</a:avLst></a:prstGeom>'
+    )
 
 
 def slide_xml(manifest):
@@ -531,7 +561,8 @@ def render_preview(manifest, manifest_path, out_path):
         canvas.paste(img, (int(item.get("left", 0) * scale), int(item.get("top", 0) * scale)), img)
 
     def render_text(item):
-        size = int(float(item.get("font_size", 18)) * scale / 96 * 1.25)
+        preview_font_scale = float(item.get("preview_font_scale", manifest.get("preview_font_scale", 1.0)))
+        size = max(1, int(float(item.get("font_size", 18)) * scale / 72 * preview_font_scale))
         font_path = choose_preview_font(item.get("preview_font"))
         try:
             font = ImageFont.truetype(font_path, size=size) if font_path else ImageFont.load_default()

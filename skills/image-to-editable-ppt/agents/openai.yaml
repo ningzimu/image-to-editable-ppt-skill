@@ -1,4 +1,4 @@
 interface:
   display_name: "Image to Editable PPT"
-  short_description: "Turn slide images into editable PPTX decks"
-  default_prompt: "Use $image-to-editable-ppt to convert this slide image into an editable PowerPoint with validation."
+  short_description: "将图片、PDF 或图片版 PPT/PPTX 重建成可编辑 PPTX"
+  default_prompt: "使用 $image-to-editable-ppt 将输入重建成对象级可编辑 PowerPoint。每一页都必须分派 page subagent，所有生图/改图走 $imagegen，并按 manifest、preview、contact sheet 和 validation 完成检查。"

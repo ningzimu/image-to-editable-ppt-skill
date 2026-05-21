@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate SemVer tag
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${TAG_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Tag must be SemVer with a leading v, for example v0.1.0 or v0.2.0-beta.1."
+            exit 1
+          fi
+
+      - name: Extract release notes
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          version="${TAG_NAME#v}"
+          notes_file="${RUNNER_TEMP}/release-notes.md"
+
+          python3 - "${version}" "${notes_file}" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          version = sys.argv[1]
+          notes_file = Path(sys.argv[2])
+          lines = Path("CHANGELOG.md").read_text(encoding="utf-8").splitlines()
+
+          section = []
+          found = False
+          for line in lines:
+              if line == f"## {version}":
+                  found = True
+                  continue
+              if found and line.startswith("## "):
+                  break
+              if found:
+                  section.append(line)
+
+          if not found:
+              notes_file.write_text("", encoding="utf-8")
+              raise SystemExit(0)
+
+          output = []
+          i = 0
+          while i < len(section):
+              line = section[i]
+              if re.match(r"^###\s+", line):
+                  header = line
+                  content = []
+                  i += 1
+                  while i < len(section) and not re.match(r"^###\s+", section[i]):
+                      content.append(section[i])
+                      i += 1
+                  if any(item.strip() for item in content):
+                      output.append(header)
+                      output.extend(content)
+                  continue
+
+              output.append(line)
+              i += 1
+
+          text = "\n".join(output).strip()
+          text = re.sub(r"\n{3,}", "\n\n", text)
+          notes_file.write_text(text + ("\n" if text else ""), encoding="utf-8")
+          PY
+
+          if [ ! -s "${notes_file}" ]; then
+            echo "No CHANGELOG.md section found for ${version}."
+            echo "Add a section like: ## ${version}"
+            exit 1
+          fi
+
+          if ! grep -Eq '^- .+\(#[0-9]+\)' "${notes_file}"; then
+            echo "Release notes for ${version} must include at least one changelog entry with a PR reference like (#12)."
+            exit 1
+          fi
+
+          {
+            echo "## Release notes"
+            echo
+            cat "${notes_file}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Package skill zip
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          asset_dir="${RUNNER_TEMP}/release-assets"
+          asset_name="image-to-editable-ppt-skill-${TAG_NAME}.zip"
+          mkdir -p "${asset_dir}"
+
+          (
+            cd skills
+            zip -r "${asset_dir}/${asset_name}" image-to-editable-ppt \
+              -x "image-to-editable-ppt/.DS_Store" \
+              -x "image-to-editable-ppt/**/.DS_Store" \
+              -x "image-to-editable-ppt/.venv" \
+              -x "image-to-editable-ppt/.venv/*" \
+              -x "image-to-editable-ppt/**/__pycache__/*" \
+              -x "image-to-editable-ppt/**/*.pyc"
+          )
+
+          echo "SKILL_ZIP=${asset_dir}/${asset_name}" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          gh release create "${TAG_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${TAG_NAME}" \
+            --notes-file "${RUNNER_TEMP}/release-notes.md" \
+            --verify-tag \
+            "${SKILL_ZIP}"

@@ -1,21 +1,25 @@
 # Image to Editable PPT Skill
 
-[![中文](https://img.shields.io/badge/docs-中文-red)](README.md) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-edited-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-edited-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-edited-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-edited-ppt-skill/forks)
+[![中文](https://img.shields.io/badge/docs-中文-red)](README.md) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
 
-A Codex skill for converting images, PDFs, and image-based PPT/PPTX files into editable PowerPoint `.pptx` output. It normalizes inputs into per-page source images, then rebuilds editable text, simple shapes, and positioned visual assets.
+![Image to Editable PPT project overview](assets/image-to-editable-ppt-overview.png)
 
-The skill rebuilds readable text as editable PowerPoint text boxes whenever practical, keeps simple geometry as native shapes, and records complex visual elements as independent image assets with provenance.
+A Codex skill for converting images, PDFs, and image-based `.pptx` files into editable PowerPoint `.pptx` output. It normalizes inputs into per-page jobs, then page subagents rebuild editable text, simple shapes, and positioned visual assets.
+
+It is useful when screenshot-like or image-based slides need to become easier to edit again, with text, simple shapes, and visual assets separated where practical.
+
+> [!TIP]
+> This skill does not create new decks from articles, reports, outlines, or ideas. If your goal is to generate a PPT, use [codex-ppt-skill](https://github.com/ningzimu/codex-ppt-skill).
 
 ## Highlights
 
-- Convert one image, multiple images, a multi-page PDF, or an image-based PPT/PPTX into editable `.pptx`.
-- Use Codex subagents for per-page parallel reconstruction in multi-page jobs; the parent agent performs final QA and assembly.
-- Preserve PDF/PPT/PPTX page order; multiple image input does not promise relative ordering.
-- Preserve PPT/PPTX speaker notes on matching output slides without modifying note text.
-- Use a manifest to describe slide size, text boxes, shapes, image assets, and provenance.
-- Build PPTX files, previews, visual diffs, and validation reports with local scripts.
-- Clearly separates full-slide image wrapping from real editable reconstruction.
-- Supports hybrid reconstruction: editable text, simple native shapes, and independently movable raster/SVG assets.
+- Broad input coverage for many slide-reconstruction scenarios: one image, multiple images, multi-page PDFs, and image-based `.pptx` files into editable `.pptx`.
+- Uses a multi-agent architecture: Codex subagents rebuild every page in parallel where possible, speeding up multi-page reconstruction; the parent agent handles dispatch, QA, repair orchestration, and final assembly.
+- Reuses existing Codex capabilities, including subagents and `$imagegen`, in a pure visual reconstruction workflow with no third-party OCR or layout-analysis service dependency.
+- Keep multiple images in the provided order; preserve PDF and `.pptx` page order.
+- Preserve `.pptx` speaker notes on matching output slides without modifying note text.
+- Decides page by page whether to use `$imagegen` / gpt-image-2 for visual layer extraction; when needed, sparse asset sheets group foreground assets to reduce gpt-image-2 calls.
+- Supports hybrid reconstruction: editable text, simple native shapes, and independent image assets.
 
 ## Input And Output Contract
 
@@ -24,127 +28,134 @@ Output is always a PowerPoint `.pptx` file:
 | Input | Output |
 | --- | --- |
 | 1 image | 1-slide `.pptx` |
-| Multiple images | Multi-slide `.pptx`, one slide per image; relative image order is not guaranteed |
+| Multiple images | Multi-slide `.pptx`, one slide per image, in the provided order |
 | Multi-page PDF | Multi-slide `.pptx`; PDF page N maps to output slide N |
-| PPT/PPTX | `.pptx` with the same slide count; source slide N maps to output slide N |
+| Image-based `.pptx` | `.pptx` with the same slide count; source slide N maps to output slide N |
 
-Speaker notes are handled only for PPT/PPTX input. The parent agent copies notes to matching output slides unchanged: no translation, summarization, rewriting, or subagent processing.
+Speaker notes are handled only for `.pptx` input. The parent agent copies notes to matching output slides unchanged: no translation, summarization, rewriting, or page-subagent processing.
+
+## Use Cases
+
+- Rebuild one or more slide images into a PowerPoint deck whose text and element positions can be adjusted.
+- Convert multiple images or a multi-page PDF into a multi-slide `.pptx`.
+- Convert image-based `.pptx` slides into a more editable `.pptx` while preserving source speaker notes.
+- Recreate a single-slide visual design while keeping text editable.
+- Compare source pages against output slides to find missing text, alignment drift, or missing assets.
+
+## Runtime Requirements
+
+- Codex must be able to dispatch page subagents; if page subagents cannot be created, the skill stops and reports a blocker.
+- Complex background repair, icon redraws, transparent asset sheets, and targeted repairs depend on `$imagegen` / built-in `image_gen`.
+
+## Known Limitations
+
+- This skill is deeply adapted for Codex and currently does not support other agents.
+- This skill has been tested under Codex membership tiers (Plus / Max). Compatibility with third-party API integrations has not been tested.
+- Results are limited by the model's baseline visual understanding and its ability to follow the skill workflow; usage quality is not guaranteed for models below gpt-5.5.
+- Some image elements and text positions may shift slightly, so output is not guaranteed to be a 100% replica of the original page.
 
 ## Install
 
 Recommended Codex installation:
 
 ```bash
-npx -y skills@latest add ningzimu/image-to-edited-ppt-skill \
+npx -y skills@latest add ningzimu/image-to-editable-ppt-skill \
   --skill image-to-editable-ppt \
   --agent codex \
   --global
 ```
 
+You can also type this directly in a Codex conversation:
+
+```text
+$skill-installer https://github.com/ningzimu/image-to-editable-ppt-skill
+```
+
+You can also download `image-to-editable-ppt-skill-v*.zip` from GitHub Releases, unzip it, and place the contained `image-to-editable-ppt` folder at `~/.codex/skills/image-to-editable-ppt`.
+
 Restart Codex after installation.
-
-For local development, symlink the skill directory:
-
-```bash
-mkdir -p ~/.codex/skills
-ln -s /path/to/image-to-edited-ppt-skill/skills/image-to-editable-ppt \
-  ~/.codex/skills/image-to-editable-ppt
-```
-
-Before running dependency-based scripts for the first time, bootstrap the local skill runtime:
-
-```bash
-python3 skills/image-to-editable-ppt/scripts/image_to_editable_ppt_runtime.py bootstrap
-python3 skills/image-to-editable-ppt/scripts/image_to_editable_ppt_runtime.py doctor
-```
-
-The runtime is created at `skills/image-to-editable-ppt/.venv`. Image-based `.pptx` input uses lightweight OOXML/zip parsing to extract one full-slide image per slide, so it does not require LibreOffice.
-
-Dependency split:
-
-- Python packages are installed into the skill-local `.venv` for portability and isolation.
-- PDF rendering uses PyMuPDF.
-- Image processing uses Pillow.
-- Image-based `.pptx` input uses standard-library slide relationship parsing and requires exactly one full-slide embedded picture per slide.
-- Legacy `.ppt` files and native/complex `.pptx` files are outside the lightweight path; export them to PDF or per-slide images first.
 
 ## Usage
 
-Use `$image-to-editable-ppt` to explicitly select this skill, then provide the source file or files:
+Use `$image-to-editable-ppt` to explicitly select this skill. Images, PDFs, and `.pptx` files can be pasted or attached directly in the conversation, or provided as local paths:
 
 ```text
-$image-to-editable-ppt convert /path/to/slide.png into an editable PowerPoint.
-$image-to-editable-ppt convert /path/to/a.png and /path/to/b.png into an editable PowerPoint.
+$image-to-editable-ppt convert this image into an editable PowerPoint.
+$image-to-editable-ppt convert these images into one editable PowerPoint.
 $image-to-editable-ppt convert /path/to/deck.pdf into an editable PowerPoint.
-$image-to-editable-ppt convert /path/to/image-based.pptx into an editable PowerPoint and preserve speaker notes.
+$image-to-editable-ppt convert /path/to/image-based.pptx into an editable PowerPoint.
 ```
 
 The normal workflow is:
 
 1. Create an isolated job folder and normalize inputs into `pages/page_NNN/source.png`.
-2. Dispatch multi-page jobs to per-page subagents.
+2. Dispatch every page to a page subagent, including single-page inputs; batch multi-page runs by `max_concurrent_pages`.
 3. Build one page manifest per page with editable text, simple shapes, and positioned image assets.
-4. Assemble the final `.pptx`, copy PPT/PPTX notes when present, and run deck validation.
-5. Repair the smallest failing scope if validation or visual QA finds issues.
-
-## Script Entrypoints
-
-These scripts live in `skills/image-to-editable-ppt/scripts/`:
-
-- `image_to_editable_ppt_runtime.py`: Create the local `.venv`, install dependencies, and check Python packages plus optional tools.
-- `prepare_inputs.py`: Create a job folder, normalize images/PDF/PPT/PPTX into `pages/page_NNN/source.png`, and write `deck_manifest.json`.
-- `build_pptx_from_manifest.py`: Assemble `.pptx` output from either a single-page `manifest.json` or a multi-page `deck_manifest.json`.
-- `validate_pptx.py`: Validate PPTX package structure, slide count, manifests, asset provenance, text coverage, and speaker-note hashes.
-- `run_page_experiment.py`: Build a single-page PPTX, write `preview.png` and `split_assets_contact.png`, and run page validation.
-- `split_alpha_components.py` and `crop_image_asset.py`: Split and crop generated transparent asset sheets while recording provenance.
-
-Example:
-
-```bash
-python3 skills/image-to-editable-ppt/scripts/prepare_inputs.py /path/to/deck.pdf
-python3 skills/image-to-editable-ppt/scripts/build_pptx_from_manifest.py \
-  --deck-manifest output/image-to-editable-ppt/{job-id}/deck_manifest.json \
-  --out output/image-to-editable-ppt/{job-id}/rebuilt.pptx
-python3 skills/image-to-editable-ppt/scripts/validate_pptx.py \
-  output/image-to-editable-ppt/{job-id}/rebuilt.pptx \
-  --deck-manifest output/image-to-editable-ppt/{job-id}/deck_manifest.json \
-  --report output/image-to-editable-ppt/{job-id}/validation.json
-```
+4. Use state scripts to record dispatch, page results, repair, and accepted status.
+5. Assemble the final `.pptx`, copy `.pptx` speaker notes when present, and run deck validation.
 
 ## Output Layout
 
 Use one isolated output directory per conversion. All intermediate files and final outputs stay inside it:
 
 ```text
-output/image-to-editable-ppt/{job-id}/
-├── input/
-├── deck_manifest.json
-├── rebuilt.pptx
-├── validation.json
-├── notes_manifest.json
-└── pages/
-    ├── page_001/
-    │   ├── source.png
-    │   ├── run_request.json
-    │   ├── imagegen-jobs.json
-    │   ├── assets/
-    │   ├── preview.png
-    │   ├── split_assets_contact.png
-    │   ├── manifest.json
-    │   └── validation.json
-    └── page_002/
+output/image-to-editable-ppt/{job-id}/        # One conversion job folder
+├── input/                                    # Original input file copies
+├── deck_manifest.json                        # Deck-level page list and output config
+├── page_jobs.json                            # Per-page dispatch, repair, and completion state
+├── run_state.json                            # Overall job state
+├── notes_manifest.json                       # PPTX speaker-note extraction and mapping record
+├── final/                                    # Final output folder
+│   ├── {origin}_edited.pptx                  # Final editable PPTX
+│   ├── validation.json                       # Final deck validation result
+│   └── run_summary.json                      # Conversion summary
+└── pages/                                    # Per-page reconstruction workspaces
+    ├── page_001/                             # Page 1 workspace
+    │   ├── source.png                        # Normalized source image for this page
+    │   ├── page_request.json                 # Page request sent to the page subagent
+    │   ├── imagegen-jobs.json                # Imagegen calls and result records for this page
+    │   ├── assets/                           # Independent image assets for this page
+    │   ├── page.pptx                         # Single-page PPTX
+    │   ├── preview.png                       # Reconstructed page preview
+    │   ├── split_assets_contact.png          # Asset-splitting inspection image
+    │   ├── manifest.json                     # Text, shape, and asset description for this page
+    │   ├── validation.json                   # Page validation result
+    │   └── page_result.json                  # Final page result and known limits
+    └── page_002/                             # Later page workspace
         └── ...
 ```
-
-`output/` is ignored by Git. Put curated README or documentation examples under `assets/`.
 
 ## Scope
 
 - This skill reconstructs input pages; it is not a from-scratch deck content generator.
+- Every page must be rebuilt by a page subagent; there is no parent-agent manual reconstruction fallback when subagents are unavailable.
+- Complex visual assets need `$imagegen`; if image generation/editing is unavailable, affected pages are treated as blockers.
 - Complex photos, illustrations, textures, and hand-drawn decorations are usually movable image assets, not internally editable PowerPoint objects.
 - Tables, charts, and diagrams should only be rebuilt as native objects when confidence is high enough; otherwise keep them as assets and document the limit.
-- Image-based `.pptx` input supports only one full-slide embedded picture per slide; export legacy `.ppt` or native/complex `.pptx` files to PDF or per-slide images first.
 - Visual similarity is not enough. Acceptance should check package structure, editable text coverage, asset provenance, preview, and diff.
+
+## Repository Layout
+
+```text
+.
+├── .github/                              # GitHub workflows and repository checks
+├── skills/                               # Codex skill package directory
+│   └── image-to-editable-ppt/            # Installable image-to-editable-ppt skill
+│       ├── SKILL.md                      # Skill entrypoint and execution rules
+│       ├── requirements.txt              # Python dependencies used by local scripts
+│       ├── agents/                       # Skill metadata for Codex UI
+│       ├── references/                   # Reconstruction, state-machine, and QA references
+│       └── scripts/                      # Helper scripts for normalization, assembly, and validation
+├── AGENTS.md                             # Repository-level collaboration and editing rules
+├── CHANGELOG.md                          # User-visible change log
+├── LICENSE                               # Open-source license
+├── README.md                             # Chinese documentation
+└── README_en.md                          # English documentation
+```
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=ningzimu/image-to-editable-ppt-skill&type=Date)](https://www.star-history.com/#ningzimu/image-to-editable-ppt-skill&Date)
 
 ## License
 

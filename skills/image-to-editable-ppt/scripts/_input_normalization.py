@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-import argparse
 import hashlib
 import io
 import json
@@ -284,16 +282,9 @@ def default_output_name(input_paths):
     return f"{stem}_edited.pptx"
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Normalize image/PDF/PPT/PPTX inputs into page source images.")
-    parser.add_argument("inputs", nargs="+")
-    parser.add_argument("--out-root", default="output/image-to-editable-ppt")
-    parser.add_argument("--job-dir")
-    parser.add_argument("--dpi", type=int, default=180)
-    args = parser.parse_args()
-
-    input_paths = [Path(path).resolve() for path in args.inputs]
-    job_dir = Path(args.job_dir).resolve() if args.job_dir else default_job_dir(args.out_root, input_paths).resolve()
+def normalize_inputs(inputs, out_root="output/image-to-editable-ppt", job_dir=None, dpi=180):
+    input_paths = [Path(path).resolve() for path in inputs]
+    job_dir = Path(job_dir).resolve() if job_dir else default_job_dir(out_root, input_paths).resolve()
     input_dir = job_dir / "input"
     pages_dir = job_dir / "pages"
     input_dir.mkdir(parents=True, exist_ok=True)
@@ -307,7 +298,7 @@ def main():
 
     if len(copied) == 1 and copied[0].suffix.lower() == ".pdf":
         input_type = "pdf"
-        sources = render_pdf_pages(copied[0], pages_dir, args.dpi)
+        sources = render_pdf_pages(copied[0], pages_dir, dpi)
         pages = [page_record(job_dir, i, source, copied[0], i) for i, source in enumerate(sources, start=1)]
     elif len(copied) == 1 and copied[0].suffix.lower() in PPT_EXTS:
         if copied[0].suffix.lower() == ".pptx":
@@ -361,8 +352,4 @@ def main():
     }
     deck_manifest_path = job_dir / "deck_manifest.json"
     deck_manifest_path.write_text(json.dumps(deck_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(deck_manifest_path)
-
-
-if __name__ == "__main__":
-    main()
+    return deck_manifest_path
