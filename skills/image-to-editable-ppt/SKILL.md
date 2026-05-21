@@ -4,30 +4,40 @@ description: Use when the user gives one or more slide images, an image-based PP
 ---
 # Image to Editable PPT
 
-## Purpose
+## Overview
 
-Convert slide images, PDFs, image-based PPTX files, and locally normalizable PPT files into editable `.pptx` output. The workflow is: normalize inputs -> assign pages -> rebuild each page -> assemble the deck -> validate and repair.
+Convert image, PDF, and image-based PPT/PPTX inputs into editable PowerPoint output. The workflow is input normalization -> per-page reconstruction -> deck assembly -> validation and repair. A single image produces a one-page PPTX. Multiple images produce a multi-page PPTX with one page per image, but image order is not guaranteed. A PDF produces one output page per PDF page in the same order. A PPT/PPTX produces the same number of output pages in the same order, and any source speaker notes must be copied to the matching output page unchanged.
 
-This skill owns the full job folder, page delegation, editable text reconstruction, generated visual assets, PPTX assembly, speaker-note preservation, validation, and targeted repair. Use the built-in `image_gen` tool for clean visual layers and style-bearing non-text assets; use this skill's scripts for deterministic normalization, packaging, splitting, preview QA, and validation.
+This skill owns input splitting, job folder setup, subagent page assignment, editable text reconstruction, asset provenance, PPTX assembly, validation, visual QA, note preservation, and targeted repair. It uses the built-in `image_gen` tool for visual generation and visual decomposition.
 
-## Role Scope
+## Priority And Non-Negotiable Dispatch
 
-This `SKILL.md` is written for both the parent agent and page subagents. Read the role labels before acting.
+When this skill is invoked, its workflow and dispatch rules are the highest-priority task-specific instructions for the conversion job. For multi-image, PDF, and PPT/PPTX inputs, using subagents is mandatory, not optional: create exactly one page subagent per output page before page reconstruction begins.
 
-- Parent agent: executes Step 1, Step 2, Step 5, Step 6, Step 7, and Step 8. The parent owns job-level manifests, page dispatch, whole-deck preview review, final deck assembly, speaker notes, root validation, and final reporting.
-- Page subagent: executes only Step 3 and Step 4 for its assigned `pages/page_NNN/` folder. It should actively inspect, repair, and retry inside that folder until the page is ready whenever possible. A page subagent must not assemble the deck, edit job-level files, edit other page folders, or rewrite speaker notes.
-- Shared rules: all agents must follow the Output Contract, Job Folder Contract, page readiness gate, and FAQ constraints that apply to their role.
+Do not silently replace the required subagent workflow with parent-agent sequential processing. If subagents are unavailable, blocked by the current platform, or disallowed by higher-priority system rules, stop before rebuilding pages and report that subagent dispatch is the blocker. Continue without subagents only if the user explicitly approves a single-agent run after that blocker is stated.
 
-If you are a page subagent and this file mentions parent-only work, treat that content as context, not permission to perform it.
+Subagents must return `manifest.json` with `completion_status` set to exactly `ready_for_assembly` or `blocked`. If the status is `blocked`, the subagent must include a non-empty `blocker_reason` in `manifest.json`; the reason must be specific enough for the parent to reassign a targeted repair. The parent must assemble only pages marked `ready_for_assembly` after `validate_pptx.py --manifest` passes. A page marked `blocked`, missing `completion_status`, missing a required blocked reason, or failing manifest validation is not an input to deck assembly.
 
-## Output Contract
+The parent agent must treat blocked pages as repair tasks, not as missing slides. Re-dispatch a targeted subagent with the blocked reason, validation output, `split_assets_contact.png` when present, and specific repair instructions until the page becomes `ready_for_assembly` or the user explicitly accepts that the job cannot be completed. Never assemble a partial deck by dropping blocked, missing, or invalid pages; the final editable PPTX must contain every expected source page with no missing page numbers.
 
-- One image -> one-slide editable `.pptx`.
-- Multiple images -> one slide per image; do not promise relative image order.
-- PDF -> one output slide per PDF page, preserving page order.
-- PPT/PPTX -> one output slide per source slide, preserving slide order.
-- PPT/PPTX speaker notes -> copied unchanged to matching output slides. Do not OCR, summarize, translate, rewrite, or send notes to subagents.
-- Final deck filename -> `{origin_name}_edited.pptx`, where `origin_name` is the first input file stem.
+## Input Modes And Output Contract
+
+- One image (`.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.gif`, `.tif`, `.tiff`) -> one-page `.pptx`.
+- Multiple images -> multi-page `.pptx`; every image becomes a page, but do not promise relative order.
+- PDF -> multi-page `.pptx`; PDF page N must become output slide N.
+- PPT/PPTX -> multi-page `.pptx`; source slide N must become output slide N.
+- PPT/PPTX speaker notes -> output speaker notes on the matching page, unchanged. Do not OCR, summarize, translate, rewrite, or send notes to subagents.
+
+## Runtime And Dependencies
+
+Use this skill's local runtime for dependency-based scripts. Let `{skill_root}` mean the directory containing this `SKILL.md`.
+
+```bash
+python3 {skill_root}/scripts/image_to_editable_ppt_runtime.py bootstrap
+python3 {skill_root}/scripts/image_to_editable_ppt_runtime.py doctor
+```
+
+The runtime creates `{skill_root}/.venv` and installs `{skill_root}/requirements.txt`. The `.venv` and `.env` files are local state and must not be committed. Use `prepare_inputs.py` for input normalization; if it fails, report the input-normalization blocker and ask for a PDF export or per-slide images. Do not silently install additional system renderers as part of this workflow.
 
 ## Job Folder Contract
 
@@ -37,7 +47,6 @@ Every run must create a fresh job folder and keep all intermediate and final fil
 output/image-to-editable-ppt/<job-id>/        # Fresh per-run job folder; keep all intermediate and final files here.
 ├── input/                                    # Copied original input files; never mutate user originals in place.
 ├── deck_manifest.json                       # Job-level manifest: input type, page order, page paths, notes manifest, final output name.
-├── deck_preview_contact.png                 # Parent QA image combining all page preview.png files before final PPTX assembly.
 ├── {origin_name}_edited.pptx                # Final editable PowerPoint deck; origin_name is the first input file stem.
 ├── validation.json                          # Final deck validation report.
 ├── notes_manifest.json                      # Extracted PPT/PPTX speaker notes, copied unchanged into matching output slides.
@@ -47,246 +56,191 @@ output/image-to-editable-ppt/<job-id>/        # Fresh per-run job folder; keep a
         ├── run_request.json                 # Optional parent-written task boundary: source path, write scope, requested outputs, user constraints.
         ├── imagegen-jobs.json               # Audit log for built-in image_gen clean-base, asset-sheet, or repair generations.
         ├── assets/                          # Final per-object PNG assets referenced by manifest.json.
-        ├── preview.png                      # Rendered reconstructed page preview for parent whole-deck review.
         ├── split_assets_contact.png         # Human QA image with origin and preview side by side.
         ├── manifest.json                    # Page reconstruction manifest consumed by build_pptx_from_manifest.py.
         └── validation.json                  # Page-level validation report from validate_pptx.py --manifest.
 ```
 
-## Execution Steps
-
-### Step 1. Prepare Runtime And Inputs (Parent)
-
-Step 1.1. Bootstrap the local runtime when dependencies may be missing:
+Use `scripts/prepare_inputs.py` to normalize inputs and create `deck_manifest.json`:
 
 ```bash
-python3 {skill_root}/scripts/image_to_editable_ppt_runtime.py bootstrap
-python3 {skill_root}/scripts/image_to_editable_ppt_runtime.py doctor
-```
-
-Step 1.2. Normalize inputs with `prepare_inputs.py`. If normalization fails, report the input-normalization blocker and ask for a PDF export or per-slide images. Do not silently install additional system renderers.
-
-```bash
-python3 {skill_root}/scripts/prepare_inputs.py slide1.png slide2.png
+python3 {skill_root}/scripts/prepare_inputs.py input1.png input2.png
 python3 {skill_root}/scripts/prepare_inputs.py deck.pdf
 python3 {skill_root}/scripts/prepare_inputs.py image_based_deck.pptx
-python3 {skill_root}/scripts/prepare_inputs.py legacy_deck.ppt
 ```
 
-Step 1.3. Confirm these files exist before reconstruction begins:
+## Generation Delegation
 
-- `deck_manifest.json`
-- `notes_manifest.json`
-- `pages/page_NNN/source.png` for every expected page
+Use the built-in `image_gen` tool as the default source for clean visual layers, then use deterministic local scripts only for alpha cleanup, splitting, placement, packaging, and validation. For dense infographic, technical-route, dashboard, architecture, or diagram-heavy slides, prefer a layered image-generation workflow instead of one full-slide background: generate a clean layout/base layer with all readable text removed and standalone reusable icons removed; generate one or more sparse chroma-key asset sheets for icons, arrows, checks, magnifiers, badges, pictograms, chart glyphs, and reusable diagram parts; remove the key locally; split the transparent sheets; then rebuild the slide with the clean base image, independent PNG assets, editable PPT text, and simple editable geometry.
 
-Step 1.4. Treat `deck_manifest.json` as the source of truth for page count, page order, note manifest path, and final output name.
+Asset sheets must be sparse. Require at least 260 px of pure chroma-key space between visible assets for dense slides, at least 220 px for simpler slides, allow assets to shrink to preserve spacing, and require each listed icon/object to be internally complete as one visual object. Do not accept crowded sheets as final inputs to splitting; regenerate the sheet before trying to rescue severe crowding with post-processing.
 
-### Step 2. Assign Page Reconstruction (Parent)
+For complex infographic pages, do not rely on OCR as the truth source. Build or verify a `text_inventory` from visual inspection, user-provided text, or manual correction, then recreate readable text as native PowerPoint text. `image_gen` is for clean non-text visual assets, not for exact text rendering.
 
-Step 2.1. For a single image, the parent agent may rebuild the only page directly.
+Before generating an asset sheet or repair asset, use the built-in `image_gen` tool. When the system image generation skill is available, load it for its built-in-first prompting, chroma-key, and local background-removal guidance:
 
-Step 2.2. For multiple images, PDF, PPT, and PPTX jobs, dispatch exactly one subagent per output page. This is mandatory. If subagents are unavailable, stop before page reconstruction and report the dispatch blocker. Continue without subagents only if the user explicitly approves a single-agent run.
-
-Step 2.3. The parent owns only job-level files:
-
-- `deck_manifest.json`
-- `notes_manifest.json`
-- final `{origin_name}_edited.pptx`
-- root `validation.json`
-- page ordering and note preservation
-
-Step 2.4. The parent may write `run_request.json`, but only as a task-boundary file. It may include source path, allowed write scope, requested outputs, and user constraints. It must not pre-fill or prescribe `page_type`, `imagegen_required`, `skip_imagegen_allowed`, or `imagegen_skip_reason`; those are page-analysis decisions owned by the page subagent and recorded in `manifest.json`.
-
-Step 2.5. Each subagent may create or edit only files inside its assigned `pages/page_NNN/` folder. Subagents must not edit job-level manifests, other page folders, source input files, speaker notes, or the final deck.
-
-### Step 3. Rebuild Each Page (Page Subagent)
-
-Step 3.1. Inspect `source.png` and create the page inventory before generating anything. The page subagent owns these decisions and records them in `manifest.json`:
-
-- classify the page type
-- list every readable text string in `text_inventory`
-- list required non-text visual objects
-- identify complex backgrounds, large photos, charts, screenshots, icons, badges, decorative marks, shadows, tapes, textured notes, hand-drawn marks, sketchy arrows, and reusable illustration parts
-- decide which objects can be native PPT geometry
-- decide which objects require `image_gen`
-- record `imagegen_required`, `skip_imagegen_allowed`, and skip evidence
-
-Step 3.2. Build a layer plan before writing slide objects. Use this order:
-
-1. clean background/base layer
-2. native PPT geometry layer
-3. independent foreground image assets
-4. editable text layer
-
-Step 3.3. For a pure flat background, rebuild it as a native fill or simple native shapes. For a complex non-solid background, use `image_gen` to reconstruct a clean bottom background/base. Complex backgrounds include photo backgrounds, texture backgrounds, illustration backgrounds, dense dashboard/report bases, large screenshot-like regions, chart-context backgrounds, and pages where foreground decorations sit on top of a non-flat base.
-
-Step 3.3.1. The clean background/base should preserve the background image, visual field, panels, photo regions, chart context, texture, shadows, spacing, and page atmosphere.
-
-Step 3.3.2. The clean background/base must remove readable text and remove foreground objects that should stay editable or movable, including decorations, icons, foreground photos, chart marks, badges, arrows, tapes, stickers, and callouts.
-
-Step 3.3.3. Reject the clean background/base if it contains text ghosts, pseudo text, duplicated foreground assets, missing layout regions, invented objects, or obvious visual drift.
-
-Step 3.3.4. Place the clean background/base as the lowest layer in `manifest.json` with the lowest `z_index`.
-
-Step 3.4. Decompose foreground visuals into object-level layers. For dashboard, report, chart, diagram, technical-route, and dense infographic pages, never replace the foreground with one combined raster image. Rebuild simple structural elements as native PPT geometry, and use `image_gen` asset sheets only for independent style-bearing or raster objects that need to remain movable:
-
-- large foreground pictures or screenshot-like regions that must stay movable
-- icons and pictograms
-- chart glyphs, visual marks, decorative data callouts, KPI pictograms, legends-as-icons, and chart embellishments that are not rebuilt as native geometry
-- badges, labels, stickers, and callout marks
-- hand-drawn marks, tape, textured notes, decorative strokes, shadows, sketchy arrows, underlines, and reusable illustration parts
-
-Step 3.4.1. For charts and reports, rebuild structural cards, tables, chart frames, axes, gridlines, simple bars, simple lines, and plain status blocks as native PPT shapes when practical. Use generated assets only for the visual parts that carry style or illustration detail. Rebuild every chart label, tick label, legend text, value label, and annotation as native PPT text; do not put readable chart text inside generated assets.
-
-Step 3.4.2. Ask `image_gen` for sparse single-sheet layouts on a pure chroma-key background. Choose a key color absent from the assets, for example avoid green for green icons and avoid magenta for magenta/purple assets. Require pure key-colored space between visible assets: at least 260 px for dense pages and at least 220 px for simpler pages. Spacing is more important than asset size; allow assets to shrink so they do not touch.
-
-Step 3.4.3. Each listed asset must be internally complete as one object, with no clipped edges, no touching neighbors, no cross-asset shadows, no repeated fragments, and no surrounding card/text/page region baked in. Do not include readable text in the asset sheet. If a source object contains text, generate only the no-text visual container or mark, then rebuild the text natively.
-
-Step 3.4.4. Remove the chroma key locally, split the assets, inspect extracted PNGs, and keep only assets that are complete, unclipped, and visually usable. Do not accept crowded asset sheets as final inputs to splitting; regenerate the sheet before trying to rescue severe crowding with post-processing.
-
-Step 3.4.5. If one asset is bad, repair only that asset or a small focused sheet. Do not regenerate the whole page unless the base layer itself is wrong.
-
-Step 3.5. Rebuild native PPT geometry after the base layer is decided. Native PPT shapes are appropriate for true primitives such as simple lines, rectangles, circles, table borders, chart axes, and simple bars.
-
-Step 3.5.1. Preserve source geometry semantics. Rectangular panels, tables, cards, chart frames, and report containers stay rectangular unless the source object is visibly rounded.
-
-Step 3.5.2. Do not replace style-bearing visual objects with local drawing code, PowerPoint preset-shape approximations, source crops, or placeholders. Source-image crops are allowed only as diagnostic alignment references unless the user explicitly approves lower editability.
-
-Step 3.6. Separate all readable text from the visual layers and rebuild it as visible native PPT text boxes. Do not ask `image_gen` to render exact text. Hidden, transparent, tiny, off-canvas, or metadata-only text does not count as editable text.
-
-Step 3.6.1. If source text sits on a complex background, remove it from the generated clean background/base first, then place editable text boxes above the cleaned area.
-
-Step 3.6.2. If source text is part of a label, badge, tape, sticker, note, or callout, split the object: generate the no-text visual container as an asset or native shape, then rebuild the text as native PPT text on top.
-
-Step 3.7. Skip `image_gen` only when every non-text visual object is a plain editable primitive such as a line, rectangle, rounded rectangle, circle, simple chart bar, or table border. Record the skip evidence in `manifest.json`.
-
-Step 3.8. Do not mark a page `blocked` at the first failed attempt. First try targeted self-repair inside the assigned page folder: regenerate only the bad background region or asset sheet, resplit assets, adjust coordinates, enlarge text boxes, fix manifest paths, and rerun validation. Use `completion_status: "blocked"` only when the page subagent has hit a hard blocker it cannot solve within its write scope, such as unavailable required tooling, unusable source input, repeatedly failed required `image_gen` output, or missing information needed to reconstruct the page.
-
-Step 3.8.1. When a hard blocker remains, write `completion_status: "blocked"` and a non-empty, specific `blocker_reason` in `manifest.json`. The reason must state what was attempted, what still fails, and what guidance or input is needed next. Do not create a ready page manifest.
-
-Step 3.9. Record source-image pixel coordinates in the page manifest:
-
-- `source.width_px` and `source.height_px`
-- `box_px: [x, y, width, height]` for text, images, and filled shapes
-- `points_px: [x1, y1, x2, y2]` for straight line shapes
-- explicit `z_index`: base/background first, native geometry next, generated assets next, editable text last
-
-Step 3.10. Keep text boxes roomy. Prefer widening/tallening boxes, explicit line breaks, and `valign: "middle"` for labels before shrinking font size.
-
-### Step 4. Validate Each Page (Page Subagent; Parent Reviews)
-
-Step 4.1. Build the page PPTX and run page validation:
-
-```bash
-python3 {skill_root}/scripts/build_pptx_from_manifest.py manifest.json --out output.pptx
-python3 {skill_root}/scripts/validate_pptx.py output.pptx --manifest manifest.json --report validation.json
+```text
+${CODEX_HOME:-$HOME/.codex}/skills/.system/imagegen/SKILL.md
 ```
 
-Step 4.2. Generate page QA with `run_page_experiment.py`. It writes `preview.png` for parent whole-deck review and `split_assets_contact.png` with `origin` and `preview` side by side for page-level comparison.
+Do not call the Image API directly for the normal path. Do not require subagents to have a separate image-generation skill capability before trying generation; they should call the built-in `image_gen` tool directly. If the built-in `image_gen` tool is unavailable or cannot produce the required clean visual layer or required assets, block the page instead of inventing a substitute.
 
-```bash
-python3 {skill_root}/scripts/run_page_experiment.py pages/page_001 --preview-scale 144
+Use this skill's scripts only for deterministic work: removing/splitting `image_gen` asset-sheet images, cropping generated asset-sheet regions when generated components touch, mapping generated assets to source coordinates, building manifests, assembling PPTX files, producing `split_assets_contact.png` with side-by-side origin/preview QA, and validating package structure, provenance, and editable text. Do not crop non-text visual assets directly from the original source image as the default decomposition path. Source-image crops are allowed only as diagnostic/alignment references. Do not locally draw, synthesize, trace, or replace complex visual assets with Python/Pillow, SVG, canvas, HTML/CSS, source crops, or hand-made placeholders as a substitute for `image_gen`.
+
+Photo-background exception: when the page is primarily one complex photo or texture background with only overlay text, do not decompose the photo into objects and do not use local blur/darken/inpaint as the final cleanup. Use `image_gen` image editing to produce a clean no-text background image, then rebuild all readable text as visible native PPT text boxes. Treat the edited no-text background as one background asset with provenance; it is acceptable because the editable layer is the text overlay, not individual trees/buildings/waves in the photo.
+
+Near-original fidelity does not loosen the editable reconstruction contract. If near-original visual fidelity requires a non-editable raster region, block and explain the tradeoff instead of silently rasterizing it. Never present full-slide raster, tiled full-page raster mosaics, hidden/tiny text overlays, or grid crops as object-level editable reconstruction.
+
+Hard boundary: do not mark visual decomposition complete by inventing assets, cropping assets from the original source image, editing manifests to hide missing assets, or recording temporary placeholder art as final. If the task requires generated separation, repair, or redraw and the built-in `image_gen` tool is unavailable, stop and explain the blocker instead of fabricating the visual layer.
+
+Hard boundary: never use the full source slide image (`source.png`) as a full-slide background and then overlay editable text boxes as a normal editable reconstruction. That creates duplicate baked-in text underneath editable text. It is a failed page, not a documented limitation. The validator rejects this pattern.
+
+Before skipping `image_gen`, the page subagent must make an explicit page-level gate decision in `manifest.json`:
+
+```json
+{
+  "page_type": "dense_dashboard",
+  "imagegen_required": true,
+  "skip_imagegen_allowed": false,
+  "imagegen_skip_reason": null
+}
 ```
 
-Step 4.3. If validation or visual QA fails, repair the smallest failing scope before reporting back:
+The `imagegen_required` field name is kept for compatibility with existing manifests and validators. It means "built-in `image_gen` generation is required"; it does not mean a separate image-generation skill must be available.
 
-- bad or missing asset -> regenerate a focused `image_gen` asset sheet, resplit, and replace only that asset
-- text issue -> update `text_inventory`, text box content, size, wrapping, or alignment
-- clipped/cramped text -> enlarge `box_px`, add line breaks, or use `valign` before reducing font size
-- broken image relationship -> fix the manifest path or regenerate the missing asset
-- baked-in text overlap -> regenerate the clean no-text background/base
-- layout drift -> adjust source-coordinate placement and rerun `split_assets_contact.png`
+Skip `image_gen` only after positively confirming that every non-text visual object is a plain editable primitive, such as straight lines, rectangles, round rectangles, circles, or structural chart bars. This is a reverse-proof gate: if any standalone icon, pictogram, badge, sticker, tape, paper texture, shadowed illustration, decorative mark, sketchy arrow/underline, hand-drawn mark, or other style-bearing reusable visual object is present, `image_gen` is required even if the rest of the page is simple geometry. Dashboard, dense infographic, technical-route, and architecture pages default to `imagegen_required: true`; set `skip_imagegen_allowed: true` only when `manifest.json` records concrete evidence that no style-bearing visual objects exist. Do not use local drawing code or native PowerPoint preset shapes to approximate required generated assets.
 
-Step 4.4. Repeat Step 4.1 through Step 4.3 until the page is ready or a hard blocker remains. A page is ready only when all are true:
+## Visible Progress Plan
 
-- `manifest.json` has `completion_status: "ready_for_assembly"`
-- `validate_pptx.py --manifest` passes
-- `preview.png` exists and is visually acceptable
-- `split_assets_contact.png` exists and is visually acceptable
-- all readable source strings are represented as visible editable PPT text unless explicitly documented otherwise
-- required non-text visual objects are represented as native shapes or generated assets with provenance
+For every normal run, keep a visible checklist with one active step at a time:
 
-Step 4.5. If a hard blocker remains after targeted self-repair, the page subagent reports `completion_status: "blocked"` and a specific `blocker_reason` in `manifest.json`. The parent must not assemble it; the parent re-dispatches that page with the blocker reason, validation output, `split_assets_contact.png` when present, and concrete repair instructions.
+1. Preparing inputs and job folder.
+2. Assigning page reconstruction.
+3. Rebuilding editable pages.
+4. Assembling the PPTX deck.
+5. Checking and repairing.
 
-### Step 5. Review Whole-Deck Preview (Parent Only)
+What each step means:
 
-Step 5.1. Before final PPTX assembly, combine every page's `preview.png` into one deck-level QA sheet:
+- `Preparing inputs and job folder.` Copy inputs to `input/`, normalize each page to `pages/page_NNN/source.png`, create `deck_manifest.json`, and extract PPT/PPTX notes into `notes_manifest.json`.
+- `Assigning page reconstruction.` For multi-image, PDF, and PPT/PPTX inputs, dispatch one subagent per page. This is mandatory. If subagent dispatch cannot happen, stop and report the blocker instead of rebuilding pages in the parent agent. Single-image jobs may stay in the parent agent.
+- `Rebuilding editable pages.` Each page job creates its own manifest, assets, `split_assets_contact.png`, and validation inside its `pages/page_NNN/` folder.
+- `Assembling the PPTX deck.` The parent agent reads `deck_manifest.json`, ordered page manifests, and notes manifest; then writes `{origin_name}_edited.pptx`.
+- `Checking and repairing.` Run page and deck validation, inspect `split_assets_contact.png`, treat visibly poor placeholder-like icons or style-bearing assets as blockers, repair the smallest failing scope, and report final paths.
+
+Only mark a step complete when the real file, image, manifest, validation report, or decision exists. For a repair-only request, start from the first relevant step instead of restarting the whole workflow.
+
+## Workflow
+
+1. Normalize inputs with `prepare_inputs.py` using the commands below. If normalization fails, stop and ask for a PDF export or per-slide images instead of installing additional system renderers.
+2. For multi-image, PDF, and PPT/PPTX jobs, dispatch one Codex subagent per page. The parent owns `deck_manifest.json`, `notes_manifest.json`, final assembly, and final validation. Do not proceed to page reconstruction in the parent agent when subagent dispatch is unavailable; stop and ask for explicit single-agent approval.
+3. Each page subagent makes a reconstruction plan before generating anything: classify the page type, list every readable text string, list required non-text visual objects, decide which objects are native PPT geometry and which require `image_gen`, and record `imagegen_required` / `skip_imagegen_allowed` in `manifest.json`.
+4. Preserve source geometry semantics. Rectangular panels, tables, chart frames, and report containers stay `rect`; use `roundRect` only when the source object is visibly rounded, such as pills, badges, buttons, and rounded callouts. Do not add rounded corners, shadows, or decorative styles just because they look modern.
+5. Choose the visual strategy for that page. For complex photo-background pages with only overlay text, use `image_gen` image editing to create a no-text background. For hand-drawn/manual pages, use `image_gen` to create a no-readable-text visual layer that preserves hand-drawn frames, arrows, icons, tape, and texture, then rebuild text natively. For dashboard/report pages, rebuild structural cards, tables, charts, axes, gridlines, and simple status badges as native PPT shapes/text, while standalone icons and style-bearing marks come from generated asset sheets. Do not satisfy this step by cropping visual objects from `source.png`, or by approximating style-bearing icons/pictograms with local drawing code or PowerPoint preset shapes.
+6. Generate and process `image_gen` assets. Choose a chroma-key color that is absent from the assets (`#00ff00` is bad for green icons; use `#ff00ff` instead). Remove the key locally, split assets, and inspect extracted assets before manifest placement. Do not enable despill by default; use it only after confirming it does not damage icon colors.
+7. Record provenance for the clean base and for each `image_gen` asset, then create `pages/page_NNN/manifest.json` using source-image pixel coordinates: set `source.width_px` and `source.height_px`, place objects with `box_px: [x, y, width, height]`, and use `points_px: [x1, y1, x2, y2]` for straight line shapes. Keep explicit `z_index` layers: base/background first, native geometry next, generated icons/assets next, editable text last. Include complete `text_inventory`, required visual object coverage, and `completion_status`.
+8. Size editable text boxes generously. Use source text geometry as the alignment reference, but make the `box_px` wider/taller than the visible glyphs so PowerPoint, WPS, and the contact-sheet preview can use slightly different font metrics without clipping. For text inside buttons, badges, and callouts, set `valign: "middle"` and give the box enough horizontal slack before reducing font size.
+9. Build, validate, and visually compare each page. Run `build_pptx_from_manifest.py`, run `validate_pptx.py --manifest`, and produce `split_assets_contact.png` with `origin` and `preview` side by side. Structural validation is not enough; inspect the contact sheet. Repair only the smallest failing scope: a coordinate, text box, shape type, split asset, or targeted `image_gen` repair. If a page remains blocked, its manifest must keep `completion_status: "blocked"` plus `blocker_reason`; the parent must reassign it with targeted repair instructions instead of advancing to deck assembly.
+10. Assemble the final PPTX from `deck_manifest.json` with `build_pptx_from_manifest.py --deck-manifest deck_manifest.json`; the output path comes from `deck_manifest.output` and must be `{origin_name}_edited.pptx`. Assemble only after every expected page in `deck_manifest.json` has a manifest with `completion_status: "ready_for_assembly"`, passes `validate_pptx.py --manifest`, and has acceptable `split_assets_contact.png` QA. Do not remove, skip, renumber, or replace blocked/missing/invalid pages to make assembly pass. For PPT/PPTX input, copy notes from `notes_manifest.json` to the matching slide.
+11. Run deck validation with `validate_pptx.py {origin_name}_edited.pptx --deck-manifest deck_manifest.json --report validation.json`, then inspect the assembled output before reporting completion.
+12. If page or deck validation shows missing words, missing assets, clipped text, cramped text, accidental wrapping, broken relationships, notes mismatch, missing page outputs, obvious layout drift, wrong shape semantics, or contact-sheet-visible poor icons/assets, repair only the smallest failing scope and rebuild. Do not report completion while `split_assets_contact.png` contains crude placeholder shapes, wrong icon metaphors, broken pictograms, illegible generated marks, or visually downgraded assets that should be regenerated through `image_gen`.
+
+For detailed prompt patterns, manifest schema, and validation criteria, read `references/workflow.md`.
+
+## Editing Policy
+
+- Prefer visible editable text boxes for all readable text, including labels inside diagrams whenever practical. Hidden, transparent, 1 pt, off-canvas, or metadata-only text boxes do not satisfy text editability.
+- Keep editable text boxes roomy, not tight to glyph bounds. Preserve source alignment and apparent hierarchy, but first enlarge the box or add explicit line breaks before shrinking font size. For container text inside pills, buttons, badges, and callouts, prefer `valign: "middle"` and a taller box over manual y-coordinate nudging.
+- Preserve source shape semantics. Do not convert rectangular panels, tables, cards, or chart frames into rounded rectangles unless the source visibly has rounded corners.
+- Use raster images only for non-text visual assets: clean layout bases, illustrations, icons, handwritten decorations, texture, tape, shadows, folders, cards, backgrounds, chart/diagram glyphs, and decorative marks.
+- For photo-background slides, use one edited no-text background image plus visible editable text boxes. Do not leave baked-in text in the background, and do not accept local blur/darken patches with visible ghosting as final.
+- Keep source images, generated asset sheets, split assets, `split_assets_contact.png`, manifest, PPTX, and validation report in a single output folder. `split_assets_contact.png` is the human QA artifact and must show `origin` and `preview` side by side.
+
+## Subagent Use
+
+For a single image, subagents are optional. The parent agent may do the whole one-page job.
+
+For multiple images, PDF, and PPT/PPTX inputs, use one subagent per page. This is a hard requirement of this skill. The parent agent assigns each subagent exactly one `pages/page_NNN/` folder and source image. A subagent may create or edit only files inside its assigned page folder. It must return the page manifest path, `split_assets_contact.png` path, validation path, and any known limits in `manifest.json`.
+
+The parent may write `run_request.json` as a task boundary file, but it must not pre-fill or prescribe `page_type`, `imagegen_required`, `skip_imagegen_allowed`, or `imagegen_skip_reason`. Those are page-analysis decisions owned by the subagent and recorded in `manifest.json`.
+
+If the current runtime cannot spawn subagents, do not mark `Assigning page reconstruction.` complete and do not continue as a parent-only rebuild. Report the blocker clearly and wait for the user to either enable subagents or explicitly authorize a single-agent run.
+
+Subagents must not edit `deck_manifest.json`, `notes_manifest.json`, other page folders, source input files, or the final `{origin_name}_edited.pptx`. Speaker notes are handled only by the parent agent and must not be sent to subagents for rewriting or analysis.
+
+Subagent prompt must include this exact gate: "Use the built-in `image_gen` tool for required clean no-text visual layers and generated assets. If the built-in `image_gen` tool is unavailable or cannot produce the required clean no-text visual layer and required generated assets, set `completion_status` to `blocked`, write a non-empty and specific `blocker_reason` in `manifest.json`, and do not create a ready page manifest." Do not weaken this gate in the parent prompt.
+
+When a subagent returns `blocked`, the parent agent must read `blocker_reason` from `manifest.json`, plus `validation.json` and `split_assets_contact.png` when present, then re-dispatch that same page as a targeted repair job with concrete instructions. The parent must not assemble a deck, edit `deck_manifest.json` to omit that page, or report success while any expected page is blocked, missing `completion_status`, missing a required blocked reason, or failing `validate_pptx.py --manifest`.
+
+## Repair Workflow
+
+Repair the smallest failing scope:
+
+- Missing or incorrect text: update `text_inventory`, add or fix editable text boxes, and rerun validation.
+- Clipped, cramped, or accidentally wrapped text: first increase box width/height and use explicit line breaks or `valign: "middle"` where appropriate; reduce font size only after the box has enough slack.
+- Low-fidelity asset: rerun `image_gen` for that asset or a narrower asset sheet, then resplit or recrop only the affected asset.
+- Contact-sheet-visible placeholder icon or crude native-shape approximation: classify it as a missing generated asset, generate a focused sparse asset sheet for only the affected icon(s), replace the approximation, rerun contact-sheet QA and validation, and record the repair in `manifest.json`.
+- Broken image relationship: fix the asset path in the manifest or regenerate the missing asset file.
+- Incorrect background: fix `slide.background` or use an explicit full-slide shape when the background needs layered texture.
+- Text overlaps baked-in source text: do not move the text boxes around as a repair. Replace the source background with a clean no-text `image_gen` background.
+- Layout drift: adjust manifest coordinates and regenerate `split_assets_contact.png` before touching the visual assets.
+
+Do not regenerate the whole slide when a text box, one asset, or one coordinate change is enough.
+
+## Commands
+
+Prepare inputs and create a job folder:
 
 ```bash
-python3 {skill_root}/scripts/make_deck_preview_contact.py \
-  output/image-to-editable-ppt/<job-id>/deck_manifest.json
+SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/image-to-editable-ppt"
+
+# Images -> one page per image.
+python3 "$SKILL_DIR/scripts/prepare_inputs.py" slide1.png slide2.png
+
+# PDF -> one source image per PDF page.
+python3 "$SKILL_DIR/scripts/prepare_inputs.py" deck.pdf
+
+# Image-based PPTX -> lightweight OOXML/zip extraction.
+python3 "$SKILL_DIR/scripts/prepare_inputs.py" image_based_deck.pptx
+
+# PPT -> attempt local normalization and page rendering.
+python3 "$SKILL_DIR/scripts/prepare_inputs.py" legacy_deck.ppt
 ```
 
-Step 5.2. Inspect `deck_preview_contact.png` as the whole-deck visual gate. Check page order, missing pages, repeated pages, obvious layout drift, crude assets, broken backgrounds, text overlap, clipped text, and inconsistent reconstruction quality across pages.
-
-Step 5.3. If any page looks poor, do not assemble the deck. Repair those pages first. For independent page problems, the parent may dispatch multiple page subagents in parallel, each scoped only to its own `pages/page_NNN/` folder and given the concrete visual issue, validation output, current `preview.png`, and current `split_assets_contact.png`.
-
-Step 5.4. After repairs, rerun page validation and regenerate the affected page `preview.png` and `split_assets_contact.png`, then regenerate `deck_preview_contact.png`. Repeat until the whole-deck preview has no known page-quality problems.
-
-### Step 6. Assemble The Deck (Parent Only)
-
-Step 6.1. Assemble only after every expected page in `deck_manifest.json` is ready and the whole-deck preview gate passes. Do not skip, drop, renumber, or replace blocked/missing/invalid pages to make assembly pass.
+Assemble a multi-page deck after page manifests are ready:
 
 ```bash
-python3 {skill_root}/scripts/build_pptx_from_manifest.py \
+python3 "$SKILL_DIR/scripts/build_pptx_from_manifest.py" \
   --deck-manifest output/image-to-editable-ppt/<job-id>/deck_manifest.json
 ```
 
-Step 6.2. The output path comes from `deck_manifest.output` and must be `{origin_name}_edited.pptx`.
-
-Step 6.3. For PPT/PPTX input, copy notes from `notes_manifest.json` to matching slides unchanged.
-
-### Step 7. Validate And Repair The Deck (Parent)
-
-Step 7.1. Run deck validation:
+Validate a multi-page deck:
 
 ```bash
-python3 {skill_root}/scripts/validate_pptx.py \
+python3 "$SKILL_DIR/scripts/validate_pptx.py" \
   output/image-to-editable-ppt/<job-id>/{origin_name}_edited.pptx \
   --deck-manifest output/image-to-editable-ppt/<job-id>/deck_manifest.json \
   --report output/image-to-editable-ppt/<job-id>/validation.json
 ```
 
-Step 7.2. Inspect the assembled output, `deck_preview_contact.png`, and each affected page's `preview.png` and `split_assets_contact.png`. Structural validation is not enough.
-
-Step 7.3. Repair the smallest failing scope:
-
-- text issue -> update `text_inventory` or text boxes
-- clipped/cramped text -> enlarge box, add line break, use `valign`, then reduce font only if needed
-- missing or low-fidelity asset -> rerun targeted `image_gen`, then resplit/recrop only affected assets
-- broken image relationship -> fix manifest path or regenerate the asset file
-- baked-in text overlap -> replace source background with a clean no-text generated background
-- layout drift -> adjust manifest coordinates and regenerate `split_assets_contact.png`
-
-Step 7.4. Repeat Step 4, Step 5, or Step 7 until page validation, whole-deck preview review, and deck validation pass. Do not report completion while any expected page is blocked, missing, visually poor, missing `preview.png`, or absent from `deck_preview_contact.png`.
-
-### Step 8. Report Completion (Parent)
-
-Report only after the final deck is assembled and validation passes. Include:
-
-- final PPTX path
-- `deck_preview_contact.png` path
-- root `validation.json` path
-- any known fidelity limits or user-approved rasterization
-
-## Commands
-
 Crop one generated asset-sheet region into a reusable image and append provenance. This helper is for generated asset sheets only; do not use it to crop non-text assets from `source.png`:
 
 ```bash
-python3 {skill_root}/scripts/crop_image_asset.py \
+SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/image-to-editable-ppt"
+python3 "$SKILL_DIR/scripts/crop_image_asset.py" \
   --input imagegen_asset_sheet_alpha.png \
   --out assets/icon_trigger.png \
   --box 120,80,260,220 \
   --manifest manifest.json \
   --source-type imagegen \
-  --provenance-note "Icon cropped from the selected imagegen asset sheet and visually inspected."
+  --qa-note "Icon cropped from the selected imagegen asset sheet and visually inspected."
 ```
 
 Split a transparent asset sheet into component PNG assets after chroma-key removal:
 
 ```bash
-python3 {skill_root}/scripts/split_alpha_components.py \
+SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/image-to-editable-ppt"
+python3 "$SKILL_DIR/scripts/split_alpha_components.py" \
   --input imagegen_asset_sheet_alpha.png \
   --out-dir assets \
   --names icon_doc.png,icon_book.png,icon_bulb.png,icon_chart.png,icon_target.png \
@@ -294,10 +248,34 @@ python3 {skill_root}/scripts/split_alpha_components.py \
   --square
 ```
 
-When processing a new asset sheet, pass the selected generated image explicitly:
+The splitter defaults are tuned for generated sparse asset sheets: `--connectivity 8`, `--close-radius 3`, and `--merge-gap 18`. If assets are intentionally close together, lower `--merge-gap` or set it to `0`; if broken strokes remain split, retry once with `--merge-gap 24` before manual crop boxes.
+
+Build from a manifest:
 
 ```bash
-python3 {skill_root}/scripts/run_page_experiment.py pages/page_001 \
+SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/image-to-editable-ppt"
+python3 "$SKILL_DIR/scripts/build_pptx_from_manifest.py" manifest.json --out output.pptx
+```
+
+Validate the result:
+
+```bash
+SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/image-to-editable-ppt"
+python3 "$SKILL_DIR/scripts/validate_pptx.py" output.pptx --manifest manifest.json --required-text "标题" --report validation.json
+```
+
+Run the repeatable page experiment loop after a page manifest exists. This can copy a generated asset sheet, remove chroma key, split assets, build the PPTX, validate, and write `split_assets_contact.png` with `origin` and `preview` side by side:
+
+```bash
+SKILL_DIR="${CODEX_HOME:-$HOME/.codex}/skills/image-to-editable-ppt"
+python3 "$SKILL_DIR/scripts/run_page_experiment.py" pages/page_001 \
+  --preview-scale 144
+```
+
+When processing a new asset sheet, pass the selected generated image explicitly. Use `--despill` only after inspecting the alpha output and confirming it does not damage colors:
+
+```bash
+python3 "$SKILL_DIR/scripts/run_page_experiment.py" pages/page_001 \
   --asset-sheet-source /path/to/generated_sheet.png \
   --chroma imagegen_icon_sheet_magenta.png \
   --asset-names icon_a.png,icon_b.png,icon_c.png \
@@ -306,64 +284,51 @@ python3 {skill_root}/scripts/run_page_experiment.py pages/page_001 \
   --force-chroma
 ```
 
-Combine per-page `preview.png` files into the parent whole-deck QA sheet:
+## Rules
 
-```bash
-python3 {skill_root}/scripts/make_deck_preview_contact.py \
-  output/image-to-editable-ppt/<job-id>/deck_manifest.json
-```
-
-## FAQ
-
-### Q1. Subagents are unavailable. Can the parent rebuild all pages?
-
-For multi-image, PDF, PPT, and PPTX jobs, no. Stop before page reconstruction and report subagent dispatch as the blocker. Continue as a parent-only rebuild only after explicit user approval.
-
-### Q2. A subagent returned `completion_status: "blocked"`. What happens next?
-
-First check that the subagent attempted targeted self-repair and wrote a specific `blocker_reason` in `manifest.json`. Then the parent reads that reason, checks `validation.json` and `split_assets_contact.png` when present, and re-dispatches the same page with targeted repair instructions. Blocked pages are repair tasks, not slides to omit.
-
-### Q3. Can the parent decide page type or whether `image_gen` is required?
-
-No. The parent may write task boundaries in `run_request.json`, but page classification and `imagegen_required` decisions belong to the page subagent and must be recorded in `manifest.json`.
-
-### Q4. Can a page use the original `source.png` as a full-slide background with editable text on top?
-
-No. That duplicates baked-in source text under editable text and is a failed editable reconstruction. Use a clean no-text generated background when a raster background is needed.
-
-### Q5. When can `image_gen` be skipped?
-
-Only when all non-text visual objects are plain editable primitives. If the source contains icons, pictograms, decorative marks, sketchy arrows, stickers, textured notes, tapes, shadows, or other style-bearing objects, use `image_gen` or block with a reason.
-
-### Q6. What if generated assets look crude or wrong in `split_assets_contact.png`?
-
-The page subagent should repair it directly before reporting back: generate a focused repair asset sheet for the affected object(s), replace only the bad assets, rerun page validation, and regenerate `split_assets_contact.png`. Report `blocked` only if targeted repair still cannot produce usable assets.
-
-### Q7. How should clipped or cramped text be fixed?
-
-First enlarge `box_px`. Then add source-matching explicit line breaks or use `valign: "middle"` for labels. Reduce font size only after the text box has enough slack.
-
-### Q8. What if a PPT/PPTX has speaker notes?
-
-The parent preserves notes via `notes_manifest.json` and copies them unchanged to matching output slides during assembly. Subagents must not rewrite or analyze speaker notes.
-
-### Q9. Which visual QA files should exist?
-
-Each page should have `preview.png` for parent whole-deck review and `split_assets_contact.png` for origin/preview comparison. The job folder should have `deck_preview_contact.png` before final assembly. Do not create `diff.png` or `diff.json` as required outputs.
+- Use `image_gen` clean visual layers as the primary and default decomposition path for non-text visual content. For dense infographic pages, this means a clean layout/base layer plus sparse asset sheets, not one all-purpose generated background.
+- Treat the `imagegen_required` gate as mandatory page metadata. For dashboard, dense infographic, technical-route, and architecture pages, default it to `true`; if the final manifest has `images: []`, the page must document `skip_imagegen_allowed: true` plus concrete evidence that all non-text visuals are only plain primitives.
+- Prompt asset sheets as sparse single-sheet layouts by default: at least 260 px of pure chroma-key spacing for dense pages and at least 220 px for simpler pages, spacing more important than asset size, no touching or cross-asset shadows, and each icon internally complete as one object.
+- Choose chroma-key colors by asset content. Avoid green keys for green assets and avoid magenta keys for magenta/purple assets. Do not enable despill by default; inspect the alpha output before using it.
+- Prefer `image_gen` when deciding whether a visual element is a shape or an asset. Keep only simple structural geometry editable; split style-bearing or reusable visual elements into PNG assets.
+- Do not use the "simple primitives" exception for slides with hand-drawn small icons, tape, textured notes, decorative strokes, shadows, or pictograms. Recreate readable text as editable PPT text, but split those non-text visuals with `image_gen`.
+- Do not crop non-text visual assets directly from the original source image in editable-first mode. Full-page raster mosaics are not object-level editable PPT.
+- Do not use regular grid crops, tile mosaics, or large source regions that contain multiple unrelated objects as a substitute for element extraction. A crop that includes a surrounding card, neighboring text, or several icons is a page fragment, not an extracted asset.
+- Keep source images attached/visible for `image_gen` whenever the chosen path supports references.
+- Do not rely on `image_gen` for exact editable text; recreate readable text as editable PPT text boxes.
+- Do not satisfy editable text coverage with hidden/tiny overlay text. The visible text in the reconstructed slide must come from native PPT text boxes when the text is claimed editable.
+- Do not rely on generated images for exact slide geometry; write manifest placement in source-image pixel coordinates with `source.width_px`, `source.height_px`, `box_px`, and `points_px`, then let deterministic scripts convert to the slide size. Use the source image only as an alignment reference unless the user explicitly accepts visual-99 source rasterization.
+- Do not use local drawing code or native PowerPoint preset shapes to fake complex visual assets that should have come from `image_gen`.
+- Do not use local blur, dark rectangles, clone-like patches, or threshold masks as the final way to remove text from a complex photo background. They are acceptable only as diagnostic masks or prompt aids before `image_gen` background repair.
+- Do not use macOS Quick Look thumbnails as the visual acceptance renderer; they can distort PPT text layout. Prefer `split_assets_contact.png`, PowerPoint/WPS screenshots, or an explicitly trusted renderer.
+- Do not accept a PPTX solely because deterministic validation passes; visually inspect `split_assets_contact.png` or a trusted renderer screenshot.
+- Do not accept a PPTX whose native geometry changes the source semantics, such as turning rectangular tables/cards into rounded rectangles or replacing source line styles with unrelated decorative choices.
+- Treat `split_assets_contact.png` as an active repair trigger, not a passive artifact. If icons, pictograms, badges, or decorative marks look crude, mismatched, placeholder-like, malformed, or obviously worse than the source, stop and repair those assets with `image_gen` before final reporting.
+- Treat extracted asset crowding, cross-asset merges, clipped edges, and repeated fragments as blockers. Regenerate the asset sheet when spacing is the cause; use deterministic crop boxes only when one or two assets still need repair.
+- Treat unapproved full-slide rasterization or tiled full-page source-raster mosaics as blockers for editable reconstruction.
+- Treat missing independent required visual objects as blockers. If the source has hand-drawn icons, arrows, notes, tapes, charts, badges, checkboxes, underlines, pictograms, KPI icons, management-insight icons, decorative illustrations, or other style-bearing visual objects, the final manifest must contain corresponding named generated assets. Clean base images, page tiles, and native-shape approximations do not count for independently movable object coverage.
+- Treat missing `text_inventory` entries, missing relationship targets, broken media files, and unreadable Chinese text in `split_assets_contact.png` as blockers.
+- Treat visual drift, missing icons, missing labels, rasterized text that was meant to be editable, and clipped content as repair items.
 
 ## Acceptance Criteria
 
-- Final output is `{origin_name}_edited.pptx`.
-- Output slide count matches expected source page/slide count.
-- PPT/PPTX speaker notes, when present, are preserved on matching slides with identical text.
-- Every page manifest has `completion_status: "ready_for_assembly"`.
-- No page marked `blocked`, missing `completion_status`, missing validation, or failing validation is assembled.
-- Every readable source string is listed in `text_inventory` and appears as visible editable PPT text unless explicitly documented otherwise.
-- Every required non-text visual object is independently represented as a native shape or generated asset with provenance.
-- `preview.png` exists for each page.
-- `split_assets_contact.png` exists for each page and shows `origin` and `preview` side by side.
-- `deck_preview_contact.png` exists and has been inspected before final deck assembly.
-- Root `validation.json` passes.
+- PPTX opens as a valid zip package.
+- Output is always `.pptx`.
+- Single image output has one slide.
+- Multiple image output has one slide per image, with no promise about relative source-image order.
+- PDF output slide N corresponds to PDF page N.
+- PPT/PPTX output slide N corresponds to source slide N.
+- PPT/PPTX speaker notes, when present, are preserved on the matching output slide with identical text.
+- Every readable source string is listed in `text_inventory`, and every item is present as editable text unless intentionally documented as rasterized or omitted.
+- Every readable source string is visible as editable native text.
+- Every page manifest records the source image size in `source.width_px` and `source.height_px`, and positioned text, image, and shape objects use `box_px` or `points_px`.
+- Every required non-text visual object is independently represented. Plain primitives may be native shapes; standalone style-bearing objects must be named generated image assets.
+- Every page records `imagegen_required`, `skip_imagegen_allowed`, and any `imagegen_skip_reason` or skip evidence. Dashboard, dense infographic, technical-route, and architecture pages with `images: []` pass only when the skip evidence proves there are no standalone icons, pictograms, badges, stickers, decorative marks, or other style-bearing reusable objects.
+- If `imagegen_required` is true, every standalone style-bearing visual object has a named generated asset with provenance.
+- Validation report includes slide count, image count, editable shape count, required-text results, missing package parts, missing relationship targets, media hash mismatches, and warnings.
+- Every final raster asset has a validator-checked provenance entry with a valid `source_type`, existing `source`, and manifest-recorded provenance note; user-approved rasterization also needs `approval_note` and source region coordinates.
+- `split_assets_contact.png` is produced with `origin` and `preview` side by side for visual QA.
+- Contact-sheet-visible crude placeholder icons, wrong icon metaphors, malformed pictograms, or native-shape approximations of style-bearing assets are blockers and must be repaired with targeted `image_gen` asset generation before completion.
+- For photo-background slides, a clean no-text background image is produced and inspected; old text ghosting, blur blocks, dark boxes, or generated replacement text are blockers.
+- Any known visual-fidelity limits are documented rather than hidden.
 - Final response names the PPTX path, validation report path, and any known fidelity limits.
-
-For detailed prompt patterns, manifest schema, and validation criteria, read `references/workflow.md`.

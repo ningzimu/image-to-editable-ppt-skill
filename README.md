@@ -91,9 +91,9 @@ skill 通常会完成这些步骤：
 
 1. 创建独立任务目录，并把输入归一化为 `pages/page_NNN/source.png`。
 2. 多页场景按页分配给子 agent 并行重建。
-3. 每页创建 manifest，重建可编辑文本、简单形状和图片资产，并生成 `preview.png` 与 `split_assets_contact.png`。
-4. 主 agent 合成 `deck_preview_contact.png` 做整套页面预览检查，修复问题页后再组装最终 `.pptx`。
-5. 复制 PPT/PPTX 备注，运行 deck validation，并根据验证结果做最小范围修复。
+3. 每页创建 manifest，重建可编辑文本、简单形状和图片资产。
+4. 主 agent 组装最终 `.pptx`，复制 PPT/PPTX 备注，并运行 deck validation。
+5. 根据验证结果做最小范围修复。
 
 ## 脚本入口
 
@@ -103,9 +103,7 @@ skill 通常会完成这些步骤：
 - `prepare_inputs.py`：创建 job 目录，把图片/PDF/PPT/PPTX 归一化为 `pages/page_NNN/source.png`，并生成 `deck_manifest.json`。
 - `build_pptx_from_manifest.py`：从单页 `manifest.json` 或多页 `deck_manifest.json` 组装 `.pptx`。
 - `validate_pptx.py`：校验 PPTX 包结构、页数、manifest、资产来源、文本覆盖和备注 hash。
-- `run_page_experiment.py`：构建单页 PPTX，生成 `preview.png` 和 `split_assets_contact.png`，并运行页面验证。
-- `make_deck_preview_contact.py`：把每页 `preview.png` 合成为 `deck_preview_contact.png`，供最终组装前整体 review。
-- `split_alpha_components.py`、`crop_image_asset.py`：拆分和裁剪生成的透明资源表，并记录资产来源。
+- `render_diff.py`、`split_alpha_components.py`、`crop_image_asset.py`：辅助预览、差异检查和资产拆分。
 
 示例：
 
@@ -128,8 +126,7 @@ python3 skills/image-to-editable-ppt/scripts/validate_pptx.py \
 output/image-to-editable-ppt/{job-id}/
 ├── input/
 ├── deck_manifest.json
-├── deck_preview_contact.png
-├── {origin_name}_edited.pptx
+├── rebuilt.pptx
 ├── validation.json
 ├── notes_manifest.json
 └── pages/
@@ -138,10 +135,13 @@ output/image-to-editable-ppt/{job-id}/
     │   ├── run_request.json
     │   ├── imagegen-jobs.json
     │   ├── assets/
-    │   ├── preview.png
     │   ├── split_assets_contact.png
     │   ├── manifest.json
-    │   └── validation.json
+    │   ├── preview.png
+    │   ├── diff.png
+    │   ├── diff.json
+    │   ├── validation.json
+    │   └── qa_notes.md
     └── page_002/
         └── ...
 ```
