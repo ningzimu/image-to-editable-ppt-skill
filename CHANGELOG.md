@@ -29,6 +29,7 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Documentation
 
+- Add the generated codex-ppt and image-to-editable-ppt introduction PDF to the README tips.
 - Add the kidney cancer MDT infographic as a README conversion example.
 - Add Skill community group QR code sections to the Chinese and English READMEs.
 - Add repository README files, contribution guidance, changelog, license, PR template, and lightweight GitHub checks.
