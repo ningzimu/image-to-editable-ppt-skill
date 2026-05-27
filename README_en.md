@@ -26,6 +26,10 @@ It is useful when screenshot-like or image-based slides need to become easier to
     <td><img src="assets/showcase-origin-status-report.png" alt="Status report original" width="420"></td>
     <td><img src="assets/showcase-editable-ppt-result-status-report.png" alt="Status report editable result" width="420"></td>
   </tr>
+  <tr>
+    <td><img src="assets/showcase-origin-mdt-kidney-cancer.jpg" alt="Kidney cancer MDT infographic original" width="420"></td>
+    <td><img src="assets/showcase-editable-ppt-result-mdt-kidney-cancer.png" alt="Kidney cancer MDT infographic editable result" width="420"></td>
+  </tr>
 </table>
 
 ## Highlights

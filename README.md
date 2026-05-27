@@ -26,6 +26,10 @@
     <td><img src="assets/showcase-origin-status-report.png" alt="项目进展汇报原图" width="420"></td>
     <td><img src="assets/showcase-editable-ppt-result-status-report.png" alt="项目进展汇报转换后可编辑效果" width="420"></td>
   </tr>
+  <tr>
+    <td><img src="assets/showcase-origin-mdt-kidney-cancer.jpg" alt="肾癌 MDT 信息图原图" width="420"></td>
+    <td><img src="assets/showcase-editable-ppt-result-mdt-kidney-cancer.png" alt="肾癌 MDT 信息图转换后可编辑效果" width="420"></td>
+  </tr>
 </table>
 
 ## 特点
