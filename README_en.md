@@ -9,11 +9,15 @@ A Codex skill for converting images, PDFs, and image-based PPT files into editab
 It is useful when screenshot-like or image-based slides need to become easier to edit again, with text, simple shapes, and visual assets separated where practical.
 
 > [!WARNING]
-> This skill is currently a pure visual reconstruction workflow, not a lightweight converter. The AI runs a "rebuild -> self-verify -> self-repair" loop and may iterate multiple times until it judges the result close enough to the source. During this process, page subagents may make many attempts per page, so the workflow can consume a large number of tokens.
+> This skill currently uses a multi-agent collaborative reconstruction workflow with complex flow control. It is not a lightweight converter. The AI runs a "**rebuild -> self-verify -> self-repair**" loop and may iterate multiple times until it judges the result close enough to the source. During this process, page subagents may make **many attempts** per page, so the workflow can consume a large number of tokens.
 >
-> GPT Pro is recommended. Plus users should use this skill cautiously. Reconstructing a 10-page PPT may consume your entire 5-hour usage window. Strongly consider testing with one page first instead of converting 10 pages at once.
+> **GPT Pro is recommended. Plus users should use this skill cautiously.**
 >
-> If you do not strongly need editability, avoid this skill. A lighter approach is to use gpt-image-2 image editing directly: provide the specific PPT page image you are unhappy with and ask for a targeted edit.
+> Reconstructing a 10-page PPT may consume your entire 5-hour usage window. A single-page PPT reconstruction may take more than 10 minutes. Strongly consider testing with one page first instead of converting all pages at once.
+>
+> **If you do not strongly need editability, avoid this skill.**
+>
+> A lighter approach is to use gpt-image-2 image editing directly: provide the specific PPT page image you are unhappy with, ask for a targeted edit, and have it return the modified image.
 
 > [!TIP]
 > This skill does not create new decks from articles, reports, outlines, or ideas. If your goal is to generate a PPT, use [codex-ppt-skill](https://github.com/ningzimu/codex-ppt-skill).
@@ -79,10 +83,11 @@ Speaker notes are handled only for `.pptx` input. The parent agent copies notes 
 
 ## Known Limitations
 
-- This skill is deeply adapted for Codex and currently does not support other agents.
-- This skill has been tested under Codex membership tiers (Plus / Max). Compatibility with third-party API integrations has not been tested.
-- Results are limited by the model's baseline visual understanding and its ability to follow the skill workflow; usage quality is not guaranteed for models below gpt-5.5.
-- Some image elements and text positions may shift slightly, so output is not guaranteed to be a 100% replica of the original page.
+- This skill is deeply adapted for Codex and currently **does not support other agents**.
+- This skill has been tested under Codex membership tiers (Plus / Max). **Compatibility with third-party API integrations has not been tested**.
+- This skill has relatively complex flow control and high token usage. The cost of converting an image-based PPT into an editable PPT **may be 2-3x the cost of generating an image-based PPT**.
+- Results are limited by the model's baseline visual understanding and its ability to follow the skill workflow; usage quality is **not guaranteed for models below gpt-5.5**.
+- Some image elements and text positions may shift slightly, so output is **not guaranteed to be a 100% replica of the original page**.
 
 ## Install
 
