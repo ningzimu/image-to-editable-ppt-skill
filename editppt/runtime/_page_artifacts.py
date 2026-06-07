@@ -1,6 +1,5 @@
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -23,10 +22,9 @@ def resolve_under_page(page_dir, value):
 
 
 def imagegen_chroma_helper():
-    codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
-    helper = codex_home / "skills/.system/imagegen/scripts/remove_chroma_key.py"
+    helper = SCRIPT_DIR / "remove_chroma_key.py"
     if not helper.exists():
-        raise SystemExit(f"Missing imagegen chroma helper: {helper}")
+        raise SystemExit(f"Missing chroma helper: {helper}")
     return helper
 
 

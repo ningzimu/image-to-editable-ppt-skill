@@ -50,7 +50,7 @@ manifest 必须通过 `quality_checks.font_size_calibrated=true` 明确记录已
 
 ## 4. 前景视觉对象
 
-以下对象默认用 `$imagegen` 重绘成独立资产：
+以下对象默认用 confirmed image backend 重绘成独立资产：
 
 - 图标、pictogram、symbol、logo-like mark。
 - 徽章、贴纸、胶带、印章、角标。
@@ -58,12 +58,12 @@ manifest 必须通过 `quality_checks.font_size_calibrated=true` 明确记录已
 - 复杂箭头、图标化节点、带纹理或阴影的元素。
 - dashboard 或图表里的语义小图标、趋势图标、警告符号、状态符号。
 
-如果无法确定一个非文字元素是基础结构还是风格化视觉对象，默认用 `$imagegen` 重绘。
+如果无法确定一个非文字元素是基础结构还是风格化视觉对象，默认用 confirmed image backend 重绘。
 
-但 `$imagegen` 不是“改样式”的许可。page worker 必须先建立 `visual_inventory`，再选择资产来源：
+但 image backend 不是“改样式”的许可。page worker 必须先建立 `visual_inventory`，再选择资产来源：
 
 - 简单 primitive：直线、矩形、圆、普通箭头、表格线等，用 native shape。
-- 风格化但可重绘的视觉对象：用 `$imagegen` asset sheet，要求对象数量、顺序和语义与 inventory 一致。
+- 风格化但可重绘的视觉对象：用 image backend asset sheet，要求对象数量、顺序和语义与 inventory 一致。
 - 需要高度一致的小型源图视觉对象：如果无可读文字，且 imagegen 重绘会明显改变身份或丢失细节，可以裁为独立 `source-derived-rasterization` 资产。它必须是可移动的独立对象，并记录 `source_region_px` 或 `source_bbox_px`。
 - 承载可读文字的区域、整卡片、整表格、整图表、整页截图不能走 source-derived raster 来冒充可编辑化。
 
@@ -75,7 +75,7 @@ asset sheet 生成后必须对账：
 
 source-derived raster asset 的裁剪要求：
 
-- 使用官方脚本裁剪，不要手写临时裁剪脚本。
+- 使用 `editppt image crop` 裁剪，不要手写临时裁剪代码。
 - crop box 必须覆盖完整对象并额外留安全边距，常见小图标至少 6-12 px。
 - 需要透明化时用 border background removal。透明化后可见像素贴到图片边缘时，先作为可疑信号复核 source/contact sheet；它不自动等同于裁断。
 - 只有在资产天然应该完整落在透明画布内、且 manifest 显式设置 `require_edge_safe_alpha: true` 时，validation 才把 visible pixels touch edge 作为硬失败。
@@ -85,18 +85,18 @@ source-derived raster asset 的裁剪要求：
 按成本递增选择：
 
 1. 原生 PPT 可重建：纯色、简单渐变、普通卡片、表格线、图表框。
-2. 确定性脚本可重建：可采样纯色、规则网格、简单重复模式。
+2. 确定性 runtime 可重建：可采样纯色、规则网格、简单重复模式。
 3. 已有背景可复用：没有烙印文字，也没有后续要独立重建的前景对象。
-4. `$imagegen` 修复：复杂背景被文字、图标、标签、贴纸、手写标记遮挡，移除后需要合理补全。
+4. image backend 修复：复杂背景被文字、图标、标签、贴纸、手写标记遮挡，移除后需要合理补全。
 
 clean base 不能包含后续会重建的文字或前景对象。否则会产生背景一份、可编辑对象一份的重复。
 
 复杂背景的首要目标是保留 source identity：
 
 - 对照片、空间、真实产品图、复杂 dashboard、插画，clean base 必须以 source 为 edit target 和强约束参考。
-- 遮挡少时，只修复被移除文字、标签、图标、贴纸遮住的局部区域；不要让 `$imagegen` 重新想象整张背景。
-- 如果遮挡区域很小，优先局部 inpainting 或小 patch；如果背景本身是纯色/规则形状，直接用脚本或 native shape 补齐。
-- 当前景覆盖较多、需要整张 clean base 时，可以用 `$imagegen` 重建背景图，但必须对照 source 保留原始构图、透视、物体位置、色彩、光照、材质和关键细节。目标是“去掉前景后的同一张背景”，不是同主题新图。
+- 遮挡少时，只修复被移除文字、标签、图标、贴纸遮住的局部区域；不要让 image backend 重新想象整张背景。
+- 如果遮挡区域很小，优先局部 inpainting 或小 patch；如果背景本身是纯色/规则形状，直接用 native shape 或确定性 runtime 补齐。
+- 当前景覆盖较多、需要整张 clean base 时，可以用 image backend 重建背景图，但必须对照 source 保留原始构图、透视、物体位置、色彩、光照、材质和关键细节。目标是“去掉前景后的同一张背景”，不是同主题新图。
 - 整张 clean base 必须在 `background_strategy` 写 `mode: "imagegen-full-clean-base"`、`source_consistency_contract`、`removed_foreground` 和 `comparison_note`。
 - clean base prompt 只写“保留背景”不够；必须列出保留的 camera/perspective/layout/color/light/detail，以及只移除哪些前景。
 

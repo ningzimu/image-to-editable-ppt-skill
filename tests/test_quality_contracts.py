@@ -5,8 +5,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_DIR = ROOT / "skills/image-to-editable-ppt/scripts"
-sys.path.insert(0, str(SCRIPT_DIR))
+RUNTIME_DIR = ROOT / "editppt/runtime"
+sys.path.insert(0, str(RUNTIME_DIR))
 
 from PIL import Image  # noqa: E402
 from validate_pptx import ALLOWED_SOURCE_TYPES, alpha_edge_violations, quality_contract_violations  # noqa: E402

@@ -1,4 +1,4 @@
 interface:
   display_name: "Image to Editable PPT"
   short_description: "将图片、PDF 或图片版 PPT/PPTX 重建成可编辑 PPTX"
-  default_prompt: "使用 $image-to-editable-ppt 将输入重建成对象级可编辑 PowerPoint。每一页都必须分派 page subagent，所有生图/改图走 $imagegen，并按 manifest、preview、contact sheet 和 validation 完成检查。"
+  default_prompt: "使用 $image-to-editable-ppt 将输入重建成对象级可编辑 PowerPoint。单张图片由主 agent 直接重建；多页输入先由主 agent 重建一页样张并等待确认，再分派其余 page worker。所有生图/改图使用已确认 image backend，并按 manifest、preview、contact sheet 和 validation 完成检查。"

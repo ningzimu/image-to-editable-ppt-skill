@@ -34,12 +34,20 @@ def add_item(queue, page, reason, evidence):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Create repair queue items from page validation or explicit QA evidence.")
-    parser.add_argument("run", help="Run directory or deck_manifest.json")
-    parser.add_argument("--page", action="append", help="page_001 or 1; may be repeated")
-    parser.add_argument("--from-validation", action="store_true")
-    parser.add_argument("--reason", default="page validation or QA requires repair")
-    parser.add_argument("--evidence", action="append", default=[])
+    parser = argparse.ArgumentParser(
+        prog="editppt run repair",
+        description="Create repair queue items from page validation or explicit QA evidence.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Examples:
+  editppt run repair <run> --page page_002 --reason "text overflow in preview" --evidence pages/page_002/validation.json
+  editppt run repair <run> --from-validation --reason "recorded pages with failed validation need repair"
+""",
+    )
+    parser.add_argument("run", help="Run directory or deck_manifest.json path.")
+    parser.add_argument("--page", action="append", help="Recorded page to repair, such as page_001 or 1. Repeat for multiple pages.")
+    parser.add_argument("--from-validation", action="store_true", help="Queue every recorded page whose validation file is missing or not passed.")
+    parser.add_argument("--reason", default="page validation or QA requires repair", help="Human-readable repair reason copied into repair_queue.json.")
+    parser.add_argument("--evidence", action="append", default=[], help="Evidence path or note for the repair item. Repeat to attach multiple evidence entries.")
     args = parser.parse_args()
 
     run_dir = run_dir_from_target(args.run)

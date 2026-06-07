@@ -14,126 +14,145 @@ description: 当用户提供一张或多张幻灯片图片、图片版 PPT/PPTX 
 
 ## Hard Constraints
 
-- 每一个来源页面都必须由 page subagent 重建，包括单张图片输入。
-- 主 agent 不做页面重建，只做 orchestration。
-- 不设计父 agent 单独执行、顺序降级执行或低保真降级模式。没有可用 page subagent 就停止，不进入页面重建。
-- 所有生图、改图、背景修复、透明 bitmap 资产和 asset sheet 都必须使用 `$imagegen` skill。
-- `$imagegen` 的默认路径是 built-in `image_gen`。不要在本 skill 里直接调用 Image API。
-- 如果页面需要 `$imagegen`，但 `$imagegen` 或 built-in `image_gen` 不可用，停止该页并报告 blocker，不伪造资产。
+- 单张图片输入由主 agent 直接重建，不分派 page worker，也不进入样张确认流程。
+- 多页输入由主 agent 先直接完成一个代表性 sample page 的页面重建；用户确认后，该页直接作为最终结果，其余页面再分派给 page worker。
+- 多页输入中，除 sample page 外的页面必须由 page worker/subagent 重建。没有可用 page worker/subagent 就停止，不进入其余页面重建。
+- 所有生图、改图、背景修复、透明 bitmap 资产和 asset sheet 都必须使用 `deck_manifest.json.image_backend` 确认的 image backend。
+- 优先使用当前环境可用的内置图片生成/编辑工具。仅当内置工具不可用、能力不足，或用户明确要求 API/CLI 时，使用 `editppt image ...`。
+- 不创建一次性 SDK runner；API/CLI fallback 只走 `editppt image ...`。
+- 不要只因为用户提到 `gpt-image-2`、分辨率、质量、透明资产或单页修复就要求配置第三方 API。只有确认需要 API/CLI fallback 时，才引导用户运行 `editppt config`。
+- 第三方 API/OpenAI-compatible 中转站配置必须写入用户级 `~/.editppt/config.yaml`（Windows: `%USERPROFILE%\.editppt\config.yaml`），不要写入项目目录、run 目录或 skill 目录。
+- 如果页面需要图片生成或编辑，但确认的 image backend 不可用，停止该页并报告 blocker，不伪造资产。
 - 原始整页 `source.png` 加可编辑文本覆盖是失败模式，不是 fallback。
-- 只有基础 primitive 和简单结构对象可以用原生 PPT shape。非文字视觉对象不确定时，默认用 `$imagegen` 重绘成独立资产。
+- 只有基础 primitive 和简单结构对象可以用原生 PPT shape。非文字视觉对象不确定时，默认用 confirmed image backend 重绘成独立资产。
 - page worker 必须先做文字字号、视觉对象、背景策略和形状角形的清单校准，再写 manifest；不能靠审美猜测默认字号或默认圆角。
-- 关键状态只能由脚本推进。agent 不能手写 JSON 把 page、imagegen job 或 run 标成完成。
+- 关键状态只能由 `editppt` 命令推进。agent 不能手写 JSON 把 page、imagegen job 或 run 标成完成。
 
-## Visible Progress Plan
+## Required References
 
-正常运行时，主 agent 必须保持一个用户可见 checklist，同一时间只有一个 active step：
+开始前读取：
 
-1. 准备输入和任务目录。
-2. 分派页面重建。
-3. 重建页面对象。
-4. 检查并修复页面。
-5. 组装和验证 PPTX。
+- `references/workflow-contract.md`：主流程、角色、状态推进、repair 和 blocker。
+- `references/cli-contracts.md`：`editppt` 命令职责和何时调用。
+- `references/image-backend-integration.md`：如何选择和使用 image backend，包括 clean base、asset sheet、透明化和 prompt patterns。
+- `references/page-decision-tree.md`：页面分析、背景策略、前景/结构对象边界。
+- `references/manifest-schema.md`：deck/page/image job JSON schema 和 artifact contract。
+- `references/qa-rubric.md`：结构、文字、资产、背景、视觉 QA 标准。
+
+page worker 使用 `prompts/page-worker.md`。normal rebuild 和 repair 都使用同一个模板；repair 时附带 repair item、失败证据和允许修改范围。
+
+## Workflow
+
+### Phase 1: Prepare
+
+运行：
+
+```bash
+editppt prepare <input...>
+```
 
 完成条件：
 
-- `准备输入和任务目录`：`deck_manifest.json`、`page_jobs.json`、`pages/page_NNN/source.png`、`notes_manifest.json` 已存在。
-- `分派页面重建`：主 agent 按 `max_concurrent_pages` 分批 spawn page subagent；每个已 spawn page 都由 `record_page_dispatch.py` 记录为 dispatched。如果不能继续 spawn subagent，停在这里并报告 blocker。
-- `重建页面对象`：每个 page 都由 page worker 产出 `manifest.json`、`page.pptx`、`preview.png`、`split_assets_contact.png`、`validation.json`、`page_result.json`。
-- `检查并修复页面`：所有 page 通过 `record_page_result.py` 记录，repair queue 清空；无法修复时报告 blocker。
-- `组装和验证 PPTX`：`final/<origin>_edited.pptx` 和 `final/validation.json` 已存在。
+- run dir 已创建。
+- `deck_manifest.json`、`page_jobs.json`、`notes_manifest.json` 已存在。
+- 每页有 `pages/page_NNN/source.png` 和 `page_request.json`。
+- `deck_manifest.json.image_backend` 已由 `editppt prepare` 写入默认 backend。
 
-不要只因为聊天里说完成就标记步骤完成；必须有真实文件或脚本推进的状态。
+只有需要 API fallback 或 custom backend override 时，才运行 `editppt run backend`。
 
-## Default Workflow
+### Phase 2: Rebuild First Page
 
-1. 运行 `prepare_deck_run.py` 创建 run 目录、归一化输入、生成 deck/page manifest 和 page request。
-2. 运行 `page_job_status.py` 查看待分派页面、active dispatches 和可用 dispatch slot。
-3. 主 agent 按 `max_concurrent_pages` 分批 spawn 普通 Codex worker subagent；不要一次性 spawn 超过运行时并发上限。
-4. spawn 后立即运行 `record_page_dispatch.py` 记录 dispatch。
-5. 每个 page worker 只在自己的 page 目录内工作，完成 page-level build、preview、contact sheet、validation。
-6. page worker 返回后，主 agent 运行 `record_page_result.py` 检查文件、路径和 hash，并推进 page 状态。
-7. 再次运行 `page_job_status.py`；如果还有 pending/repair_needed page，就继续下一批分派。
-8. 如有页面问题，运行 `queue_page_repairs.py` 生成 repair item，再分批分派 repair worker。
-9. 所有 page accepted 后，运行 `finalize_deck_run.py` 组装最终 PPTX、复制 notes、运行 deck validation 和 QA summary。
+单页输入：
 
-正常主入口是 `prepare_deck_run.py`。不再保留旧输入归一化脚本作为公开入口或兼容 wrapper。
+- 主 agent 直接重建该页。
+- 不 spawn page worker。
+- 不走 sample approval。
 
-## Generation Delegation
+多页输入：
 
-使用 `$imagegen` 前必须读取并遵守：
+- 主 agent 选择代表性 sample page。
+- 主 agent 直接重建 sample page。
+- 向用户展示 `page.pptx`、`preview.png`、`split_assets_contact.png`、`validation.json` 和关键 known limits。
+- 用户确认后运行 `editppt run sample <run> --page <page_id>`。
 
-```text
-${CODEX_HOME:-$HOME/.codex}/skills/.system/imagegen/SKILL.md
+### Phase 3: Dispatch Remaining Pages
+
+主 agent 使用：
+
+```bash
+editppt run next <run>
 ```
 
-本 skill 只组合 `$imagegen`，不重新定义图片生成 API 规则。
+如果 next 要求 dispatch：
 
-页面内需要 `$imagegen` 的常见场景：
+1. 运行 `editppt run prompt <run> --page <page_id> --out <prompt-file>`。
+2. spawn page worker。
+3. spawn 成功后立即运行 `editppt run dispatch <run> --page <page_id> --agent-id <id> --prompt-file <prompt-file>`。
 
-- complex background 上有文字、图标或前景对象，需要 source-preserving foreground removal + localized background restoration。
-- 图标、pictogram、徽章、贴纸、手绘标记、风格化箭头、装饰符号等需要作为独立资产。
-- 需要生成 chroma-key asset sheet，再本地去底、切分、透明化。
-- 需要 targeted repair 某个 clean base 或某个前景资产。
+`editppt run status` 只用于 debug、人工检查或排查并发槽位；正常主流程优先 `editppt run next`。
 
-项目实际使用的生成图片必须复制到 page 目录，并通过 page-local `imagegen-jobs.json` 记录。不要让 manifest 引用只存在于 `$CODEX_HOME/generated_images/...` 的图片。
+### Phase 4: Record And Repair
 
-复杂背景默认保留 source identity。可以用 `$imagegen` 生成 clean background，但必须把 source 当作 edit target 和强约束参考来修复/重建，不能生成一个“同类但不同”的新背景。遮挡少时优先局部修复；遮挡多或需要整张 clean base 时，也必须保留原始构图、透视、主要物体位置、色彩、光照和背景细节，并在 manifest 的 `background_strategy` 里记录保真策略。
+worker 返回后运行：
 
-## Subagent Dispatch
+```bash
+editppt run record <run> --page <page_id> --agent-id <id>
+```
 
-page subagent 是唯一的页面重建执行者。主 agent 不重建页面。
+如果 validation/QA 失败，运行：
 
-每个 page worker 必须收到自包含 prompt，至少包含：
+```bash
+editppt run repair <run> --page <page_id> --reason <reason> --evidence <path>
+```
 
-- run dir、page id、page dir、source image 绝对路径。
-- 允许写入范围：只能写当前 page dir。
-- 禁止写入范围：deck manifest、notes manifest、final deck、其他 page。
-- 必读 reference：`page-decision-tree.md`、`imagegen-integration.md`、`manifest-schema.md`、`qa-rubric.md`。
-- 必读 `$imagegen/SKILL.md`。
-- required outputs 和返回格式。
+然后重新生成 page-worker prompt，并附带 repair item、失败证据和允许修改范围。repair 不使用独立 prompt 文件。
 
-page worker prompt 模板在 `prompts/page-worker.md`。
+### Phase 5: Finalize
 
-如果无法 spawn page subagent，停止并报告 blocker。不要顺序执行页面重建。
+当 `editppt run next <run>` 返回 finalize 阶段，运行：
 
-## Rules
+```bash
+editppt run finalize <run>
+```
 
-- 文字：所有可读文字都应成为可见原生 PPT text box。隐藏、透明、1 pt、off-canvas 或 metadata-only 文本不算可编辑文字。
-- 字号：先根据 source 字形高度、容器高度和同行密度估算，再用 preview 对照缩放；不确定时偏小而不是偏大。manifest 必须记录 `quality_checks.font_size_calibrated=true`。
-- 结构：只有基础 primitive 可以用原生 PPT shape，例如直线、矩形、圆形、表格线、坐标轴、简单柱状块、基础容器。矩形容器默认用 `rect`；只有 source 明确是圆角时才用 `roundRect`，并记录 `source_corner_radius_px` 或 `corner_reason`。
-- 前景：图标、pictogram、logo-like mark、手绘标记、贴纸、徽章、复杂箭头、装饰元素默认用 `$imagegen` 重绘成独立资产。若源图里的小型视觉对象需要高度一致、无可读文字、且重绘会改变身份，可作为独立 source-derived raster asset 裁出并记录来源区域；这不是整页截图 fallback。
-- 背景：纯色、简单渐变、规则网格、普通卡片可用原生或脚本重建；复杂照片、纹理、插画被前景遮挡时，用 `$imagegen` 做 inpainting/restoration。
-- asset sheet：默认用稀疏 chroma-key asset sheet 减少生图次数。元素间距优先，不能拥挤、粘连、互相投影。
-- provenance：每个最终 raster asset 都必须有来源记录。不能把原始 source crop 当成默认视觉资产。
-- QA：确定性 validation 必要但不充分。必须检查 `preview.png` 和 `split_assets_contact.png`。
-- repair：修最小失败范围。不要为了一个文本框或一个图标重建整页。
-- 状态：`page_jobs.json`、`imagegen-jobs.json` 的关键状态必须由脚本推进。
+完成条件：
+
+- `final/<origin>_edited.pptx` 已存在。
+- `final/validation.json` 已存在。
+- PPT/PPTX speaker notes 已按页原样复制。
+- run summary 已写入。
+
+## Page Output Contract
+
+每页必须有：
+
+- `manifest.json`
+- `imagegen-jobs.json`
+- `page.pptx`
+- `preview.png`
+- `split_assets_contact.png`
+- `validation.json`
+- `page_result.json`
+
+`page_result.json` 必须指向当前 page dir 内的文件，并包含 qa note 和 known limits。
 
 ## Acceptance Criteria
 
 - 输出是有效 `.pptx`。
 - 单图输出 1 页；多图每图 1 页；PDF 第 N 页对应输出第 N 页；PPT/PPTX 第 N 页对应输出第 N 页。
 - PPT/PPTX speaker notes 按页原样复制，不翻译、不摘要、不交给 page worker 改写。
-- 每页有 `manifest.json`、`page.pptx`、`preview.png`、`split_assets_contact.png`、`validation.json`、`page_result.json`。
 - 每页 source image size、text inventory、object decisions、asset provenance、known limits 都有记录。
-- 每个 page 都由 `record_page_dispatch.py` 记录 dispatch，并由 `record_page_result.py` 记录结果。
+- 单张图片由主 agent 完成；多页输入中 sample page 由 `editppt run sample` 记录，其余页面由 `editppt run dispatch` 记录 dispatch，并由 `editppt run record` 记录结果。
 - 最终 deck 有 `final/<origin>_edited.pptx` 和 `final/validation.json`。
-- 若出现 blocker，最终回复必须说明 blocker 阶段、证据路径和未完成原因；不能称为正常完成。
 
-## Reference Map
+## Blocker Reporting
 
-- `references/architecture.md`：职责边界、run/page 目录结构、owner 原则。
-- `references/state-machine.md`：run/page/imagegen 状态机和脚本推进规则。
-- `references/subagent-contract.md`：page worker、repair worker 的提示词契约和返回格式。
-- `references/imagegen-integration.md`：如何组合 `$imagegen`，包括 clean base、asset sheet、透明化和记录。
-- `references/page-decision-tree.md`：页面分析、背景策略、前景/结构对象边界。
-- `references/manifest-schema.md`：deck/page/imagegen JSON schema 第一版。
-- `references/qa-rubric.md`：结构、文字、资产、背景、视觉 QA 标准。
-- `references/repair-policy.md`：repair queue、最小返工范围和 blocker 判定。
-- `references/script-contracts.md`：脚本职责、输入输出和允许调用者。
-- `prompts/page-worker.md`：普通页面重建 worker prompt。
-- `prompts/page-repair-worker.md`：页面修复 worker prompt。
-- `prompts/imagegen-clean-base.md`：clean base 生成/编辑 prompt。
-- `prompts/imagegen-asset-sheet.md`：稀疏 asset sheet prompt。
-- `prompts/imagegen-repair.md`：targeted imagegen repair prompt。
+若出现 blocker，最终回复必须说明：
+
+- blocker 阶段。
+- blocker reason。
+- evidence path。
+- 已完成文件。
+- 未完成文件。
+
+不能把 blocker 称为正常完成，也不能用低保真整页截图 fallback。

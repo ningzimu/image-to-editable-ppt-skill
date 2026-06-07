@@ -4,6 +4,21 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Improvements
+
+- Add the package-level `editppt` CLI and move deterministic runtime code out of the installable skill resources.
+- Add a cross-agent image backend contract with built-in image tooling preferred and API/CLI fallback support.
+- Add a sample-page approval flow for multi-page inputs while keeping the approved sample page as the final result for that page.
+- Move API fallback configuration to `~/.editppt/config.yaml`.
+- Refine the public `editppt` command tree into setup/install/update, run workflow, and image handling groups with agent-friendly help text.
+
+### Documentation
+
+- Update Chinese and English README files for multi-agent usage, backend configuration, and sample-page flow.
+- Document third-party image API fallback guidance and keep API keys in the user-level `~/.editppt/config.yaml`.
+- Align installable Skill prompts and references with the unified CLI and image backend terminology.
+- Consolidate installable Skill workflow references and repair prompts into a shorter CLI-first flow contract.
+
 ## 0.1.0
 
 ### Features

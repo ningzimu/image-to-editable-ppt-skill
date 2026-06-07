@@ -4,16 +4,16 @@
 
 ![Image to Editable PPT 项目概览](assets/image-to-editable-ppt-overview.png)
 
-一个面向 Codex 的图片、PDF、图片版PPT 转可编辑 PowerPoint 的 skill。它先把输入归一化为逐页任务，再由 page subagent 重建为 `.pptx`：可读文字尽量恢复为原生文本框，简单几何尽量恢复为 PowerPoint 形状，复杂视觉元素保留为带来源记录的独立图片资产。
+一个用于把图片、PDF、图片版PPT 转成可编辑 PowerPoint 的 skill。它先把输入归一化为逐页任务，再重建为 `.pptx`：可读文字尽量恢复为原生文本框，简单几何尽量恢复为 PowerPoint 形状，复杂视觉元素保留为带来源记录的独立图片资产。
 
 它适合把截图式或图片式幻灯片变成更容易二次编辑的 PPT，让文字、简单形状和视觉素材尽量分开调整。
 
 > [!WARNING]
-> 目前该skill 采用了多智能体协作复原流程，有着复杂的流程控制，不是轻量转换器。AI 会执行“**重建 → 自我验证 → 自我修复**”的循环，并可能进行多轮迭代，直到它认为结果足够接近原图。在这个过程中，page subagent 可能会对每一页做很**多轮尝试**，因此整体上比较费 token。
+> 目前该skill 采用了多智能体协作复原流程，有着复杂的流程控制，不是轻量转换器。AI 会执行“**重建 → 自我验证 → 自我修复**”的循环，并可能进行多轮迭代，直到它认为结果足够接近原图。在这个过程中，page worker 可能会对页面做很**多轮尝试**，因此整体上比较费 token。
 >
 > **推荐 ChatGPT Pro 用户使用；Plus 用户请谨慎使用。**
 >
-> 复原一个 10 页 PPT 有可能消耗完你的 5 小时额度。单页PPT复原时间可能在10min以上，强烈建议先拿其中一页试效果，不要一上来就转换全部页的PPT。
+> 复原一个 10 页 PPT 有可能消耗完你的 5 小时额度。单页PPT复原时间可能在10min以上。多页输入会先由主 agent 重建一页样张，确认后再继续其余页面。
 >
 > **如果没有强烈的可编辑需求，请不要使用这个 skill。**
 >
@@ -48,11 +48,14 @@
 ## 特点
 
 - 适用场景广泛，支持多种输入：单张图片、多张图片、多页 PDF、图片版PPT 到可编辑 `.pptx`。
-- 采用多 agent 架构：Codex sub agent 并行重建每一个页面，加快多页任务的重建速度；主 agent 负责分派、质量检查、修复调度和最终组装。
-- 全面复用 Codex 现有特性，包括 sub agent 和 `$imagegen`；采用纯视觉重建方案，无需第三方 OCR 或版面分析服务依赖。
+- 单张图片输入由主 agent 直接重建。
+- 多页输入会先由主 agent 重建一页代表性样张；用户确认后，该页直接作为最终结果，其余页面再分派给 page worker。
+- Codex 中优先使用内置图片生成/编辑工具；其他支持 skill 和 page worker/subagent 机制的 agent 也可以使用本 skill。
+- 没有内置图片工具时，可以配置 API/CLI fallback。配置保存在 `~/.editppt/config.yaml`；Windows 下对应 `%USERPROFILE%\.editppt\config.yaml`。
+- 采用纯视觉重建方案，无需第三方 OCR 或版面分析服务依赖。
 - 多张图片按提供顺序生成页面；PDF 和 `.pptx` 保留原页码顺序。
 - `.pptx` 输入的页面备注会复制到输出对应页，备注内容不改动。
-- 根据具体页面情况决定是否通过 `$imagegen` / gpt-image-2 做图片分层抽取；需要时用稀疏 asset sheet 合并前景素材，尽可能降低 gpt-image-2 调用次数。
+- 根据具体页面情况决定是否通过已确认 image backend 做图片分层抽取；需要时用稀疏 asset sheet 合并前景素材，尽可能降低图片生成调用次数。
 - 支持复杂视觉页的混合策略：可编辑文字 + 简单形状 + 独立图片资产。
 
 ## 输入与输出契约
@@ -66,7 +69,7 @@
 | 多页 PDF         | 多页 `.pptx`，PDF 第 N 页对应输出第 N 页     |
 | 图片版PPT | 页数一致的 `.pptx`，原第 N 页对应输出第 N 页 |
 
-只有 `.pptx` 输入会处理页面备注。备注由主 agent 按页原样复制到输出 PPTX：不翻译、不摘要、不改写，也不交给 page subagent 处理。
+只有 `.pptx` 输入会处理页面备注。备注由主 agent 按页原样复制到输出 PPTX：不翻译、不摘要、不改写，也不交给 page worker 处理。
 
 ## 适用场景
 
@@ -78,13 +81,54 @@
 
 ## 运行要求
 
-- Codex 需要能分派 page subagent；如果不能创建 page subagent，skill 会停止并报告 blocker。
-- 复杂背景修复、图标重绘、透明 asset sheet 和局部修复依赖 `$imagegen` / built-in `image_gen`。
+- 多页输入需要 agent 能分派 page worker/subagent；如果不能创建 page worker，skill 会停止并报告 blocker。
+- Codex 中优先使用内置图片生成/编辑工具。
+- 复杂背景修复、图标重绘、透明 asset sheet 和局部修复依赖可用的 image backend。
+- API/CLI fallback 配置保存在 `~/.editppt/config.yaml`；Windows 下对应 `%USERPROFILE%\.editppt\config.yaml`。
+
+## 图片 Backend 与第三方 API 配置
+
+> [!TIP]
+> 你可以先正常使用本 skill。一般不需要自己手动配置第三方图片 API；`editppt prepare` 会写入默认图片 backend。只有需要 API/CLI fallback 或自定义 backend 时，AI 才会引导你提供相关信息。
+>
+> - 如果你使用的是 Codex 内置图片生成/编辑工具，通常不需要额外配置 API key。
+> - 如果你使用第三方 API 或 OpenAI 兼容中转站，请把中转站关于 `gpt-image-2` 或图片编辑接口的文档发给 AI，让它先阅读文档，再帮你配置 `base URL` 和模型名。
+
+下面的手动配置说明只用于 API/CLI fallback 场景。指定图片分辨率、提高质量、要求透明资产或修改某一页，本身不会触发第三方 API 配置。典型需要配置的情况包括：
+
+- 当前环境没有可用的内置图片生成/编辑工具。
+- 用户明确要求使用第三方 API 或 OpenAI 兼容中转站。
+- 在 Claude Code、OpenClaw、Hermes Agent 等非 Codex 环境中使用，并且这些环境没有等价的内置图片工具。
+
+如果你是通过 GPT 会员订阅使用 Codex，并且 Codex 内置图片工具可用，就不需要额外配置 `gpt-image-2`。即使你在提示词里写“使用 `gpt-image-2`”，通常也可以继续使用 Codex 内置图片工具，不需要准备 API key。
+
+如果确实需要外部图片接口，配置文件会写入 `~/.editppt/config.yaml`；Windows 下对应 `%USERPROFILE%\.editppt\config.yaml`。使用第三方中转站时再填写 `base URL`；模型名默认是 `gpt-image-2`，除非中转站明确要求别的名称。不要把 API key 写进项目目录、run 目录或 skill 目录，也不要提交到仓库。
+
+确实需要手动配置或排查时，可以运行：
+
+```bash
+editppt config --api-key "your-api-key" --model gpt-image-2
+```
+
+如果使用第三方中转站，再加上 `--base-url`。如果中转站使用自定义模型名，就把 `--model` 改成中转站提供的名称：
+
+```bash
+editppt config \
+  --api-key "your-api-key" \
+  --base-url "https://your-openai-compatible-endpoint/v1" \
+  --model openai/gpt-image-2
+```
+
+配置后可以检查当前 CLI 依赖和 fallback 配置：
+
+```bash
+editppt doctor --check-api
+```
 
 ## 已知问题
 
-- 本 skill 针对 Codex 进行深度适配，目前**不支持其他 agent**。
-- 本 skill 在 Codex 的会员体系（Plus / Max）下测试正常，**第三方 API 接入方式的兼容性未测试**。
+- 其他 agent 需要支持 skill 加载、文件读写、CLI 执行，以及 page worker/subagent 分派机制。
+- API/CLI fallback 依赖所选 OpenAI-compatible 服务的图片生成/编辑能力，不同服务的模型、尺寸、质量和透明输出支持可能不同。
 - 本 skill有着相对复杂的流程控制，Token花费比较高。将一个图片PPT转换成可编辑PPT的成本，**可能是生成图片PPT成本的2-3倍**。
 - 受限于模型基础理解能力和对 skill 的遵循能力，**不保证 gpt-5.5 以下模型的使用效果**。
 - 部分图片元素和文字位置可能会有轻微偏移，**不能保证 100% 复刻原始页面**。
@@ -110,6 +154,43 @@ $skill-installer https://github.com/ningzimu/image-to-editable-ppt-skill
 
 安装完成后，重启 Codex 让新 skill 生效。
 
+### 可选：安装全局 CLI
+
+如果你希望 agent 只记一个命令，可以用 `pipx` 从本地仓库安装全局 CLI；不需要发布到 PyPI。macOS / Linux：
+
+```bash
+pipx install --editable /path/to/image-to-edited-ppt-skill
+editppt --help
+```
+
+Windows PowerShell：
+
+```powershell
+pipx install --editable C:\path\to\image-to-edited-ppt-skill
+editppt --help
+```
+
+安装后可以用同一个命令注册 skill，`--agent` 会透传给 `npx skills@latest`，不限制 agent 白名单：
+
+```bash
+editppt install --agent codex
+```
+
+也可以先检查本机 CLI 和配置：
+
+```bash
+editppt setup
+editppt doctor
+```
+
+后续运行流程也使用同一个入口，例如：
+
+```bash
+editppt prepare <path-to-deck>
+editppt run next <run>
+editppt run finalize <run>
+```
+
 ## 使用方式
 
 在 Codex 里可以用 `$image-to-editable-ppt` 显式选中这个技能。图片、PDF 和 `.pptx` 可以直接粘贴或附加到对话框，也可以提供本地路径：
@@ -117,17 +198,18 @@ $skill-installer https://github.com/ningzimu/image-to-editable-ppt-skill
 ```text
 $image-to-editable-ppt 把这张图片转成可编辑 PPT。
 $image-to-editable-ppt 把这些图片转成一个可编辑 PPT。
-$image-to-editable-ppt 把 /path/to/deck.pdf 转成可编辑 PPT。
-$image-to-editable-ppt 把 /path/to/image-based.pptx 转成可编辑 PPT。
+$image-to-editable-ppt 把 <path-to-deck.pdf> 转成可编辑 PPT。
+$image-to-editable-ppt 把 <path-to-image-based.pptx> 转成可编辑 PPT。
 ```
 
 skill 通常会完成这些步骤：
 
-1. 创建独立任务目录，并把输入归一化为 `pages/page_NNN/source.png`。
-2. 每一页都分配给 page subagent，包括单页输入；多页输入按 `max_concurrent_pages` 分批分派。
-3. 每页创建 manifest，重建可编辑文本、简单形状和图片资产。
-4. 用状态脚本记录 dispatch、page result、repair 和 accepted 状态。
-5. 主 agent 组装最终 `.pptx`，复制 `.pptx` 页面备注，并运行 deck validation。
+1. 创建独立任务目录，把输入归一化为 `pages/page_NNN/source.png`，并写入默认 image backend。
+2. 单张图片由主 agent 直接重建；多页输入先由主 agent 重建一页样张并等待用户确认。
+3. 用户确认样张后，样张页直接进入最终结果，其余页面按 `max_concurrent_pages` 分批分派给 page worker。
+4. 每页创建 manifest，重建可编辑文本、简单形状和图片资产。
+5. 用 `editppt` 命令记录 sample page、dispatch、page result、repair 和 accepted 状态。
+6. 主 agent 组装最终 `.pptx`，复制 `.pptx` 页面备注，并运行 deck validation。
 
 ## 输出结构
 
@@ -147,8 +229,8 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
 └── pages/                                    # 按页拆分的重建工作区
     ├── page_001/                             # 第 1 页工作目录
     │   ├── source.png                        # 归一化后的页面源图
-    │   ├── page_request.json                 # 分派给 page subagent 的页面请求
-    │   ├── imagegen-jobs.json                # 本页 imagegen 调用和结果记录
+    │   ├── page_request.json                 # 页面请求、image backend 和用户反馈
+    │   ├── imagegen-jobs.json                # 本页图片生成/编辑调用和结果记录
     │   ├── assets/                           # 本页拆出的独立图片资产
     │   ├── page.pptx                         # 本页单页 PPTX
     │   ├── preview.png                       # 本页重建预览图
@@ -163,8 +245,8 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
 ## 边界
 
 - 这个 skill 面向输入页面的可编辑重建，不是从零生成整套 PPT 内容。
-- 每一页都必须通过 page subagent 重建；没有可用 subagent 时不会降级为主 agent 手工重建。
-- 复杂视觉资产需要 `$imagegen`；如果缺少可用图片生成/编辑能力，相关页面会作为 blocker 处理。
+- 单张图片由主 agent 直接重建；多页输入只有样张页由主 agent 重建，其余页面必须通过 page worker/subagent 重建。
+- 复杂视觉资产需要可用 image backend；如果缺少可用图片生成/编辑能力，相关页面会作为 blocker 处理。
 - 对照片、插画、纹理、手绘装饰等复杂视觉元素，通常只能作为独立图片资产移动，不能保证内部对象可编辑。
 - 对表格、图表、流程图等结构化区域，会优先保留可编辑语义，但低置信度时应保留为资产并在验证报告里说明。
 - 视觉相似不等于可编辑。最终判断应同时看 PPTX 结构、文本覆盖、资产来源和预览/diff。
@@ -174,13 +256,14 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
 ```text
 .
 ├── .github/                              # GitHub 工作流和仓库检查配置
+├── editppt/                              # `editppt` CLI 和确定性 runtime 模块
 ├── skills/                               # Codex skill 安装包目录
 │   └── image-to-editable-ppt/            # 可安装的 image-to-editable-ppt skill
 │       ├── SKILL.md                      # skill 入口说明和执行规则
-│       ├── requirements.txt              # 本地脚本所需的 Python 依赖
 │       ├── agents/                       # Codex UI 展示用的 skill 元数据
 │       ├── references/                   # 页面重建、状态机、QA 等参考规范
-│       └── scripts/                      # 输入归一化、组装、校验等辅助脚本
+│       └── prompts/                      # page worker prompt 模板
+├── pyproject.toml                        # Python package、依赖和 `editppt` 入口
 ├── AGENTS.md                             # 仓库级协作和编辑规则
 ├── CHANGELOG.md                          # 用户可见变更记录
 ├── LICENSE                               # 开源许可证

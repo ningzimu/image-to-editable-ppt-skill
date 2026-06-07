@@ -7,14 +7,22 @@ from deck_run_state import now_iso, read_json, resolve_inside, sha256_file, writ
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Copy a selected $imagegen output into a page directory and record provenance.")
-    parser.add_argument("page_dir")
-    parser.add_argument("--job-id", required=True)
-    parser.add_argument("--source-image", required=True)
-    parser.add_argument("--dest", required=True, help="Destination path relative to page_dir")
-    parser.add_argument("--role", default="asset", help="clean_base, asset_sheet, repair_asset, etc.")
-    parser.add_argument("--prompt-file")
-    parser.add_argument("--note")
+    parser = argparse.ArgumentParser(
+        prog="editppt image import",
+        description="Copy a selected generated image into a page directory and record provenance.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Examples:
+  editppt image import <page_dir> --job-id clean-base-1 --source-image /tmp/generated.png --dest assets/clean_base.png --role clean_base
+  editppt image import <page_dir> --job-id icon-sheet-1 --source-image sheet.png --dest assets/sheet.png --role asset_sheet --prompt-file prompts/icon-sheet.md
+""",
+    )
+    parser.add_argument("page_dir", help="Page directory that owns imagegen-jobs.json and receives the copied asset.")
+    parser.add_argument("--job-id", required=True, help="Stable job id to create or update inside imagegen-jobs.json.")
+    parser.add_argument("--source-image", required=True, help="Generated image selected by the agent, usually from a built-in tool or API output.")
+    parser.add_argument("--dest", required=True, help="Destination path relative to page_dir; absolute paths are rejected.")
+    parser.add_argument("--role", default="asset", help="Asset role recorded in the job, for example clean_base, asset_sheet, repair_asset, or asset.")
+    parser.add_argument("--prompt-file", help="Optional prompt file path used to create the selected image.")
+    parser.add_argument("--note", help="Short provenance or approval note recorded with the job.")
     args = parser.parse_args()
 
     page_dir = Path(args.page_dir).resolve()

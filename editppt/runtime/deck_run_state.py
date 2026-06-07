@@ -1,6 +1,5 @@
 import hashlib
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -161,7 +160,12 @@ def active_pages(jobs):
 
 
 def dispatchable_pages(jobs):
-    return [page for page in jobs.get("pages", []) if page.get("status") in DISPATCHABLE_PAGE_STATUSES]
+    return [
+        page
+        for page in jobs.get("pages", [])
+        if page.get("status") in DISPATCHABLE_PAGE_STATUSES
+        and not page.get("sample_page_approved")
+    ]
 
 
 def dispatch_slots_available(jobs):
@@ -209,7 +213,3 @@ def ensure_dir(path, label):
     if not path.exists() or not path.is_dir():
         raise FileNotFoundError(f"Missing {label}: {path}")
     return path
-
-
-def env_codex_home():
-    return Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()

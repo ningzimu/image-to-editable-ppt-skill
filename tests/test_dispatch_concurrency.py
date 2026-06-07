@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_DIR = ROOT / "skills/image-to-editable-ppt/scripts"
+RUNTIME_DIR = ROOT / "editppt/runtime"
 
 
 def write_json(path, data):
@@ -33,7 +33,7 @@ class DispatchConcurrencyTest(unittest.TestCase):
             write_json(run_dir / "run_state.json", {"status": "inputs_prepared", "history": []})
 
             result = subprocess.run(
-                [sys.executable, SCRIPT_DIR / "page_job_status.py", run_dir, "--json"],
+                [sys.executable, RUNTIME_DIR / "page_job_status.py", run_dir, "--json"],
                 text=True,
                 capture_output=True,
             )

@@ -1,10 +1,10 @@
 # Manifest Schema 第一版
 
-本文件描述 JSON 文件职责和 owner。字段会随脚本实现细化。
+本文件描述 JSON 文件职责和 owner。字段会随 `editppt` runtime 实现细化。
 
 ## `deck_manifest.json`
 
-Owner：`prepare_deck_run.py` 创建，`finalize_deck_run.py` 读取。
+Owner：`editppt prepare` 创建，`editppt run finalize` 读取。
 
 用途：
 
@@ -13,6 +13,8 @@ Owner：`prepare_deck_run.py` 创建，`finalize_deck_run.py` 读取。
 - page manifest 路径。
 - notes manifest 路径。
 - final output 路径。
+- run-level image backend contract。
+- 用户原始要求和 sample page 反馈。
 
 关键字段：
 
@@ -22,15 +24,19 @@ Owner：`prepare_deck_run.py` 创建，`finalize_deck_run.py` 读取。
   "run_id": "job-id",
   "input_type": "image|images|pdf|pptx",
   "max_concurrent_pages": 4,
+  "image_backend": {},
+  "user_requirements_and_feedback": [],
   "pages": [],
   "notes_manifest": "notes_manifest.json",
   "output": "final/origin_edited.pptx"
 }
 ```
 
+`image_backend` 由 `editppt prepare` 写入默认值，必要时由 `editppt run backend` 覆盖。`user_requirements_and_feedback` 由 `editppt run sample` 追加简短字符串，只记录用户要求、用户对 sample page 的反馈，以及用户确认后的明确调整。
+
 ## `page_jobs.json`
 
-Owner：状态脚本写入。
+Owner：`editppt run` 命令写入。
 
 用途：
 
@@ -53,6 +59,7 @@ Owner：状态脚本写入。
       "page_dir": "pages/page_001",
       "page_request": "pages/page_001/page_request.json",
       "source": "pages/page_001/source.png",
+      "sample_page_approved": false,
       "dispatch": null,
       "result": null,
       "repair": [],
@@ -62,11 +69,11 @@ Owner：状态脚本写入。
 }
 ```
 
-`dispatch` 由 `record_page_dispatch.py` 写。`result` 由 `record_page_result.py` 写。`repair` 由 `queue_page_repairs.py` 写。`accepted` 由 `finalize_deck_run.py` 写。
+`sample_page_approved` 由 `editppt run sample` 写。`dispatch` 由 `editppt run dispatch` 写。`result` 由 `editppt run sample` 或 `editppt run record` 写。`repair` 由 `editppt run repair` 写。`accepted` 由 `editppt run finalize` 写。
 
 ## `page_request.json`
 
-Owner：`prepare_deck_run.py`。
+Owner：`editppt prepare`。
 
 用途：给 page worker 的任务边界。
 
@@ -80,6 +87,8 @@ Owner：`prepare_deck_run.py`。
 - allowed write scope
 - required outputs
 - user constraints
+- image backend contract
+- user requirements and feedback
 
 不得包含：
 
@@ -87,9 +96,11 @@ Owner：`prepare_deck_run.py`。
 - imagegen_required 预判。
 - object-level 决策。
 
+sample page 确认后，剩余页面的 `page_request.json` 必须包含 `user_requirements_and_feedback`。如果本 run 使用 image backend，`page_request.json` 也必须包含同一份 `image_backend`。
+
 ## `page_result.json`
 
-Owner：page worker 创建，`record_page_result.py` 校验。
+Owner：page worker 创建，`editppt run record` 校验。
 
 包括：
 
@@ -100,7 +111,7 @@ Owner：page worker 创建，`record_page_result.py` 校验。
 - validation path
 - qa note
 - known limits
-- page-local output hashes，可由 record 脚本补充
+- page-local output hashes，可由 `editppt run record` 补充
 
 ## `pages/page_NNN/manifest.json`
 
@@ -177,15 +188,15 @@ Owner：page worker。
 
 ## `pages/page_NNN/imagegen-jobs.json`
 
-Owner：page-local imagegen 脚本。
+Owner：`editppt image` 命令。
 
 用途：记录 clean base、asset sheet、repair asset 的生成和处理过程。
 
-状态见 `state-machine.md`。
+状态和 provenance 记录规则见 `workflow-contract.md`。
 
 ## `notes_manifest.json`
 
-Owner：`prepare_deck_run.py` 创建，`finalize_deck_run.py` 读取。
+Owner：`editppt prepare` 创建，`editppt run finalize` 读取。
 
 用途：
 

@@ -27,7 +27,7 @@
 
 - `visual_inventory` 覆盖所有必需非文字视觉对象。
 - 每个必需非文字视觉对象有独立表示，除非明确记录为背景。
-- style-bearing 对象应来自 `$imagegen` asset，而不是本地手搓形状。
+- style-bearing 对象应来自 confirmed image backend asset，而不是本地手搓形状。
 - asset sheet 切分结果没有粘连、缺边、错名、碎片、跨对象阴影。
 - alpha 边缘没有明显 chroma-key 残留。
 - 每个最终 raster asset 有 provenance。
@@ -40,9 +40,9 @@
 - clean base 无可读文字。
 - clean base 无会被后续重建的前景对象。
 - 背景修复区域无明显 ghost、模糊块、涂抹块、伪文字。
-- 纯色/规则背景不应浪费 `$imagegen`。
+- 纯色/规则背景不应浪费 image backend 调用。
 - 复杂背景 clean base 必须和 source 是同一背景：构图、透视、主要物体位置、色彩、光照和关键细节不能明显漂移。
-- 如果 `$imagegen` 生成了同主题但不同背景，即使 deterministic validation 通过，也必须 repair。
+- 如果 image backend 生成了同主题但不同背景，即使 deterministic validation 通过，也必须 repair。
 
 ## 形状 QA
 
@@ -63,8 +63,8 @@
 
 blocker：
 
-- 子 agent 不可用。
-- 必需 `$imagegen` 不可用。
+- page worker/subagent 不可用。
+- 必需 image backend 不可用。
 - 输入无法归一化。
 - final PPTX 无法打开。
 - page 缺少 buildable manifest/page.pptx。
