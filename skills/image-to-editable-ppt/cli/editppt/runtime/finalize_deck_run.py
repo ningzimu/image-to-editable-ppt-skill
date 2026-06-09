@@ -48,7 +48,7 @@ def main():
 
     out = final_output_path(run_dir, deck)
     out.parent.mkdir(parents=True, exist_ok=True)
-    run([sys.executable, SCRIPT_DIR / "assemble_pptx_from_pages.py", run_dir, "--out", out])
+    run([sys.executable, SCRIPT_DIR / "build_pptx_from_manifest.py", "--deck-manifest", run_dir / "deck_manifest.json", "--out", out])
     set_run_status(run_dir, "deck_built", "final pptx built")
 
     validation = out.parent / "validation.json"

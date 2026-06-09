@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest import mock
 from pathlib import Path
 
@@ -871,6 +872,85 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertEqual(0, second.returncode, second.stderr)
             jobs = read_json(run_dir / "page_jobs.json")
             self.assertIs(jobs["pages"][1]["result"]["validation_passed"], True)
+
+    def test_finalize_rebuilds_final_deck_from_page_manifests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = make_minimal_run(tmp)
+            write_json(run_dir / "notes_manifest.json", {"notes": []})
+            deck = read_json(run_dir / "deck_manifest.json")
+            deck["slide"] = {"width": 13.333, "height": 7.5}
+            deck["page_count"] = 2
+            deck["notes_manifest"] = "notes_manifest.json"
+            deck["output"] = "final/test_edited.pptx"
+            for index, page in enumerate(deck["pages"], start=1):
+                page["manifest"] = f"pages/page_{index:03d}/manifest.json"
+                page["validation"] = f"pages/page_{index:03d}/validation.json"
+            write_json(run_dir / "deck_manifest.json", deck)
+
+            jobs = read_json(run_dir / "page_jobs.json")
+            for index, page in enumerate(jobs["pages"], start=1):
+                page_dir = run_dir / f"pages/page_{index:03d}"
+                write_json(
+                    page_dir / "manifest.json",
+                    {
+                        "schema_version": 1,
+                        "source": {"width_px": 1600, "height_px": 900},
+                        "slide": {"width": 13.333, "height": 7.5},
+                        "content_box": {"left": 0, "top": 0, "width": 13.333, "height": 7.5},
+                        "text_boxes": [
+                            {
+                                "text": f"Manifest Page {index}",
+                                "box_px": [100, 100, 500, 80],
+                                "font_size": 24,
+                                "color": "#111111",
+                            }
+                        ],
+                        "shapes": [],
+                        "images": [],
+                        "visual_inventory": [],
+                        "background_strategy": {"type": "native", "color": "#ffffff"},
+                        "quality_checks": {
+                            "font_size_calibrated": True,
+                            "visual_inventory_matched": True,
+                            "background_strategy_checked": True,
+                            "shape_corner_geometry_checked": True,
+                        },
+                    },
+                )
+                write_json(page_dir / "imagegen-jobs.json", {"schema_version": 1, "jobs": []})
+                (page_dir / "page.pptx").write_text("not a pptx", encoding="utf-8")
+                (page_dir / "preview.png").write_text("x", encoding="utf-8")
+                (page_dir / "split_assets_contact.png").write_text("x", encoding="utf-8")
+                write_json(page_dir / "validation.json", {"passed": True})
+                write_json(
+                    page_dir / "page_result.json",
+                    {
+                        "page_manifest": "manifest.json",
+                        "imagegen_jobs": "imagegen-jobs.json",
+                        "page_pptx": "page.pptx",
+                        "preview": "preview.png",
+                        "contact_sheet": "split_assets_contact.png",
+                        "validation": "validation.json",
+                        "page_result": "page_result.json",
+                    },
+                )
+                page["status"] = "recorded"
+                page["result"] = {"validation_passed": True}
+            write_json(run_dir / "page_jobs.json", jobs)
+
+            result = subprocess.run(
+                [sys.executable, "-m", "editppt.cli", "run", "finalize", run_dir],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            final_pptx = run_dir / "final/test_edited.pptx"
+            self.assertTrue(final_pptx.exists())
+            with zipfile.ZipFile(final_pptx) as z:
+                slide_text = z.read("ppt/slides/slide1.xml").decode("utf-8") + z.read("ppt/slides/slide2.xml").decode("utf-8")
+            self.assertIn("Manifest Page 1", slide_text)
+            self.assertIn("Manifest Page 2", slide_text)
 
     def test_image_import_records_generated_image(self):
         with tempfile.TemporaryDirectory() as tmp:

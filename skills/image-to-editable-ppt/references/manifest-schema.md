@@ -109,7 +109,7 @@ Includes:
 - validation path
 - page-local output hashes, which may be supplemented by `editppt run record`
 
-The `page_pptx` artifact is the authoritative slide package for final assembly. `editppt run finalize` concatenates recorded page-level `page.pptx` files in page order; it does not rebuild the final deck from page manifests.
+The `manifest` artifact is the authoritative page source for final assembly. `editppt run finalize` rebuilds the final deck from recorded page manifests in page order. The `page_pptx` artifact remains a page-level deliverability artifact and is validated by `editppt run record`, but it is not the final assembly input.
 
 ## `pages/page_NNN/validation.json`
 

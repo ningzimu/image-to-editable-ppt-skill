@@ -631,7 +631,7 @@ separate because the CLI cannot spawn the worker itself.
     finalize = run_sub.add_parser(
         "finalize",
         help="Build and validate the final deck.",
-        description="Assemble recorded pages into final/<origin>_edited.pptx and write validation outputs.",
+        description="Build final/<origin>_edited.pptx from recorded page manifests and write validation outputs.",
         formatter_class=HELP_FORMATTER,
     )
     finalize.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")

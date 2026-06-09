@@ -19,6 +19,7 @@ Release notes are generated from this file. Keep changelog entries in English.
 - Increase the default multi-page worker concurrency to 6.
 - Expose image backend integration guidance through `editppt image` help.
 - Use page-local correction before record in run orchestration.
+- Rebuild the final PPTX from recorded page manifests during `editppt run finalize`.
 
 ### Fixes
 
