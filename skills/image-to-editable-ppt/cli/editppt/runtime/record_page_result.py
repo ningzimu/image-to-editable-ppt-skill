@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import subprocess
+import sys
+from pathlib import Path
 
 from deck_run_state import (
     find_page,
@@ -29,9 +32,29 @@ REQUIRED_OUTPUTS = {
 }
 
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+
 def output_path(page_dir, result, key, default):
     value = result.get(key) or default
     return inside_or_missing(page_dir, value)
+
+
+def validate_page_contract(paths):
+    command = [
+        sys.executable,
+        SCRIPT_DIR / "validate_pptx.py",
+        paths["page_pptx"],
+        "--manifest",
+        paths["page_manifest"],
+    ]
+    result = subprocess.run([str(part) for part in command], text=True, capture_output=True)
+    if result.returncode != 0:
+        raise SystemExit(
+            "Page manifest contract validation failed before recording:\n"
+            + result.stdout
+            + result.stderr
+        )
 
 
 def main():
@@ -70,6 +93,7 @@ def main():
     result = read_json(page_result_path)
     paths = {key: output_path(page_dir, result, key, default) for key, default in REQUIRED_OUTPUTS.items()}
 
+    validate_page_contract(paths)
     validation = read_json(paths["validation"])
     validation_passed = validation.get("passed") is True
     hashes = {key: sha256_file(path) for key, path in paths.items()}

@@ -39,6 +39,9 @@ skills/image-to-editable-ppt/
 - All image generation, image editing, background repair, transparent bitmap assets, and asset sheets must use `editppt image generate/edit/batch`.
 - Page-level reconstruction strategy must follow the References.
 - Foreground visual objects, including foreground photos, screenshots, illustrations, icons, pictograms, symbols, logo-like marks, semantic badges, and trend/status icons, must use image-backend source-faithful asset-sheet separation unless the page-decision tree explicitly classifies them as native structural shapes.
+- `manifest.json` is the authoritative page build source for both page-level validation and final deck assembly. `page.pptx` must be generated from that manifest; a visually acceptable page PPTX produced by separate page-local code is not enough.
+- Positioned manifest objects must carry source-pixel coordinates: `text_boxes[]` and `images[]` require `box_px`, non-line `shapes[]` require `box_px`, and line shapes require `points_px`. Missing coordinates are record/finalize failures.
+- Text boxes should start with deterministic runtime fitting enabled. `text_boxes[].box_px` must track the source text bounds plus modest padding so the builder can clamp oversized first-draft fonts before preview.
 - Page workers use `prompts/page-worker.md`.
 - A full-slide `source.png` with editable text overlaid on top is not an acceptable fallback. The final output must be a currently openable, structurally valid `.pptx`.
 
@@ -68,6 +71,7 @@ Each page worker owns one `pages/page_NNN/` directory:
 - Use `editppt formula render-latex` to render formula image assets.
 - Use `editppt image import` and `editppt image process-sheet` to record and process generated asset sheets.
 - Write `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, and `page_result.json`.
+- Build `page.pptx` and `preview.png` from `manifest.json`; do not use a separate page-local PPTX script that bypasses the manifest.
 - As the page reconstructor, self-check `preview.png`, `split_assets_contact.png`, and `validation.json`; if a page-local issue is found, fix it inside the current page before returning.
 
 Page workers must not edit `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, the final PPTX, the original input, or any other page directory.
@@ -119,6 +123,8 @@ After a worker returns, run:
 ```bash
 editppt run record <run> --page <page_id> --agent-id <id>
 ```
+
+This command validates `page.pptx` against `manifest.json` before recording. It must fail if positioned text, image, or shape objects are missing source-pixel coordinates or if the manifest cannot independently rebuild the page.
 
 For a directly rebuilt single-page input, use:
 

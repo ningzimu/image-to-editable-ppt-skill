@@ -4,45 +4,45 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Features
+
+- Add the installable skill-local `editppt` CLI package with setup, doctor, config, prepare, run, image, and formula command groups.
+- Add a unified image backend through `editppt image`, using Codex OAuth when available and OpenAI-compatible API fallback credentials from `~/.editppt/config.yaml`.
+- Add concurrent `editppt image batch` support for generate/edit jobs, including reference-image edit inputs.
+- Add `editppt formula render-latex` for rendering LaTeX formulas into PPT image assets and manifest fragments.
+- Add source-aspect-preserving slide preparation with automatic custom slide canvases and content boxes for non-widescreen inputs.
+
 ### Improvements
 
-- Remove the public `editppt image crop` path and route foreground image assets through source-faithful asset sheets.
-- Add the skill-local `editppt` CLI package and move deterministic runtime code into the installable skill resources.
-- Add a cross-agent image backend contract centered on the unified `editppt image` CLI.
-- Prefer Codex OAuth inside `editppt image` and fall back to OpenAI-compatible API credentials only when local Codex auth is unavailable.
-- Dispatch multi-page inputs directly to page workers according to concurrency slots.
-- Move API fallback configuration to `~/.editppt/config.yaml`.
-- Refine the public `editppt` command tree into setup/config, run workflow, formula, and image handling groups with agent-friendly help text.
+- Move deterministic runtime code from loose skill scripts into the self-contained `editppt` CLI package and remove legacy script entrypoints from the installable skill root.
+- Rework the workflow around CLI-managed run state: `editppt prepare`, `editppt run next`, `prompt`, `dispatch`, `record`, and `finalize`.
+- Dispatch multi-page inputs directly to page workers according to runtime concurrency slots, with a default concurrency of 6.
+- Rebuild the final PPTX from recorded page manifests during `editppt run finalize`, making `manifest.json` the authoritative final assembly source.
+- Validate each page PPTX against its page manifest during `editppt run record` so page-local outputs cannot bypass the manifest contract.
+- Require source-pixel coordinates for positioned manifest objects and reject manifests that omit required `box_px`, `points_px`, or `polygon_px` fields.
+- Add deterministic text fitting in the manifest builder to clamp oversized first-draft text boxes before preview and PPTX output.
+- Route foreground bitmap assets through source-faithful asset sheets and remove the public source-crop image workflow.
 - Store only page artifacts, hashes, and validation outputs in page result records.
-- Automatically preserve non-widescreen source aspect ratios by preparing custom slide canvases and content boxes.
-- Support concurrent `editppt image batch` edit jobs with `image`/`images` inputs across Codex OAuth and OpenAI-compatible API backends.
-- Increase the default multi-page worker concurrency to 6.
-- Expose image backend integration guidance through `editppt image` help.
-- Use page-local correction before record in run orchestration.
-- Rebuild the final PPTX from recorded page manifests during `editppt run finalize`.
+- Simplify page correction flow so page reconstructors fix page-local issues before record instead of creating repair queues.
+- Expose image backend usage, asset-sheet processing, formula rendering, and run orchestration guidance through agent-friendly CLI help.
 
 ### Fixes
 
 - Resolve `editppt image process-sheet --asset-sheet-source` relative paths from the page directory.
 - Accept structured `text_inventory` entries during PPTX validation.
 - Align single-page direct recording, page-worker prompt paths, and asset-sheet helper examples with the actual `editppt` runtime state machine.
+- Reject recorded or final page manifests whose positioned objects would otherwise fall back to default top-left locations.
+- Preserve custom deck size metadata when finalizing decks from manifests instead of forcing all outputs into widescreen mode.
 
 ### Documentation
 
 - Translate installable skill documentation and agent metadata to English.
-- Require absolute worker prompt paths and top-level `passed` in page validation outputs.
-- Require real page-worker dispatch for multi-page skill runs and forbid parent-agent page reconstruction in that path.
-- Clarify chroma-key color selection for source-faithful asset sheets.
-- Update Chinese and English README files for multi-agent usage, backend configuration, and direct page-worker dispatch.
-- Document third-party image API fallback guidance and keep API keys in the user-level `~/.editppt/config.yaml`.
-- Align installable Skill prompts and references with the unified CLI and image backend terminology.
-- Consolidate installable Skill workflow references into a shorter CLI-first flow contract.
-- Clarify that the agent reconstructing a page is responsible for that page's single self-check, while record/finalize commands only consume validation outputs.
-- Replace the CLI contracts reference with a CLI helper quick-start and fold workflow guidance into `SKILL.md`.
-- Add bilingual README update instructions for the skill and skill-local CLI.
-- Shorten bilingual image backend and API fallback configuration guidance.
-- Clarify that installing the skill-local `editppt` CLI is required.
-- Simplify README install and update instructions into agent-facing prompts.
+- Rewrite the skill workflow and page-worker prompt around the `editppt` CLI-first contract.
+- Replace legacy architecture, state-machine, subagent, repair, and imagegen references with a shorter `cli-helper.md`, manifest schema, page decision tree, and QA rubric.
+- Document that page manifests must be sufficient to rebuild page PPTX files and final decks.
+- Document source-pixel coordinate requirements and deterministic text-fitting behavior for page manifests.
+- Require absolute worker prompt paths, real page-worker dispatch for multi-page runs, and top-level `passed` in page validation outputs.
+- Update Chinese and English README files for CLI installation, update instructions, backend configuration, multi-agent usage, and reconstruction limits.
 
 ## 0.1.0
 

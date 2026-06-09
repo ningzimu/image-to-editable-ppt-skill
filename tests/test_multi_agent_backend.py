@@ -96,6 +96,66 @@ def make_minimal_run(tmpdir):
     return run_dir
 
 
+def valid_page_manifest(text="Valid Page"):
+    return {
+        "schema_version": 1,
+        "source": {"width_px": 1600, "height_px": 900},
+        "slide": {"width": 13.333, "height": 7.5},
+        "content_box": {"left": 0, "top": 0, "width": 13.333, "height": 7.5},
+        "text_boxes": [
+            {
+                "text": text,
+                "box_px": [100, 100, 500, 80],
+                "font_size": 24,
+                "color": "#111111",
+            }
+        ],
+        "shapes": [],
+        "images": [],
+        "visual_inventory": [],
+        "background_strategy": {"type": "native", "color": "#ffffff"},
+        "quality_checks": {
+            "font_size_calibrated": True,
+            "visual_inventory_matched": True,
+            "background_strategy_checked": True,
+            "shape_corner_geometry_checked": True,
+        },
+    }
+
+
+def write_page_outputs(page_dir, text="Valid Page", validation_passed=True, manifest=None):
+    write_json(page_dir / "manifest.json", manifest or valid_page_manifest(text))
+    write_json(page_dir / "imagegen-jobs.json", {"schema_version": 1, "jobs": []})
+    build = subprocess.run(
+        [
+            sys.executable,
+            RUNTIME_DIR / "build_pptx_from_manifest.py",
+            page_dir / "manifest.json",
+            "--out",
+            page_dir / "page.pptx",
+        ],
+        text=True,
+        capture_output=True,
+    )
+    if build.returncode != 0:
+        raise AssertionError(build.stderr or build.stdout)
+    (page_dir / "preview.png").write_text("x", encoding="utf-8")
+    (page_dir / "split_assets_contact.png").write_text("x", encoding="utf-8")
+    write_json(page_dir / "validation.json", {"passed": validation_passed})
+    write_json(
+        page_dir / "page_result.json",
+        {
+            "page_manifest": "manifest.json",
+            "imagegen_jobs": "imagegen-jobs.json",
+            "page_pptx": "page.pptx",
+            "preview": "preview.png",
+            "contact_sheet": "split_assets_contact.png",
+            "validation": "validation.json",
+            "page_result": "page_result.json",
+        },
+    )
+
+
 class MultiAgentBackendTest(unittest.TestCase):
     def test_package_console_entrypoint_help(self):
         result = subprocess.run(
@@ -673,28 +733,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertIn("editppt run record", next_payload["next_command"])
 
             page_dir = run_dir / "pages/page_001"
-            for name in (
-                "manifest.json",
-                "imagegen-jobs.json",
-                "page.pptx",
-                "preview.png",
-                "split_assets_contact.png",
-                "page_result.json",
-            ):
-                (page_dir / name).write_text("x", encoding="utf-8")
-            write_json(page_dir / "validation.json", {"passed": True})
-            write_json(
-                page_dir / "page_result.json",
-                {
-                    "page_manifest": "manifest.json",
-                    "imagegen_jobs": "imagegen-jobs.json",
-                    "page_pptx": "page.pptx",
-                    "preview": "preview.png",
-                    "contact_sheet": "split_assets_contact.png",
-                    "validation": "validation.json",
-                    "page_result": "page_result.json",
-                },
-            )
+            write_page_outputs(page_dir, "Direct Page")
 
             record = subprocess.run(
                 [
@@ -765,28 +804,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             write_json(run_dir / "page_jobs.json", jobs)
 
             page_dir = run_dir / "pages/page_002"
-            for name in (
-                "manifest.json",
-                "imagegen-jobs.json",
-                "page.pptx",
-                "preview.png",
-                "split_assets_contact.png",
-                "page_result.json",
-            ):
-                (page_dir / name).write_text("x", encoding="utf-8")
-            write_json(page_dir / "validation.json", {"passed": True})
-            write_json(
-                page_dir / "page_result.json",
-                {
-                    "page_manifest": "manifest.json",
-                    "imagegen_jobs": "imagegen-jobs.json",
-                    "page_pptx": "page.pptx",
-                    "preview": "preview.png",
-                    "contact_sheet": "split_assets_contact.png",
-                    "validation": "validation.json",
-                    "page_result": "page_result.json",
-                },
-            )
+            write_page_outputs(page_dir, "Worker Page")
 
             result = subprocess.run(
                 [
@@ -807,6 +825,38 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertNotIn("qa_note", result_payload)
             self.assertNotIn("known_limits", result_payload)
 
+    def test_record_page_result_rejects_manifest_without_positioned_boxes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = make_minimal_run(tmp)
+            jobs = read_json(run_dir / "page_jobs.json")
+            page_2 = jobs["pages"][1]
+            page_2["status"] = "dispatched"
+            page_2["dispatch"] = {"agent_id": "worker-1"}
+            write_json(run_dir / "page_jobs.json", jobs)
+
+            page_dir = run_dir / "pages/page_002"
+            manifest = valid_page_manifest("Missing Box")
+            del manifest["text_boxes"][0]["box_px"]
+            write_page_outputs(page_dir, manifest=manifest)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    RUNTIME_DIR / "record_page_result.py",
+                    run_dir,
+                    "--page",
+                    "page_002",
+                    "--agent-id",
+                    "worker-1",
+                ],
+                text=True,
+                capture_output=True,
+            )
+            combined_output = result.stdout + result.stderr
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("Page manifest contract validation failed", combined_output)
+            self.assertIn("text_boxes[0].box_px", combined_output)
+
     def test_record_page_result_refreshes_recorded_page(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = make_minimal_run(tmp)
@@ -817,28 +867,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             write_json(run_dir / "page_jobs.json", jobs)
 
             page_dir = run_dir / "pages/page_002"
-            for name in (
-                "manifest.json",
-                "imagegen-jobs.json",
-                "page.pptx",
-                "preview.png",
-                "split_assets_contact.png",
-                "page_result.json",
-            ):
-                (page_dir / name).write_text("x", encoding="utf-8")
-            write_json(page_dir / "validation.json", {"passed": False})
-            write_json(
-                page_dir / "page_result.json",
-                {
-                    "page_manifest": "manifest.json",
-                    "imagegen_jobs": "imagegen-jobs.json",
-                    "page_pptx": "page.pptx",
-                    "preview": "preview.png",
-                    "contact_sheet": "split_assets_contact.png",
-                    "validation": "validation.json",
-                    "page_result": "page_result.json",
-                },
-            )
+            write_page_outputs(page_dir, "Refresh Page", validation_passed=False)
 
             first = subprocess.run(
                 [
@@ -951,6 +980,43 @@ class MultiAgentBackendTest(unittest.TestCase):
                 slide_text = z.read("ppt/slides/slide1.xml").decode("utf-8") + z.read("ppt/slides/slide2.xml").decode("utf-8")
             self.assertIn("Manifest Page 1", slide_text)
             self.assertIn("Manifest Page 2", slide_text)
+
+    def test_finalize_rejects_recorded_manifest_without_positioned_boxes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = make_minimal_run(tmp)
+            write_json(run_dir / "notes_manifest.json", {"notes": []})
+            deck = read_json(run_dir / "deck_manifest.json")
+            deck["slide"] = {"width": 13.333, "height": 7.5}
+            deck["page_count"] = 2
+            deck["notes_manifest"] = "notes_manifest.json"
+            deck["output"] = "final/test_edited.pptx"
+            for index, page in enumerate(deck["pages"], start=1):
+                page["manifest"] = f"pages/page_{index:03d}/manifest.json"
+                page["validation"] = f"pages/page_{index:03d}/validation.json"
+            write_json(run_dir / "deck_manifest.json", deck)
+
+            jobs = read_json(run_dir / "page_jobs.json")
+            for index, page in enumerate(jobs["pages"], start=1):
+                page_dir = run_dir / f"pages/page_{index:03d}"
+                manifest = valid_page_manifest(f"Manifest Page {index}")
+                if index == 2:
+                    del manifest["text_boxes"][0]["box_px"]
+                write_json(page_dir / "manifest.json", manifest)
+                write_json(page_dir / "validation.json", {"passed": True})
+                page["status"] = "recorded"
+                page["result"] = {"validation_passed": True}
+            write_json(run_dir / "page_jobs.json", jobs)
+
+            result = subprocess.run(
+                [sys.executable, "-m", "editppt.cli", "run", "finalize", run_dir],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            combined_output = result.stdout + result.stderr
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("page_contract_violations", combined_output)
+            self.assertIn("text_boxes[0].box_px", combined_output)
 
     def test_image_import_records_generated_image(self):
         with tempfile.TemporaryDirectory() as tmp:

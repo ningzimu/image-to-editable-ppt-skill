@@ -22,6 +22,8 @@ When you need parameter details for the image backend, input images, batch JSONL
 
 The manifest must reuse `page_request.json.slide` and `page_request.json.content_box`. Do not convert the page to 16:9 yourself and do not recalculate the canvas. All `box_px`, `points_px`, and `polygon_px` values are in `source.png` pixels; the runtime maps them into `content_box` so the source image is not stretched.
 
+`manifest.json` is the authoritative page source used by final deck assembly. It must be sufficient to rebuild the page without reading any custom page script. `text_inventory` and `visual_inventory` are only inventories; they do not substitute for positioned `text_boxes`, `images`, and `shapes`.
+
 Goal:
 Rebuild the source page as object-level editable PowerPoint. All page object categories, native shape boundaries, and separable asset boundaries must follow `references/page-decision-tree.md`. Do not invent an object-source strategy outside this prompt.
 
@@ -62,14 +64,26 @@ Use `editppt image generate/edit/batch` to generate clean bases, background repa
 - `visual_inventory`: inventory of non-text visual objects, at least recording id, description, decision, and corresponding asset/background.
 - `background_strategy`: background handling mode, source-consistency constraints, whether local repair is used, whether a full imagegen clean base is used, and why.
 - `quality_checks`: `font_size_calibrated`, `visual_inventory_matched`, `background_strategy_checked`, and `shape_corner_geometry_checked` must all be true.
+- Positioned build objects:
+  - every `text_boxes[]` item must include `box_px` and calibrated text styling such as `font_size`;
+  - every `images[]` item must include `box_px`;
+  - every non-line `shapes[]` item must include `box_px`;
+  - every line shape must include `points_px`.
+  Missing object coordinates are a current-page failure, even if a separately generated `page.pptx` looks correct.
+- Text sizing:
+  - make each text `box_px` track the source text bounds plus modest padding, not the entire surrounding card or panel;
+  - start from the deterministic builder's default text fitting instead of an oversized default font;
+  - keep `fit_text` enabled unless a text box has been manually calibrated and must preserve an exact font size;
+  - if the first preview still looks larger than the source, reduce the recorded `font_size` before setting `font_size_calibrated: true`.
 
 Before returning:
 
-- Build page.pptx from manifest.json.
-- Render preview.png.
+- Build page.pptx from manifest.json with the deterministic runtime, not from a separate hand-written PowerPoint script that bypasses the manifest.
+- Render preview.png from the same manifest.json.
 - Create split_assets_contact.png.
 - Run page validation.
 - Confirm validation.json contains top-level `passed: true`.
+- Confirm `editppt run record` can validate `page.pptx` against `manifest.json`; if manifest rebuild validation would fail, set `passed: false` and fix the manifest before returning.
 - Check that all required outputs exist.
 - As the page reconstructor, self-check preview/contact sheet: font sizes are not too large, no visual objects are missing, complex backgrounds have not been replaced wholesale, and rectangles/corners match the source.
 - If a page-local issue is found, fix it inside the current page before returning.

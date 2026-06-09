@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_DIR = ROOT / "skills/image-to-editable-ppt/cli/editppt/runtime"
 sys.path.insert(0, str(RUNTIME_DIR))
 
-from build_pptx_from_manifest import content_box_for_manifest, emu, px_to_inches, slide_size_type  # noqa: E402
+from build_pptx_from_manifest import content_box_for_manifest, emu, normalize_manifest, px_to_inches, slide_size_type  # noqa: E402
 from prepare_deck_run import fit_content_box, slide_for_source  # noqa: E402
 
 
@@ -58,6 +58,65 @@ class SlideLayoutTest(unittest.TestCase):
     def test_non_wide_presentation_size_is_custom(self):
         self.assertEqual("custom", slide_size_type(emu(16), emu(10.6666667)))
         self.assertEqual("wide", slide_size_type(emu(13.333), emu(7.5)))
+
+    def test_text_font_size_is_clamped_to_source_box(self):
+        manifest = {
+            "source": {"width_px": 1600, "height_px": 900},
+            "slide": {"width": 13.333, "height": 7.5},
+            "content_box": {"left": 0, "top": 0, "width": 13.333, "height": 7.5},
+            "text_boxes": [
+                {
+                    "text": "Dense label",
+                    "box_px": [100, 100, 260, 24],
+                    "font_size": 24,
+                }
+            ],
+        }
+
+        normalized = normalize_manifest(manifest)
+        text_box = normalized["text_boxes"][0]
+
+        self.assertLess(text_box["font_size"], 24)
+        self.assertEqual(24, text_box["_requested_font_size"])
+
+    def test_text_font_size_fit_can_be_disabled(self):
+        manifest = {
+            "source": {"width_px": 1600, "height_px": 900},
+            "slide": {"width": 13.333, "height": 7.5},
+            "content_box": {"left": 0, "top": 0, "width": 13.333, "height": 7.5},
+            "text_boxes": [
+                {
+                    "text": "Locked label",
+                    "box_px": [100, 100, 260, 24],
+                    "font_size": 24,
+                    "fit_text": False,
+                }
+            ],
+        }
+
+        normalized = normalize_manifest(manifest)
+
+        self.assertEqual(24, normalized["text_boxes"][0]["font_size"])
+
+    def test_wrapped_text_fit_does_not_force_single_line_width(self):
+        manifest = {
+            "source": {"width_px": 1600, "height_px": 900},
+            "slide": {"width": 13.333, "height": 7.5},
+            "content_box": {"left": 0, "top": 0, "width": 13.333, "height": 7.5},
+            "text_boxes": [
+                {
+                    "text": "Long body copy should wrap across multiple natural lines",
+                    "box_px": [100, 100, 420, 120],
+                    "font_size": 18,
+                    "wrap": "square",
+                }
+            ],
+        }
+
+        normalized = normalize_manifest(manifest)
+
+        self.assertGreater(normalized["text_boxes"][0]["font_size"], 10)
+        self.assertLessEqual(normalized["text_boxes"][0]["font_size"], 18)
 
 
 if __name__ == "__main__":

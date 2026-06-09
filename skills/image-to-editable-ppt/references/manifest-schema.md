@@ -133,6 +133,8 @@ Owner: page worker.
 
 Purpose: source of truth for page-level PPTX construction.
 
+The manifest is not a summary of a separately authored `page.pptx`. It is the build contract for both page-level validation and final deck assembly. A page may not pass validation if the page PPTX can only be reproduced by custom page-local code while the manifest lacks object positions.
+
 Must contain:
 
 - `slide`
@@ -149,6 +151,22 @@ Must contain:
 - page strategy
 
 `slide`, `content_box`, and `source.width_px/source.height_px` must come from `page_request.json`. All `box_px`, `points_px`, and `polygon_px` values use `source.png` pixel coordinates; the runtime maps these coordinates into `content_box` instead of stretching them to the whole slide.
+
+Positioned build object requirements:
+
+- Every `text_boxes[]` item must have `box_px`. Text in `text_inventory` does not create a positioned text box.
+- Every `images[]` item must have `box_px`.
+- Every non-line `shapes[]` item must have `box_px`.
+- Every line shape must have `points_px`.
+
+Missing coordinates are page-contract violations. The runtime must reject them during `editppt run record` and deck validation because otherwise missing values fall back to default positions such as the top-left corner.
+
+Text-size fitting:
+
+- `text_boxes[].font_size` is treated as the requested font size. The deterministic builder may clamp it downward during normalization when the requested size is too large for the resolved source-pixel box.
+- Keep default fitting enabled for first drafts. Set `fit_text: false` only when the page author has manually calibrated the box and font size.
+- `text_boxes[].box_px` should describe the source text bounds plus modest padding. Do not use an entire card, chart, table cell group, or unrelated container as the text box, because the fitter can only infer size from the box it receives.
+- Optional tuning fields are `min_font_size`, `max_font_size`, `text_fit_safety`, and `line_height`.
 
 `text_inventory` may be a list of strings or a list of structured objects. In structured objects, the fields used for exact text validation are `text`, `required_text`, `items`, or `texts`; fields such as `id`, `decision`, `description`, and `note` are only records and are not used for exact text matching. Example:
 

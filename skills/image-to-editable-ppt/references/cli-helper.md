@@ -84,7 +84,7 @@ Purpose: normalize a single image into a run directory and generate `deck_manife
 editppt run record <run> --page page_001 --agent-id main
 ```
 
-Purpose: after the parent agent directly completes the current single page, self-checks it, and writes all page-local outputs, record that page result.
+Purpose: after the parent agent directly completes the current single page, self-checks it, and writes all page-local outputs, validate `page.pptx` against `manifest.json` and record that page result.
 
 ```bash
 editppt run finalize <run>
@@ -124,7 +124,7 @@ Purpose: record that a page has been dispatched to a worker. This command only r
 editppt run record <run> --page page_001 --agent-id <worker-id>
 ```
 
-Purpose: after the page worker writes `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, and `page_result.json`, validate and record that page result.
+Purpose: after the page worker writes `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, and `page_result.json`, validate `page.pptx` against `manifest.json` and record that page result. Missing `box_px` / `points_px` on positioned objects is a page failure.
 
 ```bash
 editppt run finalize <run>

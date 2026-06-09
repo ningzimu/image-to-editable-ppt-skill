@@ -301,6 +301,31 @@ def validate_deck(args):
             validation_path = root / validation_path
         if not manifest_path.exists():
             report["page_manifests_missing"].append(str(manifest_path))
+        else:
+            try:
+                raw_manifest = read_manifest(manifest_path)
+                normalized_manifest, authoring_violations = normalize_for_validation(raw_manifest)
+                violations = (
+                    authoring_violations
+                    + page_contract_violations(normalized_manifest)
+                    + quality_contract_violations(raw_manifest)
+                )
+                if violations:
+                    report["page_contract_violations"].append(
+                        {
+                            "page_id": page.get("page_id"),
+                            "manifest": str(manifest_path),
+                            "violations": violations,
+                        }
+                    )
+            except Exception as exc:
+                report["page_contract_violations"].append(
+                    {
+                        "page_id": page.get("page_id"),
+                        "manifest": str(manifest_path),
+                        "violations": [{"field": "manifest", "reason": str(exc)}],
+                    }
+                )
         if not validation_path.exists():
             report["page_validation_missing"].append(str(validation_path))
         else:

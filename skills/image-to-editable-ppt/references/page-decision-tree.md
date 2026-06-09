@@ -164,6 +164,7 @@ Do not guess font sizes from defaults. First estimate from actual source glyph h
 - For dense Chinese layouts, the first draft should be 5%-10% smaller than the estimate rather than oversized.
 - When glyph height is close to container height, font size usually needs to be clearly smaller than container height; leave room for PowerPoint/WPS font metrics.
 - Text boxes should be looser than the source glyph bounds to avoid clipping or incorrect wrapping caused by PowerPoint/WPS/preview font metrics.
+- The deterministic builder clamps oversized requested fonts to fit the text box, so keep `fit_text` enabled for first drafts and make `box_px` follow the source text bounds, not the whole container.
 - After building a preview, compare text by level against the source. If title, body, or label text is larger, heavier, more crowded, or wraps more than in the source, reduce font size before continuing.
 
 The manifest must record completed font-size calibration with `quality_checks.font_size_calibrated=true`.
