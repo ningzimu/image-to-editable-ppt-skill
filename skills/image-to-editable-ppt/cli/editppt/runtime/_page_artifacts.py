@@ -15,7 +15,7 @@ def run(command):
 
 
 def resolve_under_page(page_dir, value):
-    path = Path(value)
+    path = Path(value).expanduser()
     if path.is_absolute():
         return path
     return page_dir / path
@@ -37,7 +37,7 @@ def process_asset_sheet(args, page_dir):
         return
 
     if args.asset_sheet_source:
-        source = Path(args.asset_sheet_source).expanduser()
+        source = resolve_under_page(page_dir, args.asset_sheet_source)
         if not source.exists():
             raise SystemExit(f"Asset sheet source does not exist: {source}")
         chroma.parent.mkdir(parents=True, exist_ok=True)

@@ -1,81 +1,81 @@
 # QA Rubric
 
-确定性验证必要但不充分。谁负责页面复原，谁就负责对该页面检查一次 preview 和 contact sheet。主 agent 记录 page worker 结果时不重复做页面视觉 QA。
+Deterministic validation is necessary but not sufficient. Whoever reconstructs a page is responsible for checking that page's preview and contact sheet once. The parent agent does not repeat page-level visual QA when recording page worker results.
 
-## 结构 QA
+## Structural QA
 
-- PPTX 是有效 zip/package。
-- slide count 与输入页数一致。
-- PDF/PPTX 页码映射正确。
-- media relationship 完整。
-- manifest 引用的 asset 文件都存在。
-- media hash 与 manifest provenance 匹配。
-- speaker notes hash 匹配。
-- 不存在 full-slide source raster + editable text overlay 的违规模式。
+- The PPTX is a valid zip/package.
+- Slide count matches the input page count.
+- PDF/PPTX page mapping is correct.
+- Media relationships are complete.
+- All asset files referenced by the manifest exist.
+- Media hashes match manifest provenance.
+- Speaker notes hashes match.
+- There is no invalid full-slide source raster plus editable text overlay pattern.
 
-## 文本 QA
+## Text QA
 
-- `text_inventory` 覆盖所有可读文字。
-- 每个可编辑文字都是真实可见的 native PPT text box。
-- 没有隐藏文本、透明文本、1 pt 文本、off-canvas 文本。
-- 预览中没有明显裁切、错误换行、容器文字溢出。
-- 中文预览不应显示方框或乱码；必要时使用稳定 CJK 字体。
-- 字号和位置必须按 source 校准，不允许默认放大标题、正文或标签。
-- 如果 preview 中同层级文字比 source 明显更大、更粗、更拥挤或换行更多，必须在当前页修正。
+- `text_inventory` covers all readable text.
+- Every editable text item is a real visible native PPT text box.
+- There is no hidden text, transparent text, 1 pt text, or off-canvas text.
+- The preview has no obvious clipping, incorrect wrapping, or text overflow from containers.
+- Chinese previews must not show boxes or mojibake; use a stable CJK font when needed.
+- Font sizes and positions must be calibrated against the source; do not enlarge titles, body text, or labels by default.
+- If same-level text in the preview is visibly larger, heavier, more crowded, or wraps more than in the source, it must be fixed in the current page.
 
-## 资产 QA
+## Asset QA
 
-- `visual_inventory` 覆盖所有必需非文字视觉对象。
-- 每个必需非文字视觉对象有独立表示，除非明确记录为背景。
-- 每个非文字视觉对象的来源决策必须符合 `page-decision-tree.md`。QA 不另设页面对象分类规则；只检查 manifest、asset provenance、preview/contact sheet 是否遵守该决策树。
-- asset sheet 切分结果没有粘连、缺边、错名、碎片、跨对象阴影。
-- alpha 边缘没有明显 chroma-key 残留。
-- 每个最终 raster asset 有 provenance。
-- `page-decision-tree.md` 判定为必须 source-faithful separation 的资产不能漏项，不能被替换成同类但不同的符号，不能使用决策树禁止的替代来源。
-- source-derived raster asset 必须符合 `page-decision-tree.md` 的例外条件，并记录 source 区域。
+- `visual_inventory` covers all required non-text visual objects.
+- Every required non-text visual object has an independent representation unless it is explicitly recorded as background.
+- The source decision for every non-text visual object must follow `page-decision-tree.md`. QA does not define another page object classification rule; it only checks whether the manifest, asset provenance, preview, and contact sheet follow that decision tree.
+- Asset-sheet splitting results have no fused objects, missing edges, wrong names, fragments, or cross-object shadows.
+- Alpha edges have no obvious chroma-key remnants.
+- Every final raster asset has provenance.
+- Assets that `page-decision-tree.md` marks as requiring source-faithful separation must not be missing, must not be replaced with a similar but different symbol, and must not use a source type forbidden by the decision tree.
+- Source-derived raster assets must satisfy the exception conditions in `page-decision-tree.md` and record the source region.
 
-## 背景 QA
+## Background QA
 
-- clean base 无可读文字。
-- clean base 无会被后续重建的前景对象。
-- 背景修复区域无明显 ghost、模糊块、涂抹块、伪文字。
-- 纯色/规则背景不应浪费 image backend 调用。
-- 复杂背景 clean base 必须和 source 是同一背景：构图、透视、主要物体位置、色彩、光照和关键细节不能明显漂移。
-- 如果 image backend 生成了同主题但不同背景，即使 deterministic validation 通过，也必须在当前页修正。
+- The clean base contains no readable text.
+- The clean base contains no foreground object that will be rebuilt later.
+- Repaired background regions have no obvious ghosts, blur blocks, smear patches, or pseudo-text.
+- Solid-color and regular backgrounds should not waste image backend calls.
+- A complex-background clean base must be the same background as the source: composition, perspective, main object positions, colors, lighting, and key details must not visibly drift.
+- If the image backend generates a related theme but different background, the current page must be fixed even if deterministic validation passes.
 
-## 形状 QA
+## Shape QA
 
-- source 是直角矩形、表格外框或方形面板时，manifest 必须用 `rect`。
-- `roundRect` 只在 source 明确为圆角时使用，并记录 `source_corner_radius_px`。
-- 重建圆角半径必须接近 source，轻微圆角不能被放大成胶囊。
-- 不要因为设计偏好把普通矩形改成圆角矩形。
-- 不要把文字笔画当装饰线重复绘制；出现多一横、多一点、多一符号时需要回看 source 判断是文字笔画还是独立装饰线，再在当前页修正。
+- If the source is a straight-corner rectangle, table outline, or square panel, the manifest must use `rect`.
+- Use `roundRect` only when the source clearly has rounded corners, and record `source_corner_radius_px`.
+- Reconstructed corner radius must be close to the source; a slight corner radius must not become a pill.
+- Do not convert ordinary rectangles into rounded rectangles because of design preference.
+- Do not redraw text strokes as decorative lines. If an extra horizontal line, dot, or symbol appears, inspect the source to determine whether it is a text stroke or an independent decoration, then fix the current page.
 
-## 视觉 QA
+## Visual QA
 
-- `preview.png` 必须存在。
-- `split_assets_contact.png` 必须存在，并展示 origin 与 preview 对比。
-- 视觉漂移、缺标签、低质量占位图，以及任何违反 `page-decision-tree.md` 的对象来源决策都必须在当前页修正。
-- 大容器角形、表格边界、卡片边框要和 source 对齐；圆角误判属于当前页修正项，不是低风险 warning。
+- `preview.png` must exist.
+- `split_assets_contact.png` must exist and show an origin-versus-preview comparison.
+- Visual drift, missing labels, low-quality placeholders, and any object-source decision that violates `page-decision-tree.md` must be fixed in the current page.
+- Large container corner geometry, table borders, and card borders must align with the source. Corner misclassification is a current-page fix, not a low-risk warning.
 
-## 检查结果
+## Check Results
 
-必须在当前页修正：
+Must be fixed in the current page:
 
-- 输入无法归一化。
-- final PPTX 无法打开。
-- page 缺少 buildable manifest/page.pptx。
-- 必需视觉对象缺失。
-- 对象来源决策违反 `page-decision-tree.md`。
-- 复杂背景 clean base 明显失真或变成不同背景。
-- source 直角矩形被重建成圆角矩形，且未能证明 source 有圆角。
-- 文字字号/位置明显偏离 source，导致布局拥挤、溢出或遮挡。
+- Input cannot be normalized.
+- Final PPTX cannot be opened.
+- Page is missing a buildable manifest/page.pptx.
+- Required visual objects are missing.
+- Object-source decisions violate `page-decision-tree.md`.
+- Complex-background clean base is visibly distorted or has become a different background.
+- A straight-corner source rectangle was rebuilt as a rounded rectangle without evidence that the source had rounded corners.
+- Text font size or position visibly deviates from the source and causes crowding, overflow, or occlusion.
 
-warning：
+Warnings:
 
-- 非图标、非关键装饰的轻微视觉漂移。
-- 图标轻微线宽、抗锯齿、比例、阴影或细节差异。
-- 部分非关键装饰未完全一致。
-- 已记录的低风险字体差异。
+- Minor visual drift in non-icon, non-critical decorations.
+- Minor line-width, antialiasing, proportion, shadow, or detail differences in icons.
+- Some non-critical decorations are not perfectly identical.
+- Recorded low-risk font differences.
 
-warning 可以随当前 PPT 交付。
+Warnings can be delivered with the current PPT.

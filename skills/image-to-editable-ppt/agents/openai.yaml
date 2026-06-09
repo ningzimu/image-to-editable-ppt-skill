@@ -1,4 +1,4 @@
 interface:
   display_name: "Image to Editable PPT"
-  short_description: "将图片、PDF 或图片版 PPT/PPTX 重建成可编辑 PPTX"
-  default_prompt: "使用 $image-to-editable-ppt 将输入重建成对象级可编辑 PowerPoint。单张图片由主 agent 直接重建并用 editppt run record 记录；多页输入由主 agent 按并发槽位直接分派 page worker。所有生图/改图使用 editppt image，并按 manifest、preview、contact sheet 和 validation 完成检查。"
+  short_description: "Rebuild images, PDFs, or image-based PPT/PPTX files into editable PPTX"
+  default_prompt: "Use $image-to-editable-ppt to rebuild the input into an object-level editable PowerPoint PPTX. First run editppt prepare and determine the actual page count. A single-page input may be rebuilt directly by the parent agent and recorded with editppt run record; multi-page inputs must be dispatched to page workers according to concurrency slots. All image generation and editing must use editppt image. Each page worker must produce manifest, preview, contact sheet, validation, and page_result artifacts before the parent agent records the page and finalizes the deck."

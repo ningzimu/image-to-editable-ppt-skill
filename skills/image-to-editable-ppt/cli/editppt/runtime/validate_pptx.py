@@ -242,6 +242,39 @@ def sha256_text(value):
     return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
 
 
+def flatten_required_text(value):
+    """Return exact text strings that should be verified in the PPTX."""
+    items = []
+    if value is None:
+        return items
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, (int, float)):
+        return [str(value)]
+    if isinstance(value, dict):
+        if "required_text" in value:
+            return flatten_required_text(value.get("required_text"))
+        if "items" in value:
+            return flatten_required_text(value.get("items"))
+        if "texts" in value:
+            return flatten_required_text(value.get("texts"))
+        if "text" in value:
+            return flatten_required_text(value.get("text"))
+        return items
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            items.extend(flatten_required_text(item))
+    return items
+
+
+def required_texts_from_manifest(manifest):
+    required = []
+    required.extend(flatten_required_text(manifest.get("required_text", [])))
+    required.extend(flatten_required_text(manifest.get("text_inventory", [])))
+    return required
+
+
 def collect_text(xml_bytes):
     root = ET.fromstring(xml_bytes)
     return "".join(node.text or "" for node in root.findall(".//a:t", NS))
@@ -416,8 +449,7 @@ def main():
     manifest, authoring_violations = normalize_for_validation(raw_manifest)
     manifest_base = Path(args.manifest).resolve().parent if args.manifest else Path.cwd()
     required = list(args.required_text)
-    required.extend(manifest.get("required_text", []))
-    required.extend(manifest.get("text_inventory", []))
+    required.extend(required_texts_from_manifest(manifest))
 
     report = {
         "pptx": str(Path(args.pptx).resolve()),

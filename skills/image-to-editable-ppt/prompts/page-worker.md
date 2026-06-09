@@ -1,36 +1,36 @@
-# Page Worker Prompt 模板
+# Page Worker Prompt Template
 
 ```text
-重建 image-to-editable-ppt 的一个页面。
+Rebuild one page for image-to-editable-ppt.
 
 Run dir: <absolute run dir>
 Page id: <page_001>
 Page dir: <absolute page dir>
 Source image: <absolute page dir>/source.png
 
-你只拥有这个 Page dir。不要编辑 deck_manifest.json、page_jobs.json、notes_manifest.json、final 输出、input 原件或任何其他 page 目录。
+You own only this Page dir. Do not edit deck_manifest.json, page_jobs.json, notes_manifest.json, final outputs, the original input, or any other page directory.
 
-读取并遵守这些本地 reference：
+Read and follow these local references:
 - <skill root>/SKILL.md
 - <skill root>/references/cli-helper.md
 - <skill root>/references/page-decision-tree.md
 - <skill root>/references/manifest-schema.md
 - <skill root>/references/qa-rubric.md
 
-在任何生图或改图前，使用 `page_request.json.image_backend` 指定的 `editppt image` backend。如果 `editppt image` 不可用，先按 CLI 报错提示尝试 `codex login` 或 `editppt config`；仍不可用时使用当前可行的可编辑结构完成页面，并在 `validation.json` 写明缺失资产和原因。
-需要图片后端、输入图片、batch JSONL、clean base 或 asset sheet 的参数说明时，读取 `editppt image --help` 以及对应子命令 help。
+Before any image generation or image editing, use the `editppt image` backend specified by `page_request.json.image_backend`. If `editppt image` is unavailable, first follow the CLI error guidance and try `codex login` or `editppt config`; if it is still unavailable, complete the page using the best currently possible editable structure and record the missing assets and reason in `validation.json`.
+When you need parameter details for the image backend, input images, batch JSONL, clean bases, or asset sheets, read `editppt image --help` and the relevant subcommand help.
 
-必须沿用 `page_request.json.slide` 和 `page_request.json.content_box` 写 manifest。不要自行把页面改成 16:9，不要重新计算画幅。所有 `box_px`、`points_px` 和 `polygon_px` 都以 `source.png` 像素为准，runtime 会映射到 `content_box`，避免源图被拉伸。
+The manifest must reuse `page_request.json.slide` and `page_request.json.content_box`. Do not convert the page to 16:9 yourself and do not recalculate the canvas. All `box_px`, `points_px`, and `polygon_px` values are in `source.png` pixels; the runtime maps them into `content_box` so the source image is not stretched.
 
-目标：
-把 source page 重建成对象级可编辑 PowerPoint。所有页面对象分类、native shape 边界、可分离资产边界和 source-derived raster 例外都必须按 `references/page-decision-tree.md` 执行。不要在本 prompt 之外临时发明对象来源策略。
+Goal:
+Rebuild the source page as object-level editable PowerPoint. All page object categories, native shape boundaries, separable asset boundaries, and source-derived raster exceptions must follow `references/page-decision-tree.md`. Do not invent an object-source strategy outside this prompt.
 
-开始写 manifest 前，每张图必须按 `page-decision-tree.md` 完成三步决策：
-1. 背景识别与修复：判断背景是否可由 PPT 结构对象/确定性 runtime 复原，还是需要 `editppt image edit --image <source.png>` 生成 source-preserving clean base。
-2. 前景素材分离：判断哪些大片规则内容可以精确裁切；其余图标、插画、装饰等前景素材必须按决策树用 `editppt image` 的编辑模式做 source-faithful asset sheet 分离。
-3. PPT 原生元素复原：文字、文本框、简单矩形/圆角矩形、简单箭头、表格等用 PPT 原生结构对象复原，并完成字号、角形和布局校准。公式不走 native text；必须先转写为 LaTeX，再用 `editppt formula render-latex` 渲染为独立图片资产放入 PPT。
+Before writing `manifest.json`, every image/page must complete the three-step decision process in `page-decision-tree.md`:
+1. Background recognition and repair: decide whether the background can be restored through PPT structural objects/deterministic runtime, or whether `editppt image edit --image <source.png>` is required to create a source-preserving clean base.
+2. Foreground asset separation: decide which large, regular regions can be cropped precisely; all other icons, illustrations, decorations, and similar foreground assets must use `editppt image` edit mode for source-faithful asset-sheet separation according to the decision tree.
+3. PPT native element reconstruction: text, text boxes, simple rectangles/rounded rectangles, simple arrows, tables, and similar objects are rebuilt with native PPT structural objects, with font size, corner geometry, and layout calibrated. Formulas do not use native text; first transcribe them to LaTeX, then use `editppt formula render-latex` to render independent image assets into the PPT.
 
-必须在 Page dir 内产出：
+The Page dir must contain:
 - manifest.json
 - imagegen-jobs.json
 - page.pptx
@@ -39,7 +39,9 @@ Source image: <absolute page dir>/source.png
 - validation.json
 - page_result.json
 
-`page_result.json` 必须是 JSON，至少包含：
+`validation.json` must be JSON that `editppt run record` can read directly. It must contain a top-level boolean field named `passed`. Write `"passed": true` when the page is deliverable; write `"passed": false` and explain the failure in the same JSON when it is not deliverable. Do not store the pass state only in `runtime_validation.passed`, `status`, or any other nested field.
+
+`page_result.json` must be JSON and must include at least:
 
 ```json
 {
@@ -53,27 +55,28 @@ Source image: <absolute page dir>/source.png
 }
 ```
 
-使用 `editppt image generate/edit/batch` 生成 clean base、背景修复和 asset sheet。使用 `editppt formula render-latex` 生成公式图片资产和 manifest image fragment。哪些对象必须用 `editppt image edit --image <source.png>` 分离、哪些对象允许 native shape 或 source-derived raster、哪些公式必须转 LaTeX，全部按 `page-decision-tree.md`。确定性 CLI/runtime 只可用于归一化、记录、去底、切分、裁剪、公式渲染、构建、验证和 QA。
+Use `editppt image generate/edit/batch` to generate clean bases, background repairs, and asset sheets. Use `editppt formula render-latex` to generate formula image assets and manifest image fragments. Which objects must be separated with `editppt image edit --image <source.png>`, which objects may use native shapes or source-derived rasters, and which formulas must be converted to LaTeX are all governed by `page-decision-tree.md`. Deterministic CLI/runtime tools may only be used for normalization, recording, background removal, splitting, cropping, formula rendering, building, validation, and QA.
 
-manifest.json 还必须包含：
+`manifest.json` must also contain:
 
-- `visual_inventory`: 非文字视觉对象清单，至少记录 id、描述、决策和对应 asset/background。
-- `background_strategy`: 背景处理方式、source-consistency 约束、是否局部修复、是否使用整张 imagegen clean base 以及原因。
-- `quality_checks`: `font_size_calibrated`、`visual_inventory_matched`、`background_strategy_checked`、`shape_corner_geometry_checked` 都必须为 true。
+- `visual_inventory`: inventory of non-text visual objects, at least recording id, description, decision, and corresponding asset/background.
+- `background_strategy`: background handling mode, source-consistency constraints, whether local repair is used, whether a full imagegen clean base is used, and why.
+- `quality_checks`: `font_size_calibrated`, `visual_inventory_matched`, `background_strategy_checked`, and `shape_corner_geometry_checked` must all be true.
 
-source-derived raster asset 的允许范围和裁剪要求全部按 `page-decision-tree.md`。如果使用 source-derived raster，必须用 `editppt image crop` 生成并记录 `source_region_px` 或 `source_bbox_px`。
+The allowed scope and crop requirements for source-derived raster assets are defined in `page-decision-tree.md`. If a source-derived raster is used, it must be created with `editppt image crop` and must record `source_region_px` or `source_bbox_px`.
 
-返回前必须：
+Before returning:
 
-- 从 manifest.json 构建 page.pptx
-- 渲染 preview.png
-- 创建 split_assets_contact.png
-- 运行 page validation
-- 检查 required outputs 都存在
-- 作为页面复原者自检 preview/contact sheet：字号不过大、视觉对象无遗漏、复杂背景没有整体换图、矩形/圆角与 source 一致
-- 检查发现 page-local 问题时，在当前页内直接修正后再返回
+- Build page.pptx from manifest.json.
+- Render preview.png.
+- Create split_assets_contact.png.
+- Run page validation.
+- Confirm validation.json contains top-level `passed: true`.
+- Check that all required outputs exist.
+- As the page reconstructor, self-check preview/contact sheet: font sizes are not too large, no visual objects are missing, complex backgrounds have not been replaced wholesale, and rectangles/corners match the source.
+- If a page-local issue is found, fix it inside the current page before returning.
 
-只返回：
+Return only:
 page_manifest=`<absolute path>`
 page_pptx=`<absolute path>`
 preview=`<absolute path>`

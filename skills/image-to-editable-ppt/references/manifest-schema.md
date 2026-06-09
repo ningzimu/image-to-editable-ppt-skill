@@ -1,22 +1,22 @@
 # Manifest Schema
 
-本文件描述 `editppt` run/page JSON 文件的职责、owner 和当前字段 contract。所有关键状态由 `editppt` 命令推进；页面重建者只写 page-local 文件。
+This document describes the responsibilities, owners, and current field contracts for `editppt` run/page JSON files. All key state is advanced by `editppt` commands; page reconstructors write only page-local files.
 
 ## `deck_manifest.json`
 
-Owner：`editppt prepare` 创建，`editppt run backend` 可更新 image backend，`editppt run finalize` 读取并写入完成时间。
+Owner: created by `editppt prepare`; `editppt run backend` may update the image backend; `editppt run finalize` reads it and writes completion time.
 
-用途：
+Purpose:
 
-- 输入类型。
-- page 顺序。
-- page manifest 路径。
-- notes manifest 路径。
-- final output 路径。
-- run-level image backend contract。
-- 用户原始要求。
+- Input type.
+- Page order.
+- Page manifest paths.
+- Notes manifest path.
+- Final output path.
+- Run-level image backend contract.
+- Original user request.
 
-关键字段：
+Key fields:
 
 ```json
 {
@@ -31,19 +31,19 @@ Owner：`editppt prepare` 创建，`editppt run backend` 可更新 image backend
 }
 ```
 
-`image_backend` 由 `editppt prepare` 写入默认值，必要时由 `editppt run backend` 覆盖。
+`image_backend` is written with defaults by `editppt prepare` and may be overwritten by `editppt run backend` when needed.
 
 ## `page_jobs.json`
 
-Owner：`editppt prepare` 创建，`editppt run` 命令更新。
+Owner: created by `editppt prepare`, updated by `editppt run` commands.
 
-用途：
+Purpose:
 
-- page 状态 source of truth。
-- dispatch 记录。
-- result 记录。
+- Source of truth for page state.
+- Dispatch records.
+- Result records.
 
-结构：
+Structure:
 
 ```json
 {
@@ -64,18 +64,18 @@ Owner：`editppt prepare` 创建，`editppt run` 命令更新。
 }
 ```
 
-`dispatch` 由 `editppt run dispatch` 写。`result` 由 `editppt run record` 写。`accepted` 由 `editppt run finalize` 写。
+`dispatch` is written by `editppt run dispatch`. `result` is written by `editppt run record`. `accepted` is written by `editppt run finalize`.
 
 ## `page_request.json`
 
-Owner：`editppt prepare`。
+Owner: `editppt prepare`.
 
-用途：给 page worker 的任务边界。
+Purpose: task boundary for the page worker.
 
-包括：
+Includes:
 
 - page id
-- page dir
+- page directory
 - source image
 - slide size
 - content box
@@ -85,21 +85,21 @@ Owner：`editppt prepare`。
 - user constraints
 - image backend contract
 
-不得包含：
+Must not include:
 
-- page type 预判。
-- imagegen_required 预判。
-- object-level 决策。
+- page type prediction
+- `imagegen_required` prediction
+- object-level decisions
 
-如果本 run 使用 image backend，`page_request.json` 必须包含同一份 `image_backend`。
+If the run uses an image backend, `page_request.json` must contain the same `image_backend`.
 
-`slide` 和 `content_box` 由 `editppt prepare` 自动计算。接近 16:9 的输入使用标准宽屏画布；其他输入按源图像素尺寸换算成 custom 画布。agent 必须复制这两个字段到页面 `manifest.json`，不要自行压缩、拉伸或重算画幅。
+`slide` and `content_box` are computed automatically by `editppt prepare`. Inputs close to 16:9 use the standard widescreen canvas; other inputs use a custom canvas converted from the source image pixel dimensions. The agent must copy these two fields into the page `manifest.json` and must not compress, stretch, or recalculate the canvas.
 
 ## `page_result.json`
 
-Owner：page worker 创建，`editppt run record` 校验。
+Owner: created by the page worker, validated by `editppt run record`.
 
-包括：
+Includes:
 
 - manifest path
 - imagegen jobs path
@@ -107,15 +107,31 @@ Owner：page worker 创建，`editppt run record` 校验。
 - preview path
 - contact sheet path
 - validation path
-- page-local output hashes，可由 `editppt run record` 补充
+- page-local output hashes, which may be supplemented by `editppt run record`
+
+## `pages/page_NNN/validation.json`
+
+Owner: created by the page worker, read by `editppt run record`.
+
+Purpose: page-level deliverability conclusion.
+
+Must contain at top level:
+
+```json
+{
+  "passed": true
+}
+```
+
+`passed` must be a boolean. `editppt run record` only reads top-level `passed` to decide whether the page can enter final assembly. `status: "pass"`, `runtime_validation.passed`, or other nested fields may remain as supplemental information, but they cannot replace top-level `passed`.
 
 ## `pages/page_NNN/manifest.json`
 
-Owner：page worker。
+Owner: page worker.
 
-用途：page-level PPTX 构建 source of truth。
+Purpose: source of truth for page-level PPTX construction.
 
-必须包含：
+Must contain:
 
 - `slide`
 - `content_box`
@@ -130,9 +146,18 @@ Owner：page worker。
 - `asset_provenance`
 - page strategy
 
-`slide`、`content_box` 和 `source.width_px/source.height_px` 必须来自 `page_request.json`。所有 `box_px`、`points_px` 和 `polygon_px` 均使用 `source.png` 像素坐标；runtime 会把这些坐标映射到 `content_box`，而不是强行拉伸到整张 slide。
+`slide`, `content_box`, and `source.width_px/source.height_px` must come from `page_request.json`. All `box_px`, `points_px`, and `polygon_px` values use `source.png` pixel coordinates; the runtime maps these coordinates into `content_box` instead of stretching them to the whole slide.
 
-`quality_checks` 至少包含：
+`text_inventory` may be a list of strings or a list of structured objects. In structured objects, the fields used for exact text validation are `text`, `required_text`, `items`, or `texts`; fields such as `id`, `decision`, `description`, and `note` are only records and are not used for exact text matching. Example:
+
+```json
+[
+  {"id": "title", "text": "Market Overview", "decision": "native-text"},
+  {"id": "metrics", "required_text": ["Annual recurring revenue", "42.8M"]}
+]
+```
+
+`quality_checks` must include at least:
 
 ```json
 {
@@ -143,16 +168,16 @@ Owner：page worker。
 }
 ```
 
-`background_strategy` 至少说明：
+`background_strategy` must explain at least:
 
-- mode：`native-or-script`、`source-preserving-local-cleanup`、`imagegen-full-clean-base` 等。
-- source consistency：保留哪些构图、透视、物体、颜色、光照和细节。
-- removed foreground：哪些前景会被移除并重建。
-- comparison note：preview 对照 source 后的背景一致性结论。
+- mode: `native-or-script`, `source-preserving-local-cleanup`, `imagegen-full-clean-base`, or similar.
+- source consistency: which composition, perspective, objects, colors, lighting, and details are preserved.
+- removed foreground: which foreground objects will be removed and rebuilt.
+- comparison note: the background consistency conclusion after comparing preview against source.
 
-`roundRect` shape 必须记录 `source_corner_radius_px`，可以额外记录 `corner_reason`。原图是直角矩形时必须使用 `rect`。
+`roundRect` shapes must record `source_corner_radius_px`; they may also record `corner_reason`. If the source is a straight-corner rectangle, use `rect`.
 
-推荐记录：
+Recommended record:
 
 ```json
 {
@@ -164,9 +189,9 @@ Owner：page worker。
 }
 ```
 
-`corner_category` 可选值：`straight`、`small-radius`、`large-radius`、`pill`。`straight` 不应使用 `roundRect`。
+Allowed `corner_category` values: `straight`, `small-radius`, `large-radius`, `pill`. `straight` should not use `roundRect`.
 
-`source-derived-rasterization` 资产必须记录：
+`source-derived-rasterization` assets must record:
 
 ```json
 {
@@ -179,13 +204,13 @@ Owner：page worker。
 }
 ```
 
-`source_region_px` 使用 `[x, y, width, height]`。如果使用 `[left, top, right, bottom]`，字段名必须写成 `source_bbox_px`。
+`source_region_px` uses `[x, y, width, height]`. If `[left, top, right, bottom]` is used, the field name must be `source_bbox_px`.
 
-`require_edge_safe_alpha` 是可选严格校验：仅当该资产应完整落在透明画布内时设置为 `true`；默认不因为可见像素贴边直接判失败。
+`require_edge_safe_alpha` is an optional strict check: set it to `true` only when the asset should be fully inside a transparent canvas. By default, visible pixels touching an edge do not directly fail validation.
 
-它只允许用于无可读文字、非图标、非 pictogram、已经天然孤立且没有背景结构粘连的小型视觉对象，不能用于图标分离、整页、整卡片、整图表或文字区域。图标、pictogram、symbol、logo-like mark 和语义徽章必须通过 image backend 做 source-faithful separation。
+This source type is allowed only for small visual objects with no readable text, that are not icons or pictograms, are already naturally isolated, and have no background-structure attachment. It must not be used for icon separation, full pages, whole cards, whole charts, or text regions. Icons, pictograms, symbols, logo-like marks, and semantic badges must use image-backend source-faithful separation.
 
-`latex-rendered-formula` 公式资产必须记录：
+`latex-rendered-formula` formula assets must record:
 
 ```json
 {
@@ -218,24 +243,24 @@ Owner：page worker。
 }
 ```
 
-公式图片必须由 `editppt formula render-latex` 生成。不要使用 source crop 裁切公式，也不要用手写 native text boxes 拼复杂公式。
+Formula images must be generated by `editppt formula render-latex`. Do not crop formulas from the source, and do not assemble complex formulas from hand-written native text boxes.
 
 ## `pages/page_NNN/imagegen-jobs.json`
 
-Owner：`editppt prepare` 创建，`editppt image` 命令更新。
+Owner: created by `editppt prepare`, updated by `editppt image` commands.
 
-用途：记录 clean base、asset sheet 和已选 bitmap asset 的生成和处理过程。
+Purpose: record the generation and processing process for clean bases, asset sheets, and selected bitmap assets.
 
-状态和 provenance 记录规则见 `SKILL.md` 的 State Principles 和 `cli-helper.md` 的资产处理示例。
+State and provenance record rules are described in the State Principles section of `SKILL.md` and in the asset processing examples in `cli-helper.md`.
 
 ## `notes_manifest.json`
 
-Owner：`editppt prepare` 创建，`editppt run finalize` 读取。
+Owner: created by `editppt prepare`, read by `editppt run finalize`.
 
-用途：
+Purpose:
 
-- PPT/PPTX speaker notes 原文。
-- notes hash。
-- page 映射。
+- Original PPT/PPTX speaker notes.
+- Notes hashes.
+- Page mapping.
 
-notes 不交给 page worker，不翻译、不摘要、不改写。
+Notes are not handed to page workers, translated, summarized, or rewritten.

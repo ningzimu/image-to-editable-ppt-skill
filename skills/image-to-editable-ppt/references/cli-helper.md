@@ -1,40 +1,40 @@
 # CLI Helper
 
-这是 `editppt` 命令操作手册，用于减少手写脚本、手写状态 JSON 和反复试错的次数。
+This is the `editppt` command manual. It reduces hand-written scripts, hand-written state JSON, and repeated trial-and-error.
 
-使用原则：
+Usage principles:
 
-- 能用 `editppt` 完成的确定性动作，直接调用 CLI，不要改写为临时 Python 脚本。
-- 需要完整参数时，先读 `editppt <command> --help` 或 `editppt image <command> --help`。
+- If a deterministic action can be completed with `editppt`, call the CLI directly instead of rewriting it as a temporary Python script.
+- When full parameters are needed, read `editppt <command> --help` or `editppt image <command> --help` first.
 
-## 命令目录树
+## Command Tree
 
 ```text
-editppt
-├── setup
-├── doctor
-├── config
-├── prepare
-├── run
-│   ├── next
-│   ├── status
-│   ├── backend
-│   ├── prompt
-│   ├── dispatch
-│   ├── record
-│   └── finalize
-├── image
-│   ├── generate
-│   ├── edit
-│   ├── batch
-│   ├── import
-│   ├── process-sheet
-│   └── crop
-└── formula
-    └── render-latex
+editppt                         - top-level CLI for setup, run orchestration, image assets, and formulas
+|-- setup                       - create or verify the user-level runtime home and config files
+|-- doctor                      - check local runtime health, dependencies, and backend availability
+|-- config                      - write user-level OpenAI-compatible image API fallback settings
+|-- prepare                     - normalize image/PDF/PPTX inputs into a run directory and page jobs
+|-- run                         - advance run state and coordinate page workers
+|   |-- next                    - read current run state and return the next required action
+|   |-- status                  - inspect run/page state for debugging or manual checks
+|   |-- backend                 - override or inspect the run-level image backend contract
+|   |-- prompt                  - generate an absolute page-worker prompt for one page
+|   |-- dispatch                - record that a real page worker/subagent was spawned
+|   |-- record                  - validate required page outputs and record page result hashes
+|   `-- finalize                - assemble recorded pages and validate the final PPTX
+|-- image                       - generate, edit, import, crop, and process bitmap assets
+|   |-- generate                - create a new image from a text prompt
+|   |-- edit                    - edit a source image for clean bases or source-faithful asset sheets
+|   |-- batch                   - run multiple generate/edit jobs from JSONL with concurrency
+|   |-- import                  - copy a selected image into the page dir and record provenance
+|   |-- process-sheet           - split a chroma-key asset sheet into transparent assets
+|   `-- crop                    - crop allowed source-derived raster regions from source.png
+`-- formula                     - render formula assets from agent-transcribed LaTeX
+    `-- render-latex            - render LaTeX into SVG/PNG/PDF plus a manifest fragment
 ```
 
-## 常用帮助入口
+## Common Help Entrypoints
 
 ```bash
 editppt --help
@@ -45,25 +45,25 @@ editppt image batch --help
 editppt formula render-latex --help
 ```
 
-`editppt image` 会自动选择图片后端：优先 Codex OAuth，缺失时使用 `~/.editppt/config.yaml` 或环境变量中的 OpenAI-compatible API 配置。
+`editppt image` automatically chooses the image backend: Codex OAuth first, then OpenAI-compatible API credentials from `~/.editppt/config.yaml` or environment variables if OAuth is unavailable.
 
-## 运行前检查
+## Pre-Run Check
 
-`editppt` CLI 是本 skill 的必需运行面。先确认 CLI 是否可用：
+The `editppt` CLI is a required runtime surface for this skill. First confirm that the CLI is available:
 
 ```bash
 editppt --help
 ```
 
-如果 shell 返回 command not found，或刚更新过 skill，从 skill-local CLI 做 editable 安装：
+If the shell returns command not found, or if the skill was just updated, install the skill-local CLI in editable mode:
 
 ```bash
 pipx install --editable <skill-root>/cli
 ```
 
-`<skill-root>` 是包含 `SKILL.md` 的 `image-to-editable-ppt` 目录。Windows 下同样使用该目录的 `cli` 子目录路径。
+`<skill-root>` is the `image-to-editable-ppt` directory that contains `SKILL.md`. On Windows, use the same directory's `cli` subdirectory path.
 
-CLI 可用后再做本地运行态检查：
+After the CLI is available, run local runtime checks:
 
 ```bash
 editppt setup
@@ -71,71 +71,73 @@ editppt doctor
 editppt config --api-key "<key>" --base-url "<openai-compatible-base-url>" --model "<image-model>"
 ```
 
-只有在需要 API fallback，或用户明确提供第三方图片 API 时，才写入 `editppt config`。不要把 API key 写入项目目录、run 目录、prompt 或 manifest。
+Write `editppt config` only when API fallback is needed or when the user explicitly provides a third-party image API. Do not write API keys into the project directory, run directory, prompts, or manifests.
 
-## 单页输入常用命令
+## Common Single-Page Commands
 
 ```bash
 editppt prepare input.png
 ```
 
-作用：把单张图片规范化成 run 目录，生成 `deck_manifest.json`、`page_jobs.json`、`notes_manifest.json`、`pages/page_001/source.png` 和 `pages/page_001/page_request.json`。
+Purpose: normalize a single image into a run directory and generate `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, `pages/page_001/source.png`, and `pages/page_001/page_request.json`.
 
 ```bash
 editppt run record <run> --page page_001 --agent-id main
 ```
 
-作用：单页由主 agent 直接完成当前页、自检并写齐 page-local 输出后，记录该页结果。
+Purpose: after the parent agent directly completes the current single page, self-checks it, and writes all page-local outputs, record that page result.
 
 ```bash
 editppt run finalize <run>
 ```
 
-作用：记录完成后，组装并验证最终 PPTX。
+Purpose: after recording is complete, assemble and validate the final PPTX.
 
-## 多页输入常用命令
+## Common Multi-Page Commands
 
 ```bash
 editppt prepare input.pdf
 ```
 
-作用：把 PDF、PPTX 或多张图片规范化成多页 run 目录，并为每页生成 `pages/page_NNN/source.png` 和 `page_request.json`。
+Purpose: normalize a PDF, PPTX, or multiple images into a multi-page run directory and generate `pages/page_NNN/source.png` plus `page_request.json` for each page.
 
 ```bash
 editppt run next <run> --json
 ```
 
-作用：读取当前 run 状态，返回下一步阶段。`stage=rebuild_page` 时主 agent 直接完成单页；`stage=dispatch_pages` 时读取 `suggested_pages`；`stage=wait` 时等待已分派页面完成；`stage=finalize` 时进入最终组装。
+Purpose: read current run state and return the next stage. `stage=rebuild_page` applies only to an actual single-page input, where the parent agent may complete the page directly. `stage=dispatch_pages` applies to multi-page inputs, where the parent agent reads `suggested_pages` and must dispatch page workers. `stage=wait` means wait for dispatched pages to complete. `stage=finalize` means proceed to final assembly.
+
+For multi-page inputs, the parent agent must not create page reconstruction artifacts and must not write `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, or `page_result.json`. These files are generated by page workers inside their own `pages/page_NNN/` directories.
 
 ```bash
-editppt run prompt <run> --page page_001 --out <run>/pages/page_001/worker-prompt.md
+editppt run prompt <run> --page page_001 --out <absolute-run-dir>/pages/page_001/worker-prompt.md
 ```
 
-作用：为指定页面生成 page worker prompt。prompt 会指向该页的 `page_request.json`、`source.png` 和必须读取的 references。
+Purpose: generate a page-worker prompt for a specified page. The prompt points to that page's `page_request.json`, `source.png`, and required references. `--out` must be an absolute path to avoid relative paths being resolved under the page directory and producing nested paths.
 
 ```bash
-editppt run dispatch <run> --page page_001 --agent-id <worker-id> --prompt-file <run>/pages/page_001/worker-prompt.md
+editppt run dispatch <run> --page page_001 --agent-id <worker-id> --prompt-file <absolute-run-dir>/pages/page_001/worker-prompt.md
 ```
 
-作用：记录页面已经分派给某个 worker。该命令只记录真实已发生的分派。
+Purpose: record that a page has been dispatched to a worker. This command only records a dispatch that has really happened; first create the worker with the current environment's available subagent/multi-agent tool, then run this command. `--prompt-file` uses the same absolute path as `run prompt --out`.
 
 ```bash
 editppt run record <run> --page page_001 --agent-id <worker-id>
 ```
 
-作用：在页面 worker 写齐 `manifest.json`、`page.pptx`、`preview.png`、`split_assets_contact.png`、`validation.json`、`page_result.json` 后，校验并记录该页结果。
+Purpose: after the page worker writes `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, and `page_result.json`, validate and record that page result.
 
 ```bash
 editppt run finalize <run>
 ```
 
-作用：所有页面已 record 后，组装、验证并输出最终 PPTX。
+Purpose: after all pages are recorded, assemble, validate, and output the final PPTX.
 
-并发槽位来自 `page_jobs.json.max_concurrent_pages`，默认是 6。正常流程优先用 `editppt run next` 决定下一步；`editppt run status` 只用于 debug 或人工排查。
+Concurrency slots come from `page_jobs.json.max_concurrent_pages`; the default is 6. In normal flow, prefer `editppt run next` to determine the next action. `editppt run status` is only for debugging or manual inspection.
 
-## 图片后端命令
+## Image Backend Commands
 
-生成新图：
+Generate a new image:
 
 ```bash
 editppt image generate \
@@ -143,7 +145,7 @@ editppt image generate \
   --out pages/page_001/assets/support.png
 ```
 
-基于原图做 clean base 或前景素材板：
+Create a clean base or foreground asset sheet from the source image:
 
 ```bash
 editppt image edit \
@@ -157,7 +159,7 @@ editppt image edit \
   --out pages/page_001/assets/asset-sheet.png
 ```
 
-批量生成或编辑：
+Batch generate or edit:
 
 ```bash
 editppt image batch \
@@ -166,11 +168,11 @@ editppt image batch \
   --concurrency 6
 ```
 
-JSONL job 没有 `image` / `images` 字段时是 generate；带 `image` / `images` 字段时是 edit。
+A JSONL job without `image` / `images` is a generate job. A job with `image` / `images` is an edit job.
 
-## 资产处理命令
+## Asset Processing Commands
 
-记录已选择的图片输出：
+Record a selected image output:
 
 ```bash
 editppt image import pages/page_001 \
@@ -180,7 +182,7 @@ editppt image import pages/page_001 \
   --role asset_sheet
 ```
 
-处理 chroma-key 素材板：
+Process a chroma-key asset sheet:
 
 ```bash
 editppt image process-sheet pages/page_001 \
@@ -189,7 +191,9 @@ editppt image process-sheet pages/page_001 \
   --assets-dir assets/icons
 ```
 
-裁剪允许 source-derived 的规则大块内容：
+The asset sheet key color is determined by the generation prompt. `process-sheet` samples the key color from the image edge. Cyan, green, magenta, and similar colors can all be candidates. Prefer a pure color that does not appear in the current assets and is far from the subject colors. If background removal makes the subject fade, cuts off edges, or leaves key-color remnants, first regenerate the asset sheet with a new key color.
+
+Crop allowed regular source-derived content:
 
 ```bash
 editppt image crop pages/page_001 \
@@ -198,7 +202,7 @@ editppt image crop pages/page_001 \
   --out assets/chart-block.png
 ```
 
-## 公式命令
+## Formula Commands
 
 ```bash
 editppt formula render-latex pages/page_001 \
@@ -209,4 +213,4 @@ editppt formula render-latex pages/page_001 \
   --fragment assets/formula_001.fragment.json
 ```
 
-公式由 agent 从 source 转写为 LaTeX，CLI 只负责渲染成图片资产和 manifest fragment。
+The agent transcribes the formula from the source into LaTeX. The CLI only renders it into an image asset and manifest fragment.

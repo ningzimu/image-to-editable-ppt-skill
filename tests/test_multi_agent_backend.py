@@ -187,6 +187,35 @@ class MultiAgentBackendTest(unittest.TestCase):
         self.assertIn("strict visual reference", result.stdout)
         self.assertNotIn("--input-fidelity", result.stdout)
 
+    def test_process_sheet_resolves_asset_source_relative_to_page_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            page_dir = Path(tmp) / "pages/page_001"
+            assets_dir = page_dir / "assets"
+            assets_dir.mkdir(parents=True)
+            Image.new("RGB", (24, 24), "#ff00ff").save(assets_dir / "sheet.png")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "editppt.cli",
+                    "image",
+                    "process-sheet",
+                    str(page_dir),
+                    "--asset-sheet-source",
+                    "assets/sheet.png",
+                    "--chroma",
+                    "copied-sheet.png",
+                    "--skip-chroma",
+                    "--skip-split",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertTrue((page_dir / "copied-sheet.png").exists())
+
     def test_image_batch_api_dry_run_routes_image_jobs_to_edit(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.png"
@@ -776,6 +805,72 @@ class MultiAgentBackendTest(unittest.TestCase):
             result_payload = jobs["pages"][1]["result"]
             self.assertNotIn("qa_note", result_payload)
             self.assertNotIn("known_limits", result_payload)
+
+    def test_record_page_result_refreshes_recorded_page(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = make_minimal_run(tmp)
+            jobs = read_json(run_dir / "page_jobs.json")
+            page_2 = jobs["pages"][1]
+            page_2["status"] = "dispatched"
+            page_2["dispatch"] = {"agent_id": "worker-1"}
+            write_json(run_dir / "page_jobs.json", jobs)
+
+            page_dir = run_dir / "pages/page_002"
+            for name in (
+                "manifest.json",
+                "imagegen-jobs.json",
+                "page.pptx",
+                "preview.png",
+                "split_assets_contact.png",
+                "page_result.json",
+            ):
+                (page_dir / name).write_text("x", encoding="utf-8")
+            write_json(page_dir / "validation.json", {"passed": False})
+            write_json(
+                page_dir / "page_result.json",
+                {
+                    "page_manifest": "manifest.json",
+                    "imagegen_jobs": "imagegen-jobs.json",
+                    "page_pptx": "page.pptx",
+                    "preview": "preview.png",
+                    "contact_sheet": "split_assets_contact.png",
+                    "validation": "validation.json",
+                    "page_result": "page_result.json",
+                },
+            )
+
+            first = subprocess.run(
+                [
+                    sys.executable,
+                    RUNTIME_DIR / "record_page_result.py",
+                    run_dir,
+                    "--page",
+                    "page_002",
+                    "--agent-id",
+                    "worker-1",
+                ],
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, first.returncode, first.stderr)
+
+            write_json(page_dir / "validation.json", {"passed": True})
+            second = subprocess.run(
+                [
+                    sys.executable,
+                    RUNTIME_DIR / "record_page_result.py",
+                    run_dir,
+                    "--page",
+                    "page_002",
+                    "--agent-id",
+                    "worker-1",
+                ],
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, second.returncode, second.stderr)
+            jobs = read_json(run_dir / "page_jobs.json")
+            self.assertIs(jobs["pages"][1]["result"]["validation_passed"], True)
 
     def test_image_import_records_generated_image(self):
         with tempfile.TemporaryDirectory() as tmp:

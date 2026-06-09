@@ -111,7 +111,10 @@ Slide reconstruction patterns:
   Clean base: use edit --image <source.png>; preserve source composition,
   perspective, object positions, colors, lighting, material, and background identity.
   Asset sheet: use edit --image <source.png>; separate exact existing foreground
-  bitmap objects on a flat chroma-key background with generous spacing.
+  bitmap objects on a flat chroma-key background with generous spacing. Choose
+  a key color absent from the assets and far from their main fills, strokes,
+  highlights, and shadows; cyan, green, magenta, red, or orange are examples,
+  not fixed defaults.
   Formula assets: use editppt formula render-latex, not editppt image.
 
 Output:
@@ -153,7 +156,10 @@ Prompt patterns:
   foreground text/objects that will be rebuilt.
   Asset sheet: extract exact existing non-text foreground objects from the
   source into a sparse chroma-key sheet; preserve shape, stroke geometry, color,
-  proportions, internal cutouts, and visual identity.
+  proportions, internal cutouts, and visual identity. Choose a key color absent
+  from the target objects and far from their main fills, strokes, highlights,
+  and shadows; cyan, green, magenta, red, or orange are examples, not fixed
+  defaults.
 
 Examples:
   editppt image edit --image pages/page_001/source.png --prompt-file clean-base.prompt.txt --out pages/page_001/assets/clean-base.png

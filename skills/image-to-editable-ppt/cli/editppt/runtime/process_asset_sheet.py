@@ -53,7 +53,7 @@ def main():
     )
     parser.add_argument("page_dir", help="Page directory that owns imagegen-jobs.json, manifest.json, and the assets folder.")
     parser.add_argument("--job-id", help="Image generation job id to mark as processed after splitting or cropping.")
-    parser.add_argument("--asset-sheet-source", help="Generated sheet image to process. Defaults to the imported asset sheet recorded for --job-id when available.")
+    parser.add_argument("--asset-sheet-source", help="Generated sheet image to process. Relative paths are resolved under page_dir unless absolute. Defaults to the imported asset sheet recorded for --job-id when available.")
     parser.add_argument("--chroma", default="imagegen_asset_sheet_chroma.png", help="Intermediate chroma-key output path relative to page_dir.")
     parser.add_argument("--alpha", default="imagegen_asset_sheet_alpha.png", help="Transparent sheet output path relative to page_dir.")
     parser.add_argument("--skip-chroma", action="store_true", help="Skip chroma-key removal; useful when only cropping source.png or an already-transparent image.")

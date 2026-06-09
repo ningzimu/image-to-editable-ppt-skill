@@ -53,6 +53,13 @@ def main():
                 f"Agent id mismatch for {page['page_id']}: dispatch={dispatch.get('agent_id')} result={args.agent_id}"
             )
         record_mode = "dispatched-worker"
+    elif page.get("status") == "recorded":
+        previous = page.get("result") or {}
+        if previous.get("agent_id") != args.agent_id:
+            raise SystemExit(
+                f"Agent id mismatch for recorded {page['page_id']}: previous={previous.get('agent_id')} result={args.agent_id}"
+            )
+        record_mode = previous.get("record_mode") or "refresh-recorded-page"
     elif direct_single_page:
         record_mode = "direct-main-agent"
     else:

@@ -1,209 +1,209 @@
-# 页面决策树
+# Page Decision Tree
 
-本文件是唯一页面决策标准。每一张 `source.png` 都必须按三步判断：
+This file is the single source of truth for page decisions. Every `source.png` must be judged in three steps:
 
-1. 背景识别与修复。
-2. 前景素材分离。
-3. PPT 原生元素复原。
+1. Background recognition and repair.
+2. Foreground asset separation.
+3. PPT native element reconstruction.
 
-不要先画 PPT 原生元素再回头决定背景和前景资产。先把背景、前景、原生结构三类对象边界定清楚，再写 manifest。
+Do not draw PPT native elements first and then decide background and foreground assets afterward. First define the boundaries between background, foreground, and native structure; then write the manifest.
 
-## 决策前清单
+## Pre-Decision Checklist
 
-开始三步判断前，先建立页面清单：
+Before the three-step decision process, build a page inventory:
 
-- 页面尺寸和页面类型。
-- 所有可读文字。
-- 背景类型：纯色、渐变、规则纹理、照片、插画、dashboard、空间/产品图、复杂图形背景。
-- 背景是否被后续要重建的文字、图标、标签、贴纸、手绘标记或其他前景对象遮挡。
-- 前景视觉对象：图标、pictogram、logo-like mark、照片、纹理、插画、人物、植物、设备、手绘标记、贴纸、装饰线、徽章。
-- 可精确裁切的大块规则内容：矩形插图、矩形照片、规则截图、地图框、视频封面、规则图表块等。
-- PPT 原生元素候选：文字、文本框、卡片、面板、表格、坐标轴、线条、流程框、分隔线、简单箭头。
-- 公式候选：目标函数、约束、矩阵、分式、根号、cases、多行方程组、普通数学表达式。公式必须单独列出，不归入普通文字。
-- 每类文字的 source 字形高度、容器高度、行距和密度。
-- 每个矩形/卡片/表格外框的角形：直角、轻微圆角、明显圆角、pill。
+- Page size and page type.
+- All readable text.
+- Background type: solid color, gradient, regular texture, photo, illustration, dashboard, spatial/product image, complex graphic background.
+- Whether the background is occluded by text, icons, labels, stickers, hand-drawn marks, or other foreground objects that will be rebuilt later.
+- Foreground visual objects: icons, pictograms, logo-like marks, photos, textures, illustrations, people, plants, devices, hand-drawn marks, stickers, decorative lines, badges.
+- Large regular content that can be precisely cropped: rectangular illustrations, rectangular photos, regular screenshots, map frames, video covers, regular chart blocks, and similar objects.
+- PPT native element candidates: text, text boxes, cards, panels, tables, axes, lines, flow boxes, dividers, simple arrows.
+- Formula candidates: objective functions, constraints, matrices, fractions, roots, cases, multiline equation groups, ordinary math expressions. Formulas must be listed separately and must not be grouped with ordinary text.
+- Source glyph height, container height, line spacing, and density for each text level.
+- Corner geometry for every rectangle/card/table outline: straight, slight radius, obvious radius, pill.
 
-manifest 必须记录 `visual_inventory`、`background_strategy` 和 `quality_checks`。其中 `quality_checks.font_size_calibrated`、`visual_inventory_matched`、`background_strategy_checked`、`shape_corner_geometry_checked` 都必须为 `true`。
+The manifest must record `visual_inventory`, `background_strategy`, and `quality_checks`. `quality_checks.font_size_calibrated`, `visual_inventory_matched`, `background_strategy_checked`, and `shape_corner_geometry_checked` must all be `true`.
 
-## 1. 背景识别与修复
+## 1. Background Recognition and Repair
 
-第一步只决定背景，不处理前景资产和文字。
+The first step decides only the background. Do not process foreground assets or text in this step.
 
-### 1.1 不需要生图工具的背景
+### 1.1 Backgrounds That Do Not Need Image Tools
 
-以下背景不需要 `editppt image` 修复，直接用 PPT 结构对象或确定性 runtime 复原：
+The following backgrounds do not need `editppt image` repair. Rebuild them directly with PPT structural objects or deterministic runtime:
 
-- 纯色背景。
-- 简单渐变。
-- 普通卡片、面板、容器底色。
-- 表格线、坐标轴、网格线、图表框。
-- 规则重复纹理、规则分隔带、简单阴影。
-- 没有被前景遮挡的空白背景区域。
+- Solid-color backgrounds.
+- Simple gradients.
+- Ordinary cards, panels, and container fills.
+- Table lines, axes, gridlines, chart frames.
+- Regular repeated textures, regular divider bands, simple shadows.
+- Blank background regions not occluded by foreground.
 
-这类背景应在 `background_strategy.mode` 中记录为 `native-or-script` 或等价模式。不要为了纯色或规则背景调用 image backend。
+Record this kind of background in `background_strategy.mode` as `native-or-script` or an equivalent mode. Do not call the image backend for solid-color or regular backgrounds.
 
-### 1.2 可以复用的背景
+### 1.2 Reusable Background Regions
 
-只有在同时满足以下条件时，才允许复用已有背景区域：
+Existing background regions may be reused only when all of these conditions are satisfied:
 
-- 背景本身没有需要移除的文字、标签、图标、贴纸、手绘标记或其他前景对象。
-- 复用区域不会造成“背景一份、可编辑对象一份”的重复。
-- 复用区域不是整页 `source.png` 加 native text overlay。
-- 复用区域是页面中的背景/插图区块，而不是为了跳过可编辑化而整卡片、整表格、整图表截图。
+- The background itself has no text, labels, icons, stickers, hand-drawn marks, or other foreground objects that need removal.
+- Reusing the region will not create a duplicate "one copy in the background, another copy as editable objects" problem.
+- The reused region is not a full-page `source.png` with native text overlay.
+- The reused region is a background/illustration area within the page, not a whole card, whole table, or whole chart screenshot used to bypass editability.
 
-### 1.3 需要生图工具修复的背景
+### 1.3 Backgrounds That Need Image Tool Repair
 
-以下情况需要 `editppt image edit --image <source.png>` 做背景修复或 clean base：
+Use `editppt image edit --image <source.png>` for background repair or clean bases when:
 
-- 复杂照片、空间、真实产品图、复杂 dashboard、复杂插画背景被前景文字或图标遮挡。
-- 移除文字、标签、图标、贴纸、手绘标记后，需要补全被遮挡区域。
-- 背景与前景粘连，简单裁切或 native shape 无法保留 source identity。
+- Complex photos, spaces, real product images, complex dashboards, or complex illustrated backgrounds are occluded by foreground text or icons.
+- After removing text, labels, icons, stickers, or hand-drawn marks, occluded areas need to be completed.
+- Background and foreground are stuck together, and simple cropping or native shapes cannot preserve source identity.
 
-clean base 的目标是“移除后续会重建的前景对象后的同一张背景”，不是生成同主题新图。prompt 必须把 source 当作 edit target 和 strict visual reference，并明确：
+The clean base target is the same background after removing foreground objects that will be rebuilt later. It is not a new image with a similar theme. The prompt must treat the source as both the edit target and strict visual reference, and must state:
 
-- Preserve：原始画幅比例、构图、透视、物体位置、色彩、光照、材质、纹理、景深和背景身份。
-- Remove：后续会重建的可读文字、标签、数字、图标、贴纸、徽章、手绘标记、装饰对象。
-- 禁止：新房间、新 dashboard、新产品、新镜头角度、新物体位置、不同光照、伪文字、水印、模糊补丁、涂抹痕迹。
+- Preserve: original aspect ratio, composition, perspective, object positions, colors, lighting, materials, textures, depth of field, and background identity.
+- Remove: readable text, labels, numbers, icons, stickers, badges, hand-drawn marks, and decorative objects that will be rebuilt later.
+- Forbid: new rooms, new dashboards, new products, new camera angles, new object positions, different lighting, pseudo-text, watermarks, blurry patches, or smear artifacts.
 
-如果只是小范围遮挡，优先局部补全或小 patch；不要让 image backend 重新想象整张背景。
+If the occlusion is small, prefer local completion or a small patch. Do not let the image backend reimagine the whole background.
 
-### 1.4 Dashboard 不是默认背景
+### 1.4 Dashboard Is Not Background by Default
 
-dashboard 默认不是背景，也不是一个可整体截图化的图片块。
+A dashboard is not background by default, and it is not a single image block to be screenshotted wholesale.
 
-dashboard 中的标题、数字、表格、坐标轴、图例、普通图表元素、指标卡、筛选器和标签，应优先在第三步拆成 PPT 原生文字和结构对象。
+Dashboard titles, numbers, tables, axes, legends, ordinary chart elements, metric cards, filters, and labels should usually be decomposed in step 3 into PPT native text and structural objects.
 
-只有以下区域可以作为背景或图片区域处理：
+Only the following areas may be handled as background or image regions:
 
-- 地图。
-- 热力图。
-- 复杂截图底图。
-- 无法可靠恢复数据的复杂图表图像区域。
-- 作为页面视觉背景存在、且不会被后续原生对象重复覆盖的复杂纹理或底图。
+- Maps.
+- Heatmaps.
+- Complex screenshot base images.
+- Complex chart image regions whose data cannot be reliably restored.
+- Complex textures or base imagery that function as visual background and will not be duplicated by later native objects.
 
-不要把整块 dashboard、整张表格、整张卡片或整张图表截图化来跳过可编辑结构。
+Do not screenshot a whole dashboard, whole table, whole card, or whole chart to skip editable structure.
 
-### 1.5 背景记录
+### 1.5 Background Record
 
-`background_strategy` 至少说明：
+`background_strategy` must explain at least:
 
-- `mode`：`native-or-script`、`source-preserving-local-cleanup`、`imagegen-full-clean-base` 等。
-- `source_consistency_contract`：需要保留的构图、透视、颜色、光照、物体位置和关键细节。
-- `removed_foreground`：从背景中移除、之后会重建的前景对象。
-- `comparison_note`：对照 source 后的背景一致性结论。
+- `mode`: `native-or-script`, `source-preserving-local-cleanup`, `imagegen-full-clean-base`, or similar.
+- `source_consistency_contract`: composition, perspective, colors, lighting, object positions, and key details that must be preserved.
+- `removed_foreground`: foreground objects removed from the background and rebuilt later.
+- `comparison_note`: background consistency conclusion after comparing against the source.
 
-## 2. 前景素材分离
+## 2. Foreground Asset Separation
 
-第二步只决定非文字前景视觉对象的来源。前景对象必须先进入 `visual_inventory`，再决定来源。
+The second step decides only the source of non-text foreground visual objects. Foreground objects must enter `visual_inventory` before their source is chosen.
 
-### 2.1 允许精确裁切的大块规则内容
+### 2.1 Large Regular Content That May Be Precisely Cropped
 
-只有“大片、规则、可以精确裁剪”的内容允许使用 `editppt image crop` 或 source-derived raster：
+Only large, regular, precisely croppable content may use `editppt image crop` or source-derived rasters:
 
-- 矩形插图。
-- 矩形照片。
-- 规则截图。
-- 地图框。
-- 视频封面。
-- 规则图表块或规则图片块。
-- 已天然孤立、边界清晰、没有背景结构粘连的大块非文字视觉区域。
+- Rectangular illustrations.
+- Rectangular photos.
+- Regular screenshots.
+- Map frames.
+- Video covers.
+- Regular chart blocks or regular image blocks.
+- Large non-text visual regions that are naturally isolated, have clear boundaries, and are not attached to background structure.
 
-判断标准是“是否可以精确裁剪”：
+The decision criterion is whether the object can be precisely cropped:
 
-- 有清晰矩形或规则边界。
-- crop box 可以覆盖完整对象并保留安全边距。
-- 不需要复杂透明边缘。
-- 不需要抠出不规则轮廓。
-- 不会裁进后续要独立重建的文字、图标、标签或结构对象。
-- 裁出来作为一个可移动图片对象后，不会冒充整页、整卡片、整表格或整图表的可编辑化。
-- 不包含必须成为 native text box 的可读文字。
+- It has a clear rectangular or regular boundary.
+- The crop box can cover the complete object with safe padding.
+- It does not require complex transparent edges.
+- It does not require cutting out an irregular silhouette.
+- It will not crop in text, icons, labels, or structural objects that must be independently rebuilt later.
+- As a movable image object, it will not pretend that a whole page, whole card, whole table, or whole chart has been made editable.
+- It does not contain readable text that must become a native text box.
 
-使用 source-derived raster 时必须：
+When using source-derived rasters:
 
-- 用 `editppt image crop` 裁剪，不要手写临时代码。
-- 记录 `source_region_px` 或 `source_bbox_px`。
-- 记录 `source_type: "source-derived-rasterization"`。
-- crop box 额外留安全边距，通常至少 6-12 px。
-- 如果需要透明化，用 border background removal，并复核 alpha 边缘。
+- Crop with `editppt image crop`; do not hand-write temporary code.
+- Record `source_region_px` or `source_bbox_px`.
+- Record `source_type: "source-derived-rasterization"`.
+- Add safe padding to the crop box, usually at least 6-12 px.
+- If transparency is needed, use border background removal and review alpha edges.
 
-### 2.2 其他前景素材默认走 image edit 分离
+### 2.2 Other Foreground Assets Default to Image Edit Separation
 
-除 2.1 中可精确裁切的大块规则内容外，其他非文字前景视觉对象默认使用 `editppt image edit --image <source.png>` 做素材板分离：
+Except for the large precisely croppable regular content in 2.1, all other non-text foreground visual objects default to `editppt image edit --image <source.png>` asset-sheet separation:
 
-- 图标、pictogram、symbol、logo-like mark。
-- 徽章、贴纸、胶带、印章、角标。
-- 手绘标记、手绘箭头、装饰下划线、圈注、对勾、叉号。
-- 复杂箭头、图标化节点、带纹理或阴影的元素。
-- dashboard 或图表里的语义小图标、趋势图标、警告符号、状态符号。
-- 叶子、植物、人物、动物、电脑、手机、设备、场景插画和其他承载页面画风的非文字对象。
+- Icons, pictograms, symbols, logo-like marks.
+- Badges, stickers, tapes, stamps, corner tags.
+- Hand-drawn marks, hand-drawn arrows, decorative underlines, circles, checkmarks, crosses.
+- Complex arrows, icon-like nodes, objects with texture or shadow.
+- Semantic small icons, trend icons, warning symbols, and status symbols in dashboards or charts.
+- Leaves, plants, people, animals, computers, phones, devices, scene illustrations, and any other non-text object that carries page style.
 
-这些对象禁止用 native primitive 近似，即使它们看起来由圆、线、矩形或椭圆组成。判断标准不是“能不能画”，而是“它是否承载语义、身份或画风”。
+These objects must not be approximated with native primitives, even if they appear to be made from circles, lines, rectangles, or ellipses. The criterion is not "can it be drawn"; the criterion is whether it carries meaning, identity, or visual style.
 
-### 2.3 素材板 prompt 原则
+### 2.3 Asset Sheet Prompt Principles
 
-素材板是 source-faithful separation，不是 redraw。prompt 必须要求：
+An asset sheet is source-faithful separation, not redraw. The prompt must require:
 
-- 从 source 中分离既有对象。
-- 保持原始形状、笔画、颜色、比例、内部留白、纹理和视觉身份。
-- 使用平整 chroma-key 背景。
-- 每个对象完整、互不接触、互不重叠、有足够 padding。
-- 对象数量和顺序与 `visual_inventory` 一致。
-- 不生成可读文字、标签、伪文字、水印。
-- 不生成整卡片、整面板、整图表、整页片段。
-- 不重绘、不美化、不简化、不替换为同义符号、不创造更干净的替代图标。
+- Separate existing objects from the source.
+- Preserve original shapes, strokes, colors, proportions, internal spacing, texture, and visual identity.
+- Use a flat chroma-key background; choose the key color based on the subject colors in `visual_inventory`.
+- Every object is complete, does not touch or overlap other objects, and has sufficient padding.
+- Object count and order match `visual_inventory`.
+- Do not generate readable text, labels, pseudo-text, or watermarks.
+- Do not generate whole cards, whole panels, whole charts, or full-page fragments.
+- Do not redraw, beautify, simplify, replace with synonymous symbols, or create cleaner substitute icons.
 
-绿色主体不要用 `#00ff00` 做 key background；紫色/洋红主体不要用 `#ff00ff`。
+The key color can be cyan, green, magenta, red, orange, or another high-saturation pure color. The selection criterion is not a fixed color; the color must not appear in the current assets and must be sufficiently distant from all subject colors, stroke colors, shadow colors, and highlight colors. For example, green subjects should not use `#00ff00`, blue/purple subjects should not use cyan/blue families, purple or magenta subjects should not use `#ff00ff`, and white subjects should not use white or light gray backgrounds. If `process-sheet` background removal makes the subject fade, cuts off edges, or leaves key-color remnants, first regenerate an asset sheet with a different key color, then consider tuning removal parameters.
 
-### 2.4 素材板对账与修正
+### 2.4 Asset Sheet Reconciliation and Fixes
 
-asset sheet 生成后必须对账：
+After an asset sheet is generated, reconcile it:
 
-- 切分出的资产数量覆盖 `visual_inventory` 中所有必需对象。
-- 每个资产命名和 inventory 对应。
-- 缺对象、错符号、少笔画、严重变形、背景粘连、文字污染、变成同义替代，必须重新生成或调整资产后再使用。
-- 轻微线宽、抗锯齿、比例、阴影或细节差异可以作为 warning 随当前 PPT 交付。
-- 用 native primitive 近似必须分离的前景对象，不属于 warning，必须改为 source-faithful separation。
+- Split asset count covers all required objects in `visual_inventory`.
+- Every asset name corresponds to the inventory.
+- Missing objects, wrong symbols, missing strokes, severe deformation, background attachment, text contamination, or synonymous substitution must be regenerated or fixed before use.
+- Minor line width, antialiasing, proportion, shadow, or detail differences may be delivered as warnings with the current PPT.
+- Approximating a foreground object that must be separated with native primitives is not a warning; it must be changed to source-faithful separation.
 
-## 3. PPT 原生元素复原
+## 3. PPT Native Element Reconstruction
 
-第三步复原所有应由 PowerPoint 原生结构承载的对象，并处理公式资产。此时背景和前景素材来源已经定好。
+The third step reconstructs all objects that should be carried by native PowerPoint structure and handles formula assets. At this point, background and foreground asset sources have already been decided.
 
-### 3.1 文字与文本框
+### 3.1 Text and Text Boxes
 
-所有可读文字默认成为原生 PPT text box。公式不属于本节的普通可读文字，必须按 3.2 转写 LaTeX 并渲染为公式图片资产。
+All readable text defaults to native PPT text boxes. Formulas are not ordinary readable text in this section; they must be transcribed to LaTeX and rendered as formula image assets according to 3.2.
 
-不要用生成图承载可编辑文字。不要用隐藏文本、透明文本、1 pt 文本或 off-canvas 文本满足 text inventory。
+Do not use generated images to carry editable text. Do not use hidden text, transparent text, 1 pt text, or off-canvas text to satisfy text inventory.
 
-例外是品牌或背景身份的一部分，而不是普通可编辑文本：
+Exceptions are text that is part of brand or background identity rather than ordinary editable text:
 
-- logo 字标、品牌符号和商标文字。
-- 产品包装上的品牌文字。
-- 地图底图地名。
-- UI 截图内部不要求编辑的小字。
-- 照片背景中的招牌。
-- 作为纹理存在的报纸、书页、代码等文字。
-- OCR 置信度很低且不影响主要语义的极小文字。
+- Logo wordmarks, brand symbols, and trademark text.
+- Brand text on product packaging.
+- Place names on map base imagery.
+- Small text inside UI screenshots that is not required to be editable.
+- Signage in photo backgrounds.
+- Textures such as newspapers, book pages, or code.
+- Tiny text with very low OCR confidence that does not affect main meaning.
 
-这些例外应在 `visual_inventory` 或 `asset_provenance` 中说明，不要把主要标题、副标题、正文、表格文字、图例、坐标轴文字、数字、标签或按钮文字伪装成例外。
+These exceptions should be explained in `visual_inventory` or `asset_provenance`. Do not disguise main titles, subtitles, body text, table text, legends, axis labels, numbers, tags, or button text as exceptions.
 
-字号不要靠默认值猜测。先按 source 中的实际字形高度估算：
+Do not guess font sizes from defaults. First estimate from actual source glyph height:
 
-- 同一层级文字用同一组 font size，例如标题、副标题、表头、正文、标签、状态徽章。
-- 对中文密集版面，初稿宁可比估算小 5%-10%，不要偏大。
-- 字形高度接近容器高度时，font size 通常需要明显小于容器高度；给 PowerPoint/WPS 的 font metrics 留余量。
-- 文本框要比源图字形边界更宽松，避免 PowerPoint/WPS/preview font metrics 导致裁切或错误换行。
-- 构建 preview 后，逐类对比 source。如果标题、正文或标签比 source 更粗大、更拥挤或换行更多，先下调 font size 再继续。
+- Use the same font-size group for the same text level, such as title, subtitle, header, body, label, or status badge.
+- For dense Chinese layouts, the first draft should be 5%-10% smaller than the estimate rather than oversized.
+- When glyph height is close to container height, font size usually needs to be clearly smaller than container height; leave room for PowerPoint/WPS font metrics.
+- Text boxes should be looser than the source glyph bounds to avoid clipping or incorrect wrapping caused by PowerPoint/WPS/preview font metrics.
+- After building a preview, compare text by level against the source. If title, body, or label text is larger, heavier, more crowded, or wraps more than in the source, reduce font size before continuing.
 
-manifest 必须通过 `quality_checks.font_size_calibrated=true` 记录字号校准完成。
+The manifest must record completed font-size calibration with `quality_checks.font_size_calibrated=true`.
 
-### 3.2 公式处理
+### 3.2 Formula Handling
 
-公式不作为普通 native text box 复原。遇到公式时必须：
+Formulas are not reconstructed as ordinary native text boxes. When a formula is present:
 
-- 先把 source 中的公式转写为 LaTeX。
-- 使用 `editppt formula render-latex` 渲染成 SVG、PNG 或 PDF 图片资产。
-- 优先使用 SVG；如果目标环境不稳定或 SVG preview/PowerPoint 兼容性有问题，再使用 PNG。
-- 渲染命令必须写入 page dir，例如：
+- First transcribe the formula from the source into LaTeX.
+- Use `editppt formula render-latex` to render it into an SVG, PNG, or PDF image asset.
+- Prefer SVG. If the target environment is unstable or SVG preview/PowerPoint compatibility is problematic, use PNG.
+- The render command must write into the page directory, for example:
 
 ```bash
 editppt formula render-latex <page_dir> \
@@ -214,86 +214,86 @@ editppt formula render-latex <page_dir> \
   --fragment assets/formula_c2_1.fragment.json
 ```
 
-然后把 fragment 中的 `images`、`asset_provenance` 和 `formula_inventory` 合入 `manifest.json`。
+Then merge the fragment's `images`, `asset_provenance`, and `formula_inventory` into `manifest.json`.
 
-公式资产记录要求：
+Formula asset record requirements:
 
-- `visual_inventory` 中记录公式 id、LaTeX 源和 `decision: "latex-rendered-image"`。
-- `asset_provenance.source_type` 必须是 `latex-rendered-formula`。
-- `asset_provenance.source` 指向对应 `.tex` 文件。
-- `provenance_note` 说明该公式由 LaTeX 渲染，视觉保真优先于公式对象级可编辑。
-- 不要用 Unicode 下标/上标拼公式，不要手写大量公式 text boxes，不要把公式截图从 source 中裁切出来。
+- Record formula id, LaTeX source, and `decision: "latex-rendered-image"` in `visual_inventory`.
+- `asset_provenance.source_type` must be `latex-rendered-formula`.
+- `asset_provenance.source` points to the corresponding `.tex` file.
+- `provenance_note` explains that the formula was rendered from LaTeX and that visual fidelity is prioritized over formula object-level editability.
+- Do not assemble formulas with Unicode subscripts/superscripts, do not hand-write many formula text boxes, and do not crop formulas from the source.
 
-如果本机缺少 TeX engine、SVG/PNG converter 或 LaTeX 编译失败：
+If the machine lacks a TeX engine, SVG/PNG converter, or LaTeX compilation fails:
 
-- 继续产出当前可打开 PPT。
-- 在 `validation.json` 中记录公式 id、LaTeX 源、CLI 错误、需要安装/修复的工具或宏包。
-- 不允许用整页截图替代。
+- Continue producing the current openable PPT.
+- Record the formula id, LaTeX source, CLI error, and required tool/package installation or repair in `validation.json`.
+- Do not replace the formula with a full-page screenshot.
 
-### 3.3 结构性 primitive 与布局对象
+### 3.3 Structural Primitives and Layout Objects
 
-以下对象可以使用原生 PPT shape 或结构对象：
+The following objects may use native PPT shapes or structural objects:
 
-- 直线、虚线、折线。
-- 矩形、圆角矩形、圆形、椭圆。
-- 普通箭头和连接线。
-- 纯色卡片、面板、分隔线、边框。
-- 表格、表格线、坐标轴、网格线。
-- 简单柱状图、进度条、状态色块。
-- 简单标注。
-- 没有风格细节的基础流程框和容器。
+- Straight lines, dashed lines, polylines.
+- Rectangles, rounded rectangles, circles, ellipses.
+- Ordinary arrows and connectors.
+- Solid-color cards, panels, dividers, borders.
+- Tables, table lines, axes, gridlines.
+- Simple bar charts, progress bars, status color blocks.
+- Simple callouts.
+- Basic flow boxes and containers without style-specific details.
 
-这些对象必须只是布局结构，不承载语义图标或画风身份。圆形图标里的 DNA、锁、网络节点、靶心、放大镜、对勾等 pictogram 不属于结构性 primitive，必须在第二步分离。
+These objects must only be layout structure; they must not carry semantic icons or visual identity. A DNA mark, lock, network node, target, magnifier, or checkmark inside a circular icon is not a structural primitive and must be separated in step 2.
 
-### 3.4 角形与形状细节
+### 3.4 Corner Geometry and Shape Details
 
-角形选择必须保守：
+Corner decisions must be conservative:
 
-- 先判断 source 角形类别：`straight`、`small-radius`、`large-radius`、`pill`。
-- `straight` 用 `rect`。
-- `small-radius`、`large-radius`、`pill` 用 `roundRect`，并估算 `source_corner_radius_px`。
-- 圆角半径是对象级属性，不是布尔开关。大面板的 8-12 px 轻微圆角不能被重建成 70 px 大圆角。
-- 不确定时放大查看 source 角点；如果仍不确定，记录判断依据并偏向较小半径。
-- 每个 `roundRect` shape 必须记录 `source_corner_radius_px`，`corner_reason` 只作为补充说明，不能替代半径。
+- First classify source corner geometry: `straight`, `small-radius`, `large-radius`, or `pill`.
+- Use `rect` for `straight`.
+- Use `roundRect` for `small-radius`, `large-radius`, and `pill`, and estimate `source_corner_radius_px`.
+- Corner radius is an object-level property, not a boolean switch. An 8-12 px slight radius on a large panel must not be rebuilt as a 70 px pill-like radius.
+- If uncertain, zoom into the source corner. If still uncertain, record the basis and prefer a smaller radius.
+- Every `roundRect` shape must record `source_corner_radius_px`; `corner_reason` is only supplemental and cannot replace the radius.
 
-### 3.5 文字笔画与装饰拆分
+### 3.5 Text Strokes and Decoration Splitting
 
-文字和装饰不要重复拆分：
+Do not duplicate text strokes and decorations:
 
-- 一个可读字的笔画必须只属于 native text box，不能再额外用 shape 画同一笔画。
-- 独立装饰线、分隔线、按钮下划线可以作为 shape，但必须确认它不是文字的一部分。
-- 如果拆分后 preview 出现多一个横杠、多一个点或重复符号，必须删除重复 shape。
+- A readable character stroke belongs only to the native text box; do not draw the same stroke again as a shape.
+- Independent decorative lines, dividers, and button underlines may be shapes, but only after confirming they are not part of text.
+- If the split produces an extra dash, dot, or repeated symbol in the preview, remove the duplicate shape.
 
-### 3.6 层级
+### 3.6 Layering
 
-保持对象之间的分组关系，例如：
+Preserve grouping relationships between objects, for example:
 
-- 图标和圆形底座。
-- 徽章和数字。
-- 气泡框和文字。
-- 手绘箭头和注释。
-- 卡片背景、标题、图表和标签。
+- Icon and circular base.
+- Badge and number.
+- Speech bubble and text.
+- Hand-drawn arrow and annotation.
+- Card background, title, chart, and labels.
 
-推荐 z-index：
+Recommended z-index:
 
-- clean background/base：0
-- native structural shapes：10-20
-- separated foreground assets：30
-- native editable text：40+
-- 特殊情况下压在文字上方的圈注、贴纸或手绘标记：50+
+- clean background/base: 0
+- native structural shapes: 10-20
+- separated foreground assets: 30
+- native editable text: 40+
+- circles, stickers, or hand-drawn marks that must sit above text in special cases: 50+
 
-不要让背景覆盖文字。不要让前景素材压错层。不要让同一个文字、图标或装饰对象在图片层和原生对象层重复出现。
+Do not let the background cover text. Do not put foreground assets on the wrong layer. Do not let the same text, icon, or decorative object appear both in an image layer and a native object layer.
 
-## Manifest 坐标与记录
+## Manifest Coordinates and Records
 
-页面 manifest 使用 source-image pixel coordinates：
+Page manifests use source-image pixel coordinates:
 
 - `source.width_px`
 - `source.height_px`
 - `box_px: [x, y, width, height]`
 - `points_px: [x1, y1, x2, y2]`
 
-还必须包含：
+They must also contain:
 
 - `text_inventory`
 - `visual_inventory`
@@ -303,38 +303,38 @@ editppt formula render-latex <page_dir> \
 - `quality_checks.background_strategy_checked`
 - `quality_checks.shape_corner_geometry_checked`
 
-页面复原者负责完成一次页面级自检。自检依据记录在 manifest 的结构化字段和 `validation.json` 中。自检至少覆盖：
+The page reconstructor is responsible for one page-level self-check. The self-check evidence is recorded in structured manifest fields and in `validation.json`. The self-check covers at least:
 
-- 背景是否保持 source 构图、透视、颜色和物体位置。
-- 背景中是否残留后续会重建的对象。
-- 主要文字是否都是原生 text。
-- 字号是否经过 source 对照校准。
-- 前景素材是否完整。
-- 是否存在整页、整卡片、整表格、整 dashboard 或整图表截图化。
-- 是否存在图片层文字和原生文字重复。
-- 圆角、直角和形状细节是否正确。
-- dashboard 和图表是否合理拆分。
-- z-index 是否正确。
+- Whether the background preserves source composition, perspective, colors, and object positions.
+- Whether the background still contains objects that will be rebuilt later.
+- Whether all main text is native text.
+- Whether font sizes were calibrated against the source.
+- Whether foreground assets are complete.
+- Whether any full page, whole card, whole table, whole dashboard, or whole chart was turned into a screenshot.
+- Whether image-layer text and native text are duplicated.
+- Whether rounded corners, straight corners, and shape details are correct.
+- Whether dashboards and charts were reasonably decomposed.
+- Whether z-index is correct.
 
-## 当前页修正与 Warning 判定
+## Current-Page Fixes and Warning Decisions
 
-必须在当前页修正：
+Must be fixed in the current page:
 
-- 背景 clean base 明显漂移，变成同主题新背景。
-- 背景仍残留会被后续重建的文字、图标、标签、贴纸或手绘标记。
-- 第二步判定为必须 image edit 分离的对象被 native primitive 或不合规 source crop 近似替代。
-- 第二步素材板缺对象、错符号、少笔画、严重变形、背景粘连或文字污染。
-- 主要可读文字留在图片里，没有做成原生 text。
-- 同一段文字、图标或装饰对象既在图片层里，又作为原生对象重复出现。
-- dashboard、表格、卡片或图表被整体截图化，跳过了可编辑结构。
-- 文字字号/位置明显偏离 source，导致布局拥挤、溢出或遮挡。
-- source 直角矩形被重建成圆角矩形，且未能证明 source 有圆角。
-- z-index 错误导致文字或关键对象被遮挡。
+- Background clean base visibly drifts and becomes a new background with a related theme.
+- Background still contains text, icons, labels, stickers, or hand-drawn marks that will be rebuilt later.
+- An object that step 2 marks as requiring image-edit separation is approximated with native primitives or non-compliant source crop.
+- Step 2 asset sheet has missing objects, wrong symbols, missing strokes, severe deformation, background attachment, or text contamination.
+- Main readable text remains inside an image and is not made native text.
+- The same text, icon, or decorative object appears both in the image layer and as a native object.
+- A dashboard, table, card, or chart is screenshotted wholesale, skipping editable structure.
+- Text font size or position visibly deviates from the source and causes crowding, overflow, or occlusion.
+- A straight-corner source rectangle is rebuilt as a rounded rectangle without evidence that the source has rounded corners.
+- Wrong z-index causes text or key objects to be covered.
 
-可以作为 warning 随当前 PPT 交付：
+May be delivered as warnings with the current PPT:
 
-- image backend 分离后的轻微线宽、抗锯齿、比例、阴影或细节差异。
-- 非关键装饰的轻微视觉漂移。
-- 已记录的低风险字体差异。
+- Minor line-width, antialiasing, proportion, shadow, or detail differences after image-backend separation.
+- Minor visual drift in non-critical decorations.
+- Recorded low-risk font differences.
 
-warning 不能掩盖未按三步决策执行的问题。对象来源违反本决策树时，必须在当前页修正。
+Warnings cannot hide failures to follow the three-step decision process. When an object-source decision violates this decision tree, it must be fixed in the current page.

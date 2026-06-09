@@ -9,7 +9,7 @@ RUNTIME_DIR = ROOT / "skills/image-to-editable-ppt/cli/editppt/runtime"
 sys.path.insert(0, str(RUNTIME_DIR))
 
 from PIL import Image  # noqa: E402
-from validate_pptx import ALLOWED_SOURCE_TYPES, alpha_edge_violations, quality_contract_violations  # noqa: E402
+from validate_pptx import ALLOWED_SOURCE_TYPES, alpha_edge_violations, quality_contract_violations, required_texts_from_manifest  # noqa: E402
 from build_pptx_from_manifest import shape_xml  # noqa: E402
 
 
@@ -83,6 +83,19 @@ class QualityContractTest(unittest.TestCase):
             image.save(path)
             violations = alpha_edge_violations(path)
         self.assertTrue(violations)
+
+    def test_structured_text_inventory_flattens_to_required_strings(self):
+        required = required_texts_from_manifest(
+            {
+                "required_text": ["市场概览"],
+                "text_inventory": [
+                    {"id": "metric", "text": "4280 万", "decision": "native-text"},
+                    {"id": "insights", "required_text": ["扩张", "续约"]},
+                    {"id": "note", "description": "not an exact text requirement"},
+                ],
+            }
+        )
+        self.assertEqual(["市场概览", "4280 万", "扩张", "续约"], required)
 
 
 if __name__ == "__main__":

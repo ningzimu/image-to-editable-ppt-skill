@@ -21,10 +21,16 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Fixes
 
+- Resolve `editppt image process-sheet --asset-sheet-source` relative paths from the page directory.
+- Accept structured `text_inventory` entries during PPTX validation.
 - Align single-page direct recording, page-worker prompt paths, and asset-sheet helper examples with the actual `editppt` runtime state machine.
 
 ### Documentation
 
+- Translate installable skill documentation and agent metadata to English.
+- Require absolute worker prompt paths and top-level `passed` in page validation outputs.
+- Require real page-worker dispatch for multi-page skill runs and forbid parent-agent page reconstruction in that path.
+- Clarify chroma-key color selection for source-faithful asset sheets.
 - Update Chinese and English README files for multi-agent usage, backend configuration, and direct page-worker dispatch.
 - Document third-party image API fallback guidance and keep API keys in the user-level `~/.editppt/config.yaml`.
 - Align installable Skill prompts and references with the unified CLI and image backend terminology.
