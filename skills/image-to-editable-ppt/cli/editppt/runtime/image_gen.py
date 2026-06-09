@@ -421,31 +421,8 @@ def _runtime_python_path() -> str:
     return sys.executable
 
 
-def _skill_root() -> Path:
-    env_root = os.getenv("IMAGE_TO_EDITABLE_PPT_SKILL_ROOT")
-    if env_root:
-        return Path(env_root).expanduser().resolve()
-
-    current = Path(__file__).resolve()
-    for parent in current.parents:
-        if parent.name == "image-to-editable-ppt" and (parent / "SKILL.md").exists():
-            return parent.resolve()
-        source = parent / "skills" / "image-to-editable-ppt"
-        if source.exists():
-            return source.resolve()
-
-    packaged = current.parents[1] / "skill"
-    if packaged.exists():
-        return packaged.resolve()
-
-    return current.parents[1].resolve()
-
-
 def _cli_reinstall_hint() -> str:
-    cli_dir = _skill_root() / "cli"
-    if (cli_dir / "pyproject.toml").exists():
-        return f"`pipx install --force --editable {cli_dir}`"
-    return "`pipx install --force --editable <skill-root>/cli`"
+    return "`pipx install --force --editable <path-to-image-to-editable-ppt>/cli`"
 
 
 def _dependency_hint(package: str, *, upgrade: bool = False) -> str:

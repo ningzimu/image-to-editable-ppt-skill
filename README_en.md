@@ -68,7 +68,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 
 ## Runtime Requirements
 
-- Multi-page input requires the agent to dispatch page workers/subagents; if page workers cannot be created, the main agent can only process pages one by one under the same page contract, which is much slower.
+- Multi-page input requires the agent to dispatch page workers/subagents; if page workers cannot be created, run the skill in an environment that supports page workers.
 - Complex background cleanup, foreground icon extraction, transparent asset sheets, and local image edits use `editppt image edit/generate/batch`.
 - If local Codex OAuth exists (`~/.codex/auth.json`), the CLI uses it directly; otherwise it uses API fallback.
 - API fallback configuration lives in `~/.editppt/config.yaml`; on Windows this is `%USERPROFILE%\.editppt\config.yaml`.
@@ -134,7 +134,7 @@ The normal workflow is:
 3. Each page worker owns one page directory and completes reconstruction, self-check, and page-local correction there.
 4. Build one page manifest per page with editable text, simple shapes, and positioned image assets.
 5. Use `editppt` commands to record dispatches, page results, and accepted status.
-6. Assemble the final `.pptx` by concatenating `pages/page_NNN/page.pptx` files in page order, copy `.pptx` speaker notes when present, and run deck validation.
+6. Use `editppt run finalize` to rebuild the final `.pptx` from recorded `manifest.json` files in page order, copy `.pptx` speaker notes when present, and run deck validation.
 
 ## Output Layout
 
@@ -166,12 +166,13 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
     ├── page_001/                             # Page 1 workspace
     │   ├── source.png                        # Normalized source image for this page
     │   ├── page_request.json                 # Page request and image backend
+    │   ├── worker-prompt.md                  # Prompt generated for the page worker in multi-page runs
     │   ├── imagegen-jobs.json                # Image generation/editing calls and result records for this page
     │   ├── assets/                           # Independent image assets for this page
-    │   ├── page.pptx                         # Single-page PPTX; finalize concatenates these files in page order
+    │   ├── page.pptx                         # Single-page PPTX used for record-time validation and deliverability checks
     │   ├── preview.png                       # Reconstructed page preview
     │   ├── split_assets_contact.png          # Asset-splitting inspection image
-    │   ├── manifest.json                     # Text, shape, and asset description for this page
+    │   ├── manifest.json                     # Text, shape, and asset description; authoritative input for finalize
     │   ├── validation.json                   # Page validation result
     │   └── page_result.json                  # Page artifact index
     └── page_002/                             # Later page workspace
@@ -198,7 +199,8 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
 │       ├── agents/                       # Skill metadata for agent UI
 │       ├── cli/                          # Self-contained `editppt` CLI and deterministic runtime modules
 │       ├── references/                   # Reconstruction, state-machine, and QA references
-│       └── prompts/                      # Page worker prompt templates
+│       ├── prompts/                      # Page worker prompt templates
+│       └── scripts/                      # Skill-local prompt builder scripts
 ├── AGENTS.md                             # Repository-level collaboration and editing rules
 ├── CHANGELOG.md                          # User-visible change log
 ├── LICENSE                               # Open-source license

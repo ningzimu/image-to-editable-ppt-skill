@@ -68,7 +68,7 @@
 
 ## 运行要求
 
-- 多页输入需要 agent 能分派 page worker/subagent；如果不能创建 page worker，主 agent 只能按同一页面合同逐页处理，速度会明显变慢。
+- 多页输入需要 agent 能分派 page worker/subagent；如果不能创建 page worker，应换到支持 page worker 的环境执行。
 - 复杂背景补全、前景图标提取、透明 asset sheet 和局部图片编辑统一走 `editppt image edit/generate/batch`。
 - 如果本机有 Codex OAuth（`~/.codex/auth.json`），CLI 会直接使用；否则使用 API fallback。
 - API fallback 配置保存在 `~/.editppt/config.yaml`；Windows 下对应 `%USERPROFILE%\.editppt\config.yaml`。
@@ -134,7 +134,7 @@ skill 通常会完成这些步骤：
 3. 每个 page worker 负责自己的页面目录，完成页面重建、自检和 page-local 修正。
 4. 每页创建 manifest，重建可编辑文本、简单形状和图片资产。
 5. 用 `editppt` 命令记录 dispatch、page result 和 accepted 状态。
-6. 主 agent 按页顺序拼接各 `pages/page_NNN/page.pptx` 生成最终 `.pptx`，复制 `.pptx` 页面备注，并运行 deck validation。
+6. 主 agent 用 `editppt run finalize` 按页顺序读取已记录的 `manifest.json` 重建最终 `.pptx`，复制 `.pptx` 页面备注，并运行 deck validation。
 
 ## 输出结构
 
@@ -166,12 +166,13 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
     ├── page_001/                             # 第 1 页工作目录
     │   ├── source.png                        # 归一化后的页面源图
     │   ├── page_request.json                 # 页面请求和 image backend
+    │   ├── worker-prompt.md                  # 多页任务中生成给 page worker 的提示词
     │   ├── imagegen-jobs.json                # 本页图片生成/编辑调用和结果记录
     │   ├── assets/                           # 本页拆出的独立图片资产
-    │   ├── page.pptx                         # 本页单页 PPTX；finalize 会按页序拼接这些文件
+    │   ├── page.pptx                         # 本页单页 PPTX；record 阶段用于校验和交付性检查
     │   ├── preview.png                       # 本页重建预览图
     │   ├── split_assets_contact.png          # 本页资产切分检查图
-    │   ├── manifest.json                     # 本页文本、形状和资产描述
+    │   ├── manifest.json                     # 本页文本、形状和资产描述；finalize 的权威输入
     │   ├── validation.json                   # 本页校验结果
     │   └── page_result.json                  # 本页产物索引
     └── page_002/                             # 后续页面工作目录
@@ -198,7 +199,8 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
 │       ├── agents/                       # Agent 展示用的 skill 元数据
 │       ├── cli/                          # 自包含 `editppt` CLI 和确定性 runtime 模块
 │       ├── references/                   # 页面重建、状态机、QA 等参考规范
-│       └── prompts/                      # page worker prompt 模板
+│       ├── prompts/                      # page worker prompt 模板
+│       └── scripts/                      # skill 内 prompt 组装脚本
 ├── AGENTS.md                             # 仓库级协作和编辑规则
 ├── CHANGELOG.md                          # 用户可见变更记录
 ├── LICENSE                               # 开源许可证

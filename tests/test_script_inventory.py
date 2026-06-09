@@ -29,7 +29,6 @@ FORBIDDEN_IMAGE_BACKEND_PHRASES = {
     "image-backend-clean-base.md",
     "image-backend-asset-sheet.md",
     "image-backend-repair.md",
-    "skills/image-to-editable-ppt/scripts",
     "requirements.txt",
     "editppt image crop",
     "--crop-box",
@@ -50,11 +49,11 @@ class ScriptInventoryTest(unittest.TestCase):
         present = sorted(name for name in LEGACY_ENTRYPOINTS if (RUNTIME_DIR / name).exists())
         self.assertEqual([], present)
 
-    def test_skill_directory_does_not_contain_runtime_scripts(self):
+    def test_skill_directory_contains_only_prompt_builder_script(self):
         present = []
         if SKILL_SCRIPT_DIR.exists():
             present = sorted(path.name for path in SKILL_SCRIPT_DIR.glob("*.py"))
-        self.assertEqual([], present)
+        self.assertEqual(["build-page-worker-prompt.py"], present)
 
     def test_legacy_entrypoints_are_not_referenced(self):
         hits = []

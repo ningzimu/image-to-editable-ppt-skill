@@ -20,31 +20,8 @@ CODEX_PPT_ENV_MAP = {
 }
 
 
-def skill_root():
-    env_root = os.getenv("IMAGE_TO_EDITABLE_PPT_SKILL_ROOT")
-    if env_root:
-        return Path(env_root).expanduser().resolve()
-
-    current = Path(__file__).resolve()
-    for parent in current.parents:
-        if parent.name == "image-to-editable-ppt" and (parent / "SKILL.md").exists():
-            return parent.resolve()
-        source = parent / "skills" / "image-to-editable-ppt"
-        if source.exists():
-            return source.resolve()
-
-    packaged = current.parents[1] / "skill"
-    if packaged.exists():
-        return packaged.resolve()
-
-    return current.parents[1].resolve()
-
-
 def cli_reinstall_hint():
-    cli_dir = skill_root() / "cli"
-    if (cli_dir / "pyproject.toml").exists():
-        return f"`pipx install --force --editable {cli_dir}`"
-    return "`pipx install --force --editable <skill-root>/cli`"
+    return "`pipx install --force --editable <path-to-image-to-editable-ppt>/cli`"
 
 
 def runtime_home():
@@ -207,7 +184,6 @@ def collect_status(check_api=False):
     ok = all(dependencies.values()) and (image_backend_ready if check_api else True)
     return {
         "ok": ok,
-        "skill_root": str(skill_root()),
         "config_home": str(home),
         "config_file": str(config_path(home)),
         "config_exists": config_path(home).exists(),
@@ -248,7 +224,6 @@ def doctor(args):
     api = status["api_fallback"]
     codex = status["codex_oauth"]
     image_backend = status["image_backend"]
-    print(f"skill root: {status['skill_root']}")
     print(f"config home: {status['config_home']}")
     print(f"cli python: {status['cli_python']}")
     print(f"config file: {status['config_file']} ({'exists' if status['config_exists'] else 'missing'})")

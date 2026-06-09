@@ -4,6 +4,17 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Improvements
+
+- Move page-worker prompt assembly out of the installable CLI and into a skill-local prompt builder script.
+- Remove the `editppt run prompt` subcommand so the CLI no longer reads skill prompt templates or reference files.
+- Keep CLI environment diagnostics scoped to CLI config, dependencies, and image backend readiness without requiring skill-root discovery.
+
+### Documentation
+
+- Clarify that final deck assembly rebuilds from recorded page manifests rather than concatenating page-level PPTX files.
+- Document the skill-local page-worker prompt builder script in the skill workflow and CLI helper.
+
 ## 0.2.0-beta.1
 
 ### Features

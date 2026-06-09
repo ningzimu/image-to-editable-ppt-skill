@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 from io import BytesIO
-import os
 from pathlib import Path
 import re
 from statistics import median
@@ -29,29 +28,7 @@ def _die(message: str, code: int = 1) -> None:
 
 def _dependency_hint(package: str) -> str:
     python = sys.executable
-    env_root = os.getenv("IMAGE_TO_EDITABLE_PPT_SKILL_ROOT")
-    if env_root:
-        skill_root = Path(env_root).expanduser().resolve()
-    else:
-        current = Path(__file__).resolve()
-        skill_root = None
-        for parent in current.parents:
-            if parent.name == "image-to-editable-ppt" and (parent / "SKILL.md").exists():
-                skill_root = parent.resolve()
-                break
-            source = parent / "skills" / "image-to-editable-ppt"
-            if source.exists():
-                skill_root = source.resolve()
-                break
-        if skill_root is None:
-            packaged = current.parents[1] / "skill"
-            skill_root = packaged.resolve() if packaged.exists() else current.parents[1].resolve()
-    cli_dir = skill_root / "cli"
-    install_hint = (
-        f"`pipx install --force --editable {cli_dir}`"
-        if (cli_dir / "pyproject.toml").exists()
-        else "`pipx install --force --editable <skill-root>/cli`"
-    )
+    install_hint = "`pipx install --force --editable <path-to-image-to-editable-ppt>/cli`"
     return (
         "Install image-to-editable-ppt with pipx so CLI dependencies are installed, for example "
         f"{install_hint}, "

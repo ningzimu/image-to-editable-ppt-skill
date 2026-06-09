@@ -17,6 +17,8 @@ skills/image-to-editable-ppt/
 |-- SKILL.md
 |-- prompts/
 |   `-- page-worker.md
+|-- scripts/
+|   `-- build-page-worker-prompt.py
 `-- references/
     |-- cli-helper.md
     |-- manifest-schema.md
@@ -25,6 +27,7 @@ skills/image-to-editable-ppt/
 ```
 
 - `prompts/page-worker.md`: execution template for page workers. The parent agent uses it when generating page-worker prompts.
+- `scripts/build-page-worker-prompt.py`: skill-local prompt builder. It reads `prompts/page-worker.md`, fills run/page paths, writes `worker-prompt.md`, and prints the dispatch command template.
 - `references/cli-helper.md`: CLI command manual, command tree, and common command examples. Read it when deciding which `editppt` command to call.
 - `references/manifest-schema.md`: JSON schemas and artifact contracts for deck/page/image jobs. Read it when writing manifests, writing `page_result.json`, or understanding run/page files.
 - `references/page-decision-tree.md`: the single source of truth for page object decisions. Read it before reconstructing any page.
@@ -34,7 +37,7 @@ skills/image-to-editable-ppt/
 
 - First run `editppt prepare <input...>` to create a run directory. After that, all key state transitions must be advanced only through `editppt` commands.
 - After `prepare`, read the run information and determine the actual page count. The parent agent may directly rebuild the page only when the actual page count is 1.
-- When the actual page count is greater than 1, the parent agent only orchestrates: run `editppt run next`, generate worker prompts, spawn subagents/page workers, record dispatches, wait for and record results, then finalize.
+- When the actual page count is greater than 1, the parent agent only orchestrates: run `editppt run next`, generate worker prompts with `scripts/build-page-worker-prompt.py`, spawn subagents/page workers, record dispatches, wait for and record results, then finalize.
 - Multi-page inputs must be truly dispatched to subagents/page workers. If no subagent capability is available, stop and report this to the user; do not degrade into serial parent-agent page reconstruction.
 - All image generation, image editing, background repair, transparent bitmap assets, and asset sheets must use `editppt image generate/edit/batch`.
 - Page-level reconstruction strategy must follow the References.
@@ -53,7 +56,7 @@ The parent agent owns orchestration and user interaction:
 - In the normal path, no extra backend configuration command is required; `editppt image` automatically chooses Codex OAuth or API fallback.
 - For a single-page input, directly rebuild that page and record the result with `editppt run record --agent-id main`.
 - For a multi-page input, do not write any page reconstruction artifacts inside `pages/page_NNN/`; use only `editppt run next` to obtain pages that need dispatch.
-- Generate prompts for pages that need work, spawn page workers, and record dispatches with `editppt run dispatch`.
+- Generate prompts for pages that need work with `scripts/build-page-worker-prompt.py`, spawn page workers, and record dispatches with `editppt run dispatch`.
 - Record page worker results with `editppt run record`.
 - Assemble and validate the final PPTX with `editppt run finalize`. Final assembly reads the recorded page manifests in page order and rebuilds the final deck from those manifests.
 - Report progress, final path, and validation result to the user.
@@ -96,7 +99,7 @@ When the actual page count is 1, the parent agent completes page outputs in `pag
 
 When the actual page count is greater than 1, the parent agent must not write any page reconstruction artifacts, including `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, or `page_result.json`. These files may only be produced by the corresponding page worker.
 
-Read the run/dispatch examples in `references/cli-helper.md`. Before generating page-worker prompts, make sure the worker prompt requires reading `prompts/page-worker.md`, `references/page-decision-tree.md`, `references/manifest-schema.md`, and `references/qa-rubric.md`.
+Read the run/dispatch examples in `references/cli-helper.md`. Before spawning page workers, generate each worker prompt with `scripts/build-page-worker-prompt.py`.
 
 Call repeatedly:
 
@@ -106,11 +109,11 @@ editppt run next <run>
 
 When a multi-page input returns the dispatch stage, the following steps are mandatory:
 
-1. `editppt run prompt <run> --page <page_id> --out <absolute-run-dir>/pages/<page_id>/worker-prompt.md`
+1. `python <skill-root>/scripts/build-page-worker-prompt.py <run> --page <page_id> --out <absolute-run-dir>/pages/<page_id>/worker-prompt.md`
 2. Spawn a page worker using the current environment's available subagent/multi-agent tool.
 3. `editppt run dispatch <run> --page <page_id> --agent-id <id> --prompt-file <absolute-run-dir>/pages/<page_id>/worker-prompt.md`
 
-`--out` and `--prompt-file` must be absolute paths to avoid the page directory being prepended again to relative paths. Run `editppt run dispatch` only after a real spawn succeeds. If the current environment has no available subagent capability, stop and report this, then wait for the user to decide the next step.
+`--out` and `--prompt-file` must be absolute paths to avoid the page directory being prepended again to relative paths. The prompt builder only writes the prompt and prints a dispatch command template; it does not create the worker. Run `editppt run dispatch` only after a real spawn succeeds. If the current environment has no available subagent capability, stop and report this, then wait for the user to decide the next step.
 
 Concurrency slots come from `page_jobs.json.max_concurrent_pages`; the default is 6. `editppt run status` is only for debugging or manual inspection. In the normal parent flow, prefer `editppt run next`.
 

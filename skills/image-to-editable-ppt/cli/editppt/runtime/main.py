@@ -18,7 +18,6 @@ from deck_run_state import (
     load_jobs,
     load_run_state,
     page_dir_for,
-    read_json,
     run_dir_from_target,
 )
 from formula_renderer import (
@@ -31,29 +30,6 @@ from formula_renderer import (
 
 RUNTIME_DIR = Path(__file__).resolve().parent
 HELP_FORMATTER = argparse.RawDescriptionHelpFormatter
-
-
-def skill_root() -> Path:
-    env_root = os.environ.get("IMAGE_TO_EDITABLE_PPT_SKILL_ROOT")
-    if env_root:
-        return Path(env_root).expanduser().resolve()
-
-    current = Path(__file__).resolve()
-    for parent in current.parents:
-        if parent.name == "image-to-editable-ppt" and (parent / "SKILL.md").exists():
-            return parent.resolve()
-        source = parent / "skills" / "image-to-editable-ppt"
-        if source.exists():
-            return source.resolve()
-
-    packaged = RUNTIME_DIR.parent / "skill"
-    if packaged.exists():
-        return packaged.resolve()
-
-    raise RuntimeError("Could not locate image-to-editable-ppt skill resources.")
-
-
-SKILL_ROOT = skill_root()
 
 
 def run_script(script_name: str, argv: list[str]) -> int:
@@ -253,8 +229,9 @@ def cmd_next(args: argparse.Namespace) -> int:
             "dispatch_slots_available": slots,
             "dispatchable_pages": dispatchable,
             "suggested_pages": selected,
-            "next_command": f"{cli_prog()} run prompt {run_dir} --page {selected[0]} --out {prompt_out}",
-            "agent_focus": "Generate page-worker prompts, spawn workers, then record dispatch.",
+            "prompt_file": str(prompt_out),
+            "next_command": f"{cli_prog()} run dispatch {run_dir} --page {selected[0]} --agent-id <worker-id> --prompt-file {prompt_out}",
+            "agent_focus": "Build the page prompt, spawn the worker, then record dispatch.",
         }
         return print_json(payload) if args.json else _print_next_text(payload)
 
@@ -292,6 +269,8 @@ def _print_next_text(payload: dict) -> int:
         print(f"dispatchable_pages={', '.join(payload['dispatchable_pages'])}")
     if payload.get("suggested_pages"):
         print(f"suggested_pages={', '.join(payload['suggested_pages'])}")
+    if payload.get("prompt_file"):
+        print(f"prompt_file={payload['prompt_file']}")
     if payload.get("page_dir"):
         print(f"page_dir={payload['page_dir']}")
     if payload.get("active_or_unfinished_pages"):
@@ -299,56 +278,6 @@ def _print_next_text(payload: dict) -> int:
     print(f"next_command={payload.get('next_command')}")
     print(f"agent_focus={payload.get('agent_focus')}")
     return 0
-
-
-def _page_worker_template() -> str:
-    text = (SKILL_ROOT / "prompts" / "page-worker.md").read_text(encoding="utf-8")
-    marker = "```text"
-    start = text.find(marker)
-    if start == -1:
-        return text
-    start += len(marker)
-    end = text.find("```", start)
-    if end == -1:
-        return text[start:]
-    return text[start:end].strip()
-
-
-def _resolve_prompt_out(run_dir: Path, page_dir: Path, value: str) -> Path:
-    path = Path(value).expanduser()
-    if path.is_absolute():
-        out = path.resolve()
-    elif path.parts[:1] == ("pages",):
-        out = (run_dir / path).resolve()
-    else:
-        out = (page_dir / path).resolve()
-    try:
-        out.relative_to(page_dir)
-    except ValueError as exc:
-        raise SystemExit(f"Prompt file must live inside page dir: {out}") from exc
-    return out
-
-
-def cmd_prompt_page(args: argparse.Namespace) -> int:
-    run_dir = run_dir_from_target(args.run)
-    jobs = load_jobs(run_dir)
-    page = find_page(jobs, args.page)
-    page_id = page.get("page_id")
-    page_dir = page_dir_for(run_dir, page)
-    request = read_json(page_dir / "page_request.json")
-    source_image = request.get("source_image") or str(page_dir / "source.png")
-    content = (
-        _page_worker_template()
-        .replace("<absolute run dir>", str(run_dir))
-        .replace("<page_001>", str(page_id))
-        .replace("<absolute page dir>/source.png", str(source_image))
-        .replace("<absolute page dir>", str(page_dir))
-        .replace("<skill root>", str(SKILL_ROOT))
-    )
-    out = _resolve_prompt_out(run_dir, page_dir, args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(content.strip() + "\n", encoding="utf-8")
-    return print_json({"prompt": str(out), "page_id": page_id, "run_dir": str(run_dir)})
 
 
 def cmd_dispatch(args: argparse.Namespace) -> int:
@@ -420,24 +349,23 @@ def cmd_formula_render_latex(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=os.environ.get("IMAGE_TO_EDITABLE_PPT_CLI_PROG", "editppt"),
-        description="Agent-friendly CLI for converting visual slide inputs into editable PPTX runs.",
+        description="CLI for preparing, rebuilding, validating, and finalizing editable PPTX runs.",
         formatter_class=HELP_FORMATTER,
-        epilog="""What this CLI does:
+        epilog="""Command groups:
   - setup/doctor/config manage the local editppt environment and API fallback config.
   - prepare creates a run directory and writes the unified editppt image backend.
-  - run manages deterministic workflow state, prompts, dispatch records, and finalization.
+  - run manages deterministic workflow state, dispatch records, result records, and finalization.
   - image generates/edits through Codex OAuth first, then API fallback, and processes image files.
   - formula renders LaTeX formulas into PPT image assets and manifest fragments.
 
-Typical workflow:
+Examples:
   editppt setup
   editppt prepare deck.pdf
-  editppt run next <run>
-  editppt run record <run> --page <page-id> --agent-id <agent-id>
+  editppt run next <run> --json
   editppt run finalize <run>
   editppt formula render-latex pages/page_001 --tex "\\frac{a}{b}" --out assets/formula.svg --box 100,100,300,80 --fragment formula-fragment.json
 
-Use '<command> --help' for exact arguments. For example:
+Use '<command> --help' for exact arguments:
   editppt prepare --help
   editppt run --help
   editppt image --help
@@ -470,8 +398,8 @@ unless --check-api is passed.
         help="Check CLI dependencies and config status.",
         description="""Check the local editppt environment.
 
-Doctor reports the CLI Python path, importable dependencies, Skill root, config
-home/file, and API fallback readiness when --check-api is passed. It does not
+Doctor reports the CLI Python path, importable dependencies, config home/file,
+and API fallback readiness when --check-api is passed. It does not
 perform a network API probe by default.
 """,
         formatter_class=HELP_FORMATTER,
@@ -528,16 +456,16 @@ CLI backend. The normal path does not require a separate backend command.
     prepare.add_argument("--out-root", metavar="DIR", help="Directory that will contain generated run folders.")
     prepare.add_argument("--job-dir", metavar="DIR", help="Use an explicit run directory instead of auto-generating one.")
     prepare.add_argument("--dpi", type=int, metavar="N", help="Rasterization DPI for PDF/PPT inputs.")
-    prepare.add_argument("--max-concurrent-pages", type=int, metavar="N", help="Maximum page workers the parent agent may dispatch at once. Default: 6.")
+    prepare.add_argument("--max-concurrent-pages", type=int, metavar="N", help="Maximum concurrent page dispatch slots. Default: 6.")
     prepare.set_defaults(func=cmd_prepare)
 
     run = sub.add_parser(
         "run",
-        help="Manage run state, worker prompts, dispatch records, and finalization.",
-        description="""Deterministic workflow commands for a prepared run.
+        help="Manage run state, dispatch records, result records, and finalization.",
+        description="""Deterministic state commands for a prepared run.
 
 Use these commands after editppt prepare. They inspect and update run/page state,
-generate worker prompts, record worker lifecycle events, and assemble the final deck.
+record dispatch/result events, and assemble the final deck.
 """,
         formatter_class=HELP_FORMATTER,
     )
@@ -546,7 +474,7 @@ generate worker prompts, record worker lifecycle events, and assemble the final 
     run_next = run_sub.add_parser(
         "next",
         help="Print the next workflow action.",
-        description="Inspect run state and print the next command the parent agent should run.",
+        description="Inspect run state and print the next suggested action.",
         formatter_class=HELP_FORMATTER,
     )
     run_next.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
@@ -587,26 +515,10 @@ Use this only when forcing OpenAI-compatible API metadata or a custom image back
     backend.add_argument("--input-context-policy", metavar="TEXT", help="Policy note for how image inputs must be inspected or passed.")
     backend.set_defaults(func=cmd_backend)
 
-    prompt_page = run_sub.add_parser(
-        "prompt",
-        help="Generate a page-worker prompt.",
-        description="""Write a self-contained prompt for one page worker.
-
-The agent must use the prompt to spawn a worker, then call `editppt run dispatch`
-with the real worker/thread id. Prompt generation and dispatch recording remain
-separate because the CLI cannot spawn the worker itself.
-""",
-        formatter_class=HELP_FORMATTER,
-    )
-    prompt_page.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
-    prompt_page.add_argument("--page", required=True, metavar="PAGE", help="Page id such as page_001, or page number such as 1.")
-    prompt_page.add_argument("--out", required=True, metavar="FILE", help="Prompt file to write inside the page directory. Relative names are resolved under the page dir; pages/page_NNN/... is resolved under the run dir.")
-    prompt_page.set_defaults(func=cmd_prompt_page)
-
     dispatch = run_sub.add_parser(
         "dispatch",
-        help="Record page dispatch after spawning a worker.",
-        description="Mark a page as dispatched after the parent agent has actually spawned the worker.",
+        help="Record page dispatch.",
+        description="Mark a page as dispatched after a worker/thread has been created.",
         formatter_class=HELP_FORMATTER,
     )
     dispatch.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
@@ -618,7 +530,7 @@ separate because the CLI cannot spawn the worker itself.
 
     record = run_sub.add_parser(
         "record",
-        help="Record and verify a page-worker result.",
+        help="Record and verify a page result.",
         description="Validate required page outputs, record hashes, and mark the page recorded. Single-page direct rebuilds can be recorded from pending status with --agent-id main.",
         formatter_class=HELP_FORMATTER,
     )
@@ -642,9 +554,9 @@ separate because the CLI cannot spawn the worker itself.
         help="Render LaTeX formulas into PPT image assets.",
         description="""Render LaTeX formulas into image assets for page manifests.
 
-Use this when formula fidelity matters more than formula editability. The agent
-transcribes the source formula to LaTeX, then this command renders it to SVG,
-PNG, or PDF and can write a manifest image fragment.
+Use this when formula fidelity matters more than formula editability. Provide
+the source formula as LaTeX; this command renders it to SVG, PNG, or PDF and
+can write a manifest image fragment.
 """,
         formatter_class=HELP_FORMATTER,
     )

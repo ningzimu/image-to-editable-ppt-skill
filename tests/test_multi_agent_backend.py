@@ -17,6 +17,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 CLI_DIR = ROOT / "skills/image-to-editable-ppt/cli"
 RUNTIME_DIR = CLI_DIR / "editppt/runtime"
+PROMPT_SCRIPT = ROOT / "skills/image-to-editable-ppt/scripts/build-page-worker-prompt.py"
 sys.path.insert(0, str(CLI_DIR))
 
 CLI_ENV = os.environ.copy()
@@ -170,8 +171,8 @@ class MultiAgentBackendTest(unittest.TestCase):
             capture_output=True,
         )
         self.assertEqual(0, result.returncode, result.stderr)
-        self.assertIn("Agent-friendly CLI", result.stdout)
-        self.assertIn("Typical workflow", result.stdout)
+        self.assertIn("CLI for preparing, rebuilding, validating, and finalizing editable PPTX runs.", result.stdout)
+        self.assertIn("Command groups", result.stdout)
         self.assertIn("usage: editppt", result.stdout)
         for command in ("setup", "doctor", "config", "prepare", "run", "image", "formula"):
             self.assertIn(command, result.stdout)
@@ -190,7 +191,17 @@ class MultiAgentBackendTest(unittest.TestCase):
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn("invalid choice", result.stderr)
 
-    def test_runtime_doctor_direct_entrypoint_finds_skill_root(self):
+    def test_removed_run_prompt_command_is_rejected(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "editppt.cli", "run", "prompt", "--help"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("invalid choice", result.stderr)
+
+    def test_runtime_doctor_direct_entrypoint_is_cli_scoped(self):
         result = subprocess.run(
             [sys.executable, str(RUNTIME_DIR / "main.py"), "doctor", "--json"],
             cwd=ROOT,
@@ -199,7 +210,7 @@ class MultiAgentBackendTest(unittest.TestCase):
         )
         self.assertEqual(0, result.returncode, result.stderr)
         payload = json.loads(result.stdout)
-        self.assertEqual(str(ROOT / "skills/image-to-editable-ppt"), payload["skill_root"])
+        self.assertNotIn("skill_root", payload)
         self.assertNotIn("<repo-path>", json.dumps(payload, ensure_ascii=False))
         self.assertNotIn("pipx upgrade image-to-editable-ppt", json.dumps(payload, ensure_ascii=False))
 
@@ -527,6 +538,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertEqual(0, result.returncode, result.stderr)
             payload = json.loads(result.stdout)
             self.assertEqual({"fitz", "PIL", "openai", "yaml"}, set(payload["dependencies"]))
+            self.assertNotIn("skill_root", payload)
             self.assertNotIn("LibreOffice", result.stdout)
             self.assertNotIn("ImageMagick", result.stdout)
 
@@ -641,7 +653,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             request = read_json(deck_path.parent / "pages/page_001/page_request.json")
             self.assertEqual(deck["image_backend"], request["image_backend"])
 
-    def test_unified_cli_next_uses_page_dir_prompt_that_dispatch_accepts(self):
+    def test_skill_prompt_script_output_is_accepted_by_dispatch(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = make_minimal_run(tmp)
             write_json(
@@ -661,17 +673,15 @@ class MultiAgentBackendTest(unittest.TestCase):
             )
             self.assertEqual(0, result.returncode, result.stderr)
             payload = json.loads(result.stdout)
-            prompt_path = run_dir / "pages/page_001/worker-prompt.md"
+            prompt_path = (run_dir / "pages/page_001/worker-prompt.md").resolve()
+            self.assertEqual(str(prompt_path), payload["prompt_file"])
             self.assertIn(str(prompt_path), payload["next_command"])
-            self.assertIn("editppt run prompt", payload["next_command"])
+            self.assertIn("editppt run dispatch", payload["next_command"])
 
             prompt = subprocess.run(
                 [
                     sys.executable,
-                    "-m",
-                    "editppt.cli",
-                    "run",
-                    "prompt",
+                    PROMPT_SCRIPT,
                     run_dir,
                     "--page",
                     "page_001",
