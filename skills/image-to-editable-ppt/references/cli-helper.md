@@ -1,6 +1,6 @@
 # CLI Helper
 
-This is the `editppt` command manual. It reduces hand-written scripts, hand-written state JSON, and repeated trial-and-error.
+This is the `editppt` command manual: install check, command tree, and syntax examples. Workflow policy lives in `SKILL.md`; object decisions and text-hints usage live in `references/page-decision-tree.md`; file and field contracts live in `references/manifest-schema.md`.
 
 Usage principles:
 
@@ -23,6 +23,8 @@ editppt                         - top-level CLI for setup, run orchestration, im
 |   |-- record                  - validate required page outputs and record page result hashes
 |   |-- hints                   - regenerate per-page text hints for a prepared run
 |   `-- finalize                - rebuild the final PPTX from recorded page manifests and validate it
+|-- page                        - page-local helpers
+|   `-- hints                   - detect and measure text lines for one page directory
 |-- image                       - generate, edit, import, and process bitmap assets
 |   |-- generate                - create a new image from a text prompt
 |   |-- edit                    - edit a source image for clean bases or source-faithful asset sheets
@@ -90,47 +92,28 @@ editppt config --api-key "<key>" --base-url "<openai-compatible-base-url>" --mod
 
 Write `editppt config` only when API fallback is needed or when the user explicitly provides a third-party image API. Do not write API keys into the project directory, run directory, prompts, or manifests.
 
-Optional but recommended on first use: configure a PaddleOCR-VL token. The offline detector only measures text geometry (where and how large); with a token the hints also carry recognized text content and cleaner block boundaries, which noticeably improves text fidelity in the final PPT. Whenever `editppt doctor` or `editppt prepare` reports that no token is configured, ask the user once (include the application URL, the config command, and the reassurance that the free personal quota is currently more than enough for this skill — no extra cost) and wait for their choice before reconstructing pages. If they configure a token mid-run, regenerate the current run's hints with `editppt run hints <run>`; if they decline, continue with the offline hints and do not ask again. Guide the user to apply for a free token at https://aistudio.baidu.com/account/accessToken, then store it next to the other credentials:
+Optional but recommended on first use: configure a PaddleOCR-VL token. The offline detector only measures text geometry (where and how large); with a token the hints also carry recognized text content and cleaner block boundaries. Store it next to the other credentials:
 
 ```bash
 editppt config --paddle-ocr-token "<token>"
 ```
 
-`editppt doctor` reports the current text-hints backend; without a token everything still works through the built-in offline detector.
+`editppt doctor` reports the current text-hints backend; without a token everything still works through the built-in offline detector. When and how to ask the user about the token — including the application URL and the regenerate step — is defined in `SKILL.md` Phase 1.
 
-## Common Single-Page Commands
+## Run Commands
 
 ```bash
 editppt prepare input.png
-```
-
-Purpose: normalize a single image into a run directory and generate `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, `pages/page_001/source.png`, and `pages/page_001/page_request.json`.
-
-```bash
-editppt run record <run> --page page_001 --agent-id main
-```
-
-Purpose: after the parent agent directly completes the current single page, self-checks it, and writes all page-local outputs, validate `page.pptx` against `manifest.json` and record that page result.
-
-```bash
-editppt run finalize <run>
-```
-
-Purpose: after recording is complete, rebuild and validate the final PPTX from the recorded page manifests in page order.
-
-## Common Multi-Page Commands
-
-```bash
 editppt prepare input.pdf
 ```
 
-Purpose: normalize a PDF, PPTX, or multiple images into a multi-page run directory and generate `pages/page_NNN/source.png` plus `page_request.json` for each page.
+Purpose: normalize a single image, multiple images, a PDF, or an image-based PPTX into a run directory and generate `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, plus per-page `pages/page_NNN/source.png`, `page_request.json`, and text hints.
 
 ```bash
 editppt run next <run> --json
 ```
 
-Purpose: read current run state and return the next stage. `stage=rebuild_page` applies only to an actual single-page input, where the parent agent may complete the page directly. `stage=dispatch_pages` applies to multi-page inputs, where the parent agent reads `suggested_pages` and must dispatch page workers. `stage=wait` means wait for dispatched pages to complete. `stage=finalize` means proceed to final assembly. Artifact ownership for multi-page runs is defined in the SKILL.md Entry Contract.
+Purpose: read current run state and return the next stage. `stage=dispatch_pages` lists `suggested_pages` that must each be dispatched to a page worker — single-page inputs dispatch their one page the same way. `stage=wait` means wait for dispatched pages to complete. `stage=finalize` means proceed to final assembly.
 
 Generate the page-worker prompt with the skill script before spawning a worker:
 
@@ -148,13 +131,13 @@ Purpose: record that a page has been dispatched to a worker. This command only r
 editppt run record <run> --page page_001 --agent-id <worker-id>
 ```
 
-Purpose: after the page worker writes `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, and `page_result.json`, validate `page.pptx` against `manifest.json` and record that page result. Missing `box_px` / `points_px` on positioned objects is a page failure.
+Purpose: after the page worker writes its required outputs (see `manifest-schema.md`), validate `page.pptx` against `manifest.json` and record the page result. Missing `box_px` / `points_px` on positioned objects is a page failure.
 
 ```bash
 editppt run finalize <run>
 ```
 
-Purpose: after all pages are recorded, rebuild, validate, and output the final PPTX. Final assembly reads each recorded `pages/page_NNN/manifest.json` in page order and generates the final deck from those manifests. `page.pptx` remains a page-local deliverability artifact, not the final assembly input.
+Purpose: after all pages are recorded, rebuild, validate, and output the final PPTX. Final assembly reads each recorded `pages/page_NNN/manifest.json` in page order; `page.pptx` is a page-local deliverability artifact, not the final assembly input.
 
 ## Text Measurement Commands
 
@@ -168,7 +151,7 @@ Purpose: regenerate `text_hints.json`/`text_hints.png` for every page of a prepa
 editppt page hints pages/page_001
 ```
 
-Purpose: detect the text lines on `source.png` and measure each line's source-pixel `box_px`, glyph height, and derived font size. `editppt prepare` already runs this for every page (PDF inputs are OCR'd in one batch job when a PaddleOCR token is available via the `PADDLE_OCR_TOKEN` environment variable or `~/.editppt/config.yaml`; otherwise the built-in offline detector runs). Use this command only to regenerate hints for a page. It writes `text_hints.json` plus `text_hints.png` — the source image with every detected line framed and labeled with its font size. Copy the measured `box_px` and the matching font column (`font_pt_if_cjk` / `font_pt_if_latin`) into `text_boxes`, and add `"font_size_source": "measured"` to boxes sized this way so the builder keeps the measured size instead of applying its conservative shrink. Hints are advisory: fill anything the detector missed from your own reading of the source.
+Purpose: detect the text lines on one page's `source.png` and write `text_hints.json` (each line's source-pixel `box_px`, measured glyph height, and derived font sizes) plus `text_hints.png`, the source image with every detected line framed and labeled. `editppt prepare` already runs this for every page (PDF inputs are OCR'd in one batch job when a PaddleOCR token is available via the `PADDLE_OCR_TOKEN` environment variable or `~/.editppt/config.yaml`; otherwise the built-in offline detector runs). Use this command only to regenerate hints for a page. How to consume the hints is defined in `page-decision-tree.md` section 3.1.
 
 ## Image Backend Commands
 
@@ -226,7 +209,7 @@ editppt image process-sheet pages/page_001 \
   --assets-dir assets/icons
 ```
 
-The asset sheet key color is determined by the generation prompt. `process-sheet` samples the key color from the image edge. Cyan, green, magenta, and similar colors can all be candidates. Prefer a pure color that does not appear in the current assets and is far from the subject colors. If background removal makes the subject fade, cuts off edges, or leaves key-color remnants, first regenerate the asset sheet with a new key color.
+The asset sheet key color is determined by the generation prompt; `process-sheet` samples the key color from the image edge. Key-color selection and when to regenerate a sheet with a different key color are defined in `page-decision-tree.md` section 2.2.
 
 ## Formula Commands
 

@@ -68,7 +68,6 @@ def main():
     run_dir = run_dir_from_target(args.run)
     jobs = load_jobs(run_dir)
     page = find_page(jobs, args.page)
-    direct_single_page = len(jobs.get("pages", [])) == 1 and page.get("status") == "pending"
     if page.get("status") == "dispatched":
         dispatch = page.get("dispatch") or {}
         if dispatch.get("agent_id") != args.agent_id:
@@ -83,8 +82,6 @@ def main():
                 f"Agent id mismatch for recorded {page['page_id']}: previous={previous.get('agent_id')} result={args.agent_id}"
             )
         record_mode = previous.get("record_mode") or "refresh-recorded-page"
-    elif direct_single_page:
-        record_mode = "direct-main-agent"
     else:
         raise SystemExit(f"{page['page_id']} must be dispatched before result recording; got {page.get('status')}")
 

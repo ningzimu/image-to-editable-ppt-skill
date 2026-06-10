@@ -720,7 +720,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             jobs = read_json(run_dir / "page_jobs.json")
             self.assertEqual("dispatched", jobs["pages"][0]["status"])
 
-    def test_single_page_next_and_record_allow_main_agent_direct_rebuild(self):
+    def test_single_page_next_requires_dispatch_like_multi_page(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = make_minimal_run(tmp)
             deck = read_json(run_dir / "deck_manifest.json")
@@ -739,13 +739,14 @@ class MultiAgentBackendTest(unittest.TestCase):
             )
             self.assertEqual(0, next_result.returncode, next_result.stderr)
             next_payload = json.loads(next_result.stdout)
-            self.assertEqual("rebuild_page", next_payload["stage"])
-            self.assertIn("editppt run record", next_payload["next_command"])
+            self.assertEqual("dispatch_pages", next_payload["stage"])
+            self.assertEqual(["page_001"], next_payload["suggested_pages"])
+            self.assertIn("editppt run dispatch", next_payload["next_command"])
 
             page_dir = run_dir / "pages/page_001"
             write_page_outputs(page_dir, "Direct Page")
 
-            record = subprocess.run(
+            record_pending = subprocess.run(
                 [
                     sys.executable,
                     "-m",
@@ -762,11 +763,69 @@ class MultiAgentBackendTest(unittest.TestCase):
                 text=True,
                 capture_output=True,
             )
+            self.assertNotEqual(0, record_pending.returncode)
+            self.assertIn("must be dispatched", record_pending.stderr)
+
+            prompt_path = (run_dir / "pages/page_001/worker-prompt.md").resolve()
+            prompt = subprocess.run(
+                [
+                    sys.executable,
+                    PROMPT_SCRIPT,
+                    run_dir,
+                    "--page",
+                    "page_001",
+                    "--out",
+                    str(prompt_path),
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, prompt.returncode, prompt.stderr)
+
+            dispatch = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "editppt.cli",
+                    "run",
+                    "dispatch",
+                    run_dir,
+                    "--page",
+                    "page_001",
+                    "--agent-id",
+                    "worker-1",
+                    "--prompt-file",
+                    str(prompt_path),
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, dispatch.returncode, dispatch.stderr)
+
+            record = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "editppt.cli",
+                    "run",
+                    "record",
+                    run_dir,
+                    "--page",
+                    "page_001",
+                    "--agent-id",
+                    "worker-1",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
             self.assertEqual(0, record.returncode, record.stderr)
             jobs = read_json(run_dir / "page_jobs.json")
             result_payload = jobs["pages"][0]["result"]
             self.assertEqual("recorded", jobs["pages"][0]["status"])
-            self.assertEqual("direct-main-agent", result_payload["record_mode"])
+            self.assertEqual("dispatched-worker", result_payload["record_mode"])
 
     def test_configure_image_backend_writes_deck_and_requests(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -213,20 +213,6 @@ def cmd_next(args: argparse.Namespace) -> int:
         return print_json(payload) if args.json else _print_next_text(payload)
 
     if dispatchable and slots > 0:
-        if len(pages) == 1:
-            page = find_page(jobs, dispatchable[0])
-            page_id = page.get("page_id")
-            page_dir = page_dir_for(run_dir, page)
-            payload = {
-                "run_dir": str(run_dir),
-                "stage": "rebuild_page",
-                "page_id": page_id,
-                "page_dir": str(page_dir),
-                "next_command": f"{cli_prog()} run record {run_dir} --page {page_id} --agent-id main",
-                "agent_focus": "Rebuild this single page directly in its page directory, then record the page result.",
-            }
-            return print_json(payload) if args.json else _print_next_text(payload)
-
         selected = dispatchable[:slots]
         first_page = find_page(jobs, selected[0])
         prompt_out = page_dir_for(run_dir, first_page) / "worker-prompt.md"
@@ -541,7 +527,7 @@ Use this only when forcing OpenAI-compatible API metadata or a custom image back
     record = run_sub.add_parser(
         "record",
         help="Record and verify a page result.",
-        description="Validate required page outputs, record hashes, and mark the page recorded. Single-page direct rebuilds can be recorded from pending status with --agent-id main.",
+        description="Validate required page outputs, record hashes, and mark the page recorded. Pages must be dispatched to a worker before recording.",
         formatter_class=HELP_FORMATTER,
     )
     record.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")

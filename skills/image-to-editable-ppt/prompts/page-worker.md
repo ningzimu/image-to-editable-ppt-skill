@@ -12,40 +12,31 @@ Source image: {{SOURCE_IMAGE}}
 
 You own only this Page dir. Do not edit deck_manifest.json, page_jobs.json, notes_manifest.json, final outputs, the original input, or any other page directory.
 
-Read and follow these local references:
-- {{SKILL_ROOT}}/references/page-decision-tree.md
-- {{SKILL_ROOT}}/references/qa-rubric.md
-- {{SKILL_ROOT}}/references/manifest-schema.md
-- {{SKILL_ROOT}}/references/cli-helper.md
+MANDATORY FIRST ACTION — before looking at the source image, before any decision, before any tool call other than reading: read these three files in full. Do not skim, do not rely on prior knowledge of them, do not start reconstruction first and consult them later. Every past failure mode of this skill is encoded in them; any decision made without having read them is invalid and will be redone.
+- {{SKILL_ROOT}}/references/page-decision-tree.md — the single source of truth for all object-source decisions: the three-step decision process, text-hints usage, the final self-check, and the fix-versus-warning split.
+- {{SKILL_ROOT}}/references/manifest-schema.md — the field contracts for manifest.json, validation.json, page_result.json, and imagegen-jobs.json.
+- {{SKILL_ROOT}}/references/cli-helper.md — editppt command syntax and examples.
 
-Before any image generation or image editing, use the `editppt image` backend specified by `page_request.json.image_backend`. If `editppt image` is unavailable, first follow the CLI error guidance and try `codex login` or `editppt config`; if it is still unavailable, stop the current page and write `validation.json` with `"passed": false`. Do not complete the page using approximate editable structure when required foreground asset separation cannot run.
-When you need parameter details for the image backend, input images, batch JSONL, clean bases, or asset sheets, read `editppt image --help` and the relevant subcommand help.
+Hard rules (reminders only; the details and rationale live in the references above):
+1. Every non-text foreground visual object must be separated through the `editppt image edit --image <source.png>` asset-sheet workflow per page-decision-tree.md section 2. There is no fallback: no native-shape/emoji/text-symbol approximation, no direct source.png crops, no downgrade to a warning.
+2. Execute the three steps in order: (1) background recognition and repair, (2) foreground asset separation, (3) native element reconstruction. Do not consume the text hints in your page dir before the step-1/2 decisions are recorded.
+3. manifest.json is the authoritative build source for page validation and final deck assembly. Build page.pptx and preview.png from manifest.json with the deterministic runtime, never with separate page-local PowerPoint code that bypasses the manifest.
+4. All box_px / points_px / polygon_px values are source.png pixels. Reuse page_request.json.slide and page_request.json.content_box unchanged — do not convert the page to 16:9 or recalculate the canvas; the runtime maps source-pixel coordinates into content_box. Positioned objects without coordinates are page failures.
+5. validation.json must contain a top-level boolean `passed`. Deterministic validation passing never waives an object-source rule.
 
-The manifest must reuse `page_request.json.slide` and `page_request.json.content_box`. Do not convert the page to 16:9 yourself and do not recalculate the canvas. All `box_px`, `points_px`, and `polygon_px` values are in `source.png` pixels; the runtime maps them into `content_box` so the source image is not stretched.
+Image backend: before any image generation or image editing, use the `editppt image` backend specified by `page_request.json.image_backend`. If `editppt image` is unavailable, first follow the CLI error guidance and try `codex login` or `editppt config`; if it is still unavailable, stop the current page and write `validation.json` with `"passed": false`. Do not complete the page using approximate editable structure when required foreground asset separation cannot run. When you need parameter details for the image backend, input images, batch JSONL, clean bases, or asset sheets, read `editppt image --help` and the relevant subcommand help.
 
-`manifest.json` is the authoritative page source used by final deck assembly. It must be sufficient to rebuild the page without reading any custom page script. `text_inventory` and `visual_inventory` are only inventories; they do not substitute for positioned `text_boxes`, `images`, and `shapes`.
+Goal: rebuild the source page as object-level editable PowerPoint. Do not invent an object-source strategy outside `page-decision-tree.md`.
 
-Goal:
-Rebuild the source page as object-level editable PowerPoint. All page object categories, native shape boundaries, and separable asset boundaries must follow `references/page-decision-tree.md`. Do not invent an object-source strategy outside this prompt.
+Work through the page in this order:
+1. Build the page inventory (Pre-Decision Checklist in page-decision-tree.md).
+2. Decide the background (page-decision-tree.md section 1) and record `background_strategy`.
+3. Decide and separate foreground assets (section 2). Submit all step-1/2 image jobs (clean bases and asset sheets) as one `editppt image batch` call, then record and process the results with `editppt image import` and `editppt image process-sheet`.
+4. Rebuild native text, shapes, and tables (section 3). Fill `text_boxes` from the measured text hints per section 3.1; render formulas with `editppt formula render-latex` per section 3.2.
+5. Write manifest.json following the field contracts in manifest-schema.md, including `text_inventory`, `visual_inventory`, `background_strategy`, `quality_checks`, and positioned `text_boxes`/`images`/`shapes`.
+6. Build page.pptx and render preview.png from manifest.json with the deterministic runtime, create split_assets_contact.png, and run page validation.
 
-Before writing `manifest.json`, every image/page must complete the three-step decision process in `page-decision-tree.md`:
-1. Background recognition and repair: decide whether the background can be restored through PPT structural objects/deterministic runtime, or whether `editppt image edit --image <source.png>` is required to create a source-preserving clean base.
-2. Foreground asset separation: every non-text foreground visual object, including foreground photos, screenshots, illustrations, icons, decorations, and similar assets, must use `editppt image` edit mode for source-faithful asset-sheet separation according to the decision tree.
-3. PPT native element reconstruction: text, text boxes, simple rectangles/rounded rectangles, simple arrows, tables, and similar objects are rebuilt with native PPT structural objects, with font size, corner geometry, and layout calibrated. Formulas do not use native text; first transcribe them to LaTeX, then use `editppt formula render-latex` to render independent image assets into the PPT.
-
-Execute in that order. The text hints sitting in your page dir belong to step 3 — do not start consuming them before the background and foreground decisions are recorded, because nativizing text first locks in wrong choices (text that belongs to a logo, a UI screenshot, or a to-be-separated asset must not become a native text box, and which text needs clean-base removal depends on step 1). Doing steps 1-2 first costs no wall-clock time: submit ALL step-1/2 image jobs as one `editppt image batch` and fill the text boxes from the hints while those jobs run.
-
-Before building `manifest.json`, verify every non-text visual object:
-
-- It appears in `visual_inventory`.
-- Its source decision follows `page-decision-tree.md`.
-- If it is a foreground photo, screenshot, image block, illustration, icon, pictogram, badge, logo-like mark, sticker, hand-drawn mark, trend/status symbol, or semantic visual object, it was separated through the `editppt image edit --image <source.png>` asset-sheet workflow and then recorded/processed with the image asset commands.
-- It is not a direct crop or source snippet from `source.png`.
-- It is not approximated with native PPT primitives, emoji, text symbols, or substitute drawings.
-
-If any item fails this checklist, fix it before building `page.pptx`. If it cannot be fixed, stop and return a page failure. Do not use deterministic validation as evidence that a forbidden foreground fallback is acceptable.
-
-The Page dir must contain:
+The Page dir must contain when you return:
 - manifest.json
 - imagegen-jobs.json
 - page.pptx
@@ -54,51 +45,9 @@ The Page dir must contain:
 - validation.json
 - page_result.json
 
-`validation.json` must be JSON that `editppt run record` can read directly. It must contain a top-level boolean field named `passed`. Write `"passed": true` when the page is deliverable; write `"passed": false` and explain the failure in the same JSON when it is not deliverable. Do not store the pass state only in `runtime_validation.passed`, `status`, or any other nested field.
+validation.json and page_result.json must follow the exact shapes defined in manifest-schema.md: validation.json carries the top-level boolean `passed` (not only a nested or renamed field), and page_result.json carries the minimal required key set.
 
-`page_result.json` must be JSON and must include at least:
-
-{
-  "page_manifest": "manifest.json",
-  "imagegen_jobs": "imagegen-jobs.json",
-  "page_pptx": "page.pptx",
-  "preview": "preview.png",
-  "contact_sheet": "split_assets_contact.png",
-  "validation": "validation.json",
-  "page_result": "page_result.json"
-}
-
-Use `editppt image generate/edit/batch` to generate clean bases, background repairs, and asset sheets. Use `editppt formula render-latex` to generate formula image assets and manifest image fragments. Which objects must be separated with `editppt image edit --image <source.png>`, which objects may use native shapes, and which formulas must be converted to LaTeX are all governed by `page-decision-tree.md`. Deterministic CLI/runtime tools may only be used for normalization, recording, background removal, splitting, formula rendering, building, validation, and QA.
-
-`manifest.json` must also contain:
-
-- `visual_inventory`: inventory of non-text visual objects, at least recording id, description, decision, and corresponding asset/background.
-- `background_strategy`: background handling mode, source-consistency constraints, whether local repair is used, whether a full imagegen clean base is used, and why.
-- `quality_checks`: `font_size_calibrated`, `visual_inventory_matched`, `background_strategy_checked`, and `shape_corner_geometry_checked` must all be true.
-- Positioned build objects:
-  - every `text_boxes[]` item must include `box_px` and calibrated text styling such as `font_size`;
-  - every `images[]` item must include `box_px`;
-  - every non-line `shapes[]` item must include `box_px`;
-  - every line shape must include `points_px`.
-  Missing object coordinates are a current-page failure, even if a separately generated `page.pptx` looks correct.
-- Text sizing and positions come from measurement, not estimation:
-  - `text_hints.json` and the labeled overlay `text_hints.png` are already in your page dir (written during prepare; the `backend` field says which detector produced them). They belong to step 3: read them after `background_strategy` and `visual_inventory` decisions are recorded, ideally while the step-1/2 image jobs run; if they are missing, generate them with `editppt page hints {{PAGE_DIR}}`;
-  - copy each matched line's measured `box_px` and font size (`font_pt_if_cjk` for CJK text, `font_pt_if_latin` for Latin) into the text box, and add `"font_size_source": "measured"` to boxes sized this way so the builder keeps the measured size;
-  - hints are ADVISORY and may miss lines: before building, fill every missed text from your own reading of the source and give it the font size of its size_group;
-  - same-level text must use exactly one font size: lines sharing a size_group get the same size, and when assembling the final page keep same-level text identical even where hints disagree slightly;
-  - keep `fit_text` enabled; after the preview, fix any text that looks larger, smaller, or more crowded than the source before setting `font_size_calibrated: true`.
-
-Before returning:
-
-- Build page.pptx from manifest.json with the deterministic runtime, not from a separate hand-written PowerPoint script that bypasses the manifest.
-- Render preview.png from the same manifest.json.
-- Create split_assets_contact.png.
-- Run page validation.
-- Confirm validation.json contains top-level `passed: true`.
-- Confirm `editppt run record` can validate `page.pptx` against `manifest.json`; if manifest rebuild validation would fail, set `passed: false` and fix the manifest before returning.
-- Check that all required outputs exist.
-- As the page reconstructor, self-check preview/contact sheet: font sizes are not too large, no visual objects are missing, complex backgrounds have not been replaced wholesale, and rectangles/corners match the source.
-- If a page-local issue is found, fix it inside the current page before returning.
+Before returning, run the Final Self-Check in page-decision-tree.md once: compare preview.png and split_assets_contact.png to the source, confirm validation.json contains top-level `passed: true`, confirm `editppt run record` can validate page.pptx against manifest.json (if manifest rebuild validation would fail, set `passed: false` and fix the manifest before returning), and confirm all required outputs exist. Page-local issues are fixed inside the current page by you before returning; if a hard rule cannot be satisfied, stop and return a page failure with `passed: false`.
 
 Return only:
 page_manifest=`<absolute path>`

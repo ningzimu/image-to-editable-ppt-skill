@@ -12,28 +12,26 @@ Inputs can be a single image, multiple images, a PDF, or an image-based PPT/PPTX
 
 ## References
 
-- `prompts/page-worker.md`: execution template for page workers. The parent agent uses it when generating page-worker prompts.
+Each rule in this skill has exactly one authoritative home; the other files point to it instead of restating it.
+
+- `prompts/page-worker.md`: execution template for page workers — ownership boundary, execution order, required outputs, and return format. The parent agent uses it when generating page-worker prompts.
 - `scripts/build-page-worker-prompt.py`: skill-local prompt builder. It reads `prompts/page-worker.md`, fills run/page paths, writes `worker-prompt.md`, and prints the dispatch command template.
-- `references/cli-helper.md`: CLI install check (Pre-Run Check), command tree, and common command examples. Read it when deciding which `editppt` command to call.
-- `references/manifest-schema.md`: JSON schemas and artifact contracts for deck/page/image jobs. Read it when writing manifests, writing `page_result.json`, or understanding run/page files.
-- `references/page-decision-tree.md`: the single source of truth for page object decisions. Read it before reconstructing any page.
-- `references/qa-rubric.md`: structural, text, asset, background, and visual QA standards. Read it before a page returns and before final delivery.
+- `references/cli-helper.md`: CLI install check (Pre-Run Check), command tree, and command syntax examples. Read it when deciding which `editppt` command to call.
+- `references/manifest-schema.md`: the single home for JSON field contracts of deck/page/image artifacts — required manifest fields, positioned-object coordinates, `validation.json`, and `page_result.json` shapes. Read it when writing or validating any run/page file.
+- `references/page-decision-tree.md`: the single source of truth for page object decisions — background handling, foreground asset separation, native shapes, formulas, text-hints usage, the final self-check, and the fix-versus-warning split. Read it before reconstructing any page.
 
 ## Entry Contract
 
-These rules are stated once here; the workflow and references below build on them without restating them.
+These parent-level rules are stated once here; page-level rules live in the references above and are not restated in this file.
 
 - The `editppt` CLI is a required runtime surface. If `editppt --help` fails, install it first by following the Pre-Run Check in `references/cli-helper.md` before doing anything else.
 - First run `editppt prepare <input...>` to create a run directory. After that, all key state transitions are advanced only through `editppt` commands; never hand-write run/page state JSON. This keeps run state deterministic and resumable.
-- After `prepare`, determine the actual page count. When it is 1, the parent agent rebuilds that page directly. When it is greater than 1, the parent agent only orchestrates and must dispatch every page to a real subagent/page worker. If no subagent capability is available, stop and report this to the user; do not degrade into serial parent-agent page reconstruction.
-- In multi-page runs the parent agent must not write any page reconstruction artifact — `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, or `page_result.json`. These files may only be produced by the page worker that owns the page directory.
+- Every page — including the only page of a single-page input — is rebuilt by a dispatched page worker. The parent agent only orchestrates and never rebuilds pages itself. If no subagent capability is available, stop and report this to the user; do not degrade into parent-agent page reconstruction.
+- The parent agent must not write any page reconstruction artifact — `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, or `page_result.json`. These files may only be produced by the page worker that owns the page directory.
 - All image generation, image editing, background repair, transparent bitmap assets, and asset sheets go through `editppt image generate/edit/batch`.
-- Page object decisions — background handling, foreground asset separation, native shapes, LaTeX formulas — follow `references/page-decision-tree.md`. In particular, foreground visual objects (photos, screenshots, illustrations, icons, pictograms, logo-like marks, badges, trend/status icons) use source-faithful asset-sheet separation unless the tree explicitly classifies them as native structural shapes.
-- There is no fallback mode for foreground visual objects. If a foreground photo, screenshot, illustration, icon, pictogram, logo-like mark, badge, sticker, hand-drawn mark, semantic symbol, or other visual object cannot be separated through the required asset-sheet workflow, the current page is blocked. Do not approximate it with native shapes, emoji, text symbols, or similar substitutes; do not crop it directly from `source.png`; do not mark the missing separation as a warning; do not record, finalize, or deliver that fallback.
-- Deterministic validation is a structure gate, not a waiver for object-source decisions. `validation.json.passed=true` never makes a forbidden foreground fallback acceptable.
-- `manifest.json` is the authoritative page build source for both page-level validation and final deck assembly. `page.pptx` must be generated from that manifest; a visually acceptable page PPTX produced by separate page-local code is not enough, because finalize rebuilds the deck from manifests.
-- Positioned manifest objects carry source-pixel coordinates: `text_boxes[]` and `images[]` require `box_px`, non-line `shapes[]` require `box_px`, and line shapes require `points_px`. Missing coordinates are record/finalize failures.
-- Text sizes and positions come from measurement: `editppt prepare` writes per-page `text_hints.json`/`text_hints.png` next to each `source.png`. The hints belong to the third reconstruction step — background and foreground asset decisions come first; fill `text_boxes` from the measured `box_px` and font sizes (tagging them with `"font_size_source": "measured"`), regenerating with `editppt page hints <page_dir>` when missing. Keep deterministic runtime fitting enabled as the overflow guard.
+- All page object decisions follow `references/page-decision-tree.md`, including its no-fallback rule for foreground visual objects and its rule that deterministic validation is a structure gate that never waives an object-source decision.
+- `manifest.json` is the authoritative page build source: `editppt run record` validates `page.pptx` against it, and `editppt run finalize` rebuilds the final deck from recorded page manifests. Required fields and coordinate contracts are defined in `references/manifest-schema.md`.
+- `editppt prepare` writes per-page text measurements (`text_hints.json`/`text_hints.png`). How page workers consume them is defined in `references/page-decision-tree.md` section 3.1.
 - Page workers are driven by prompts generated from `prompts/page-worker.md`.
 
 ## Roles
@@ -41,17 +39,11 @@ These rules are stated once here; the workflow and references below build on the
 The parent agent owns orchestration and user interaction:
 
 - Run `editppt prepare`. The image backend is chosen automatically (Codex OAuth first, then API fallback), so the normal path needs no extra backend configuration command.
-- For a single-page input, rebuild the page directly and record the result with `editppt run record --agent-id main`.
-- For a multi-page input, loop on `editppt run next` to obtain pages that need dispatch, generate worker prompts with `scripts/build-page-worker-prompt.py`, spawn page workers, record dispatches with `editppt run dispatch`, and record returned results with `editppt run record`.
-- Assemble and validate the final PPTX with `editppt run finalize`, then report progress, the final path, and the validation result to the user.
+- Drive the run with `editppt run next` through dispatch → record → finalize, exactly as the Workflow phases below describe. Single-page inputs follow the same path: one page means one dispatched worker.
+- Report progress, the final PPTX path, and the validation result to the user.
 - Do not repeat page-level visual QA that page workers already completed; `record` and `finalize` re-validate deterministically.
 
-Each page worker owns exactly one `pages/page_NNN/` directory:
-
-- Read only its own `page_request.json`, `source.png`, and the relevant references; write only inside its own page directory; use `page_request.json.image_backend`.
-- Decide object sources with the page decision tree; generate or edit bitmaps with `editppt image generate/edit/batch`; render formula assets with `editppt formula render-latex`; record and process asset sheets with `editppt image import` and `editppt image process-sheet`.
-- Build `page.pptx` and `preview.png` from `manifest.json`, write `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, and `page_result.json`, and self-check the preview, contact sheet, and validation before returning. Page-local issues are fixed inside the current page by its author.
-- Never edit `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, the final PPTX, the original input, or any other page directory.
+Each page worker owns exactly one `pages/page_NNN/` directory. Its full contract — ownership boundary, decision order, required outputs, and return format — is the prompt generated from `prompts/page-worker.md`; the rules it follows live in `references/page-decision-tree.md` and `references/manifest-schema.md`.
 
 ## Workflow
 
@@ -65,15 +57,11 @@ editppt prepare <input...>
 
 After this completes, there must be a run directory, `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, and each page must have `source.png` plus `page_request.json`.
 
-Prepare also writes per-page text hints. Whenever `editppt doctor` or prepare reports that no PaddleOCR token is configured (offline fallback), ask the user once before reconstructing any page: a free token from https://aistudio.baidu.com/account/accessToken stored via `editppt config --paddle-ocr-token <token>` makes the hints content-aware and noticeably improves text fidelity, and `editppt run hints <run>` regenerates the current run's hints in place. Tell the user the free personal quota is currently more than enough for this skill — applying is risk-free with no extra cost. Wait for their choice; if they decline or want to proceed, continue with the offline hints and do not ask again.
+Prepare also writes per-page text hints. Whenever `editppt doctor` or prepare reports that no PaddleOCR token is configured (offline fallback), ask the user once before dispatching any page: a free token from https://aistudio.baidu.com/account/accessToken stored via `editppt config --paddle-ocr-token <token>` makes the hints content-aware and noticeably improves text fidelity, and `editppt run hints <run>` regenerates the current run's hints in place. Tell the user the free personal quota is currently more than enough for this skill — applying is risk-free with no extra cost. Wait for their choice; if they decline or want to proceed, continue with the offline hints and do not ask again.
 
 ### Phase 2: Dispatch Pages
 
-Determine the actual page count from `deck_manifest.json` or from `editppt run next <run> --json`.
-
-When the actual page count is 1, the parent agent completes page outputs in `pages/page_001/`, then proceeds to Phase 3.
-
-For multi-page inputs, read the run/dispatch examples in `references/cli-helper.md` and call repeatedly:
+Every prepared page is dispatched to a page worker, single-page inputs included. Read the run/dispatch examples in `references/cli-helper.md` and call repeatedly:
 
 ```bash
 editppt run next <run>
@@ -101,15 +89,9 @@ editppt run record <run> --page <page_id> --agent-id <id>
 
 This command validates `page.pptx` against `manifest.json` before recording. It fails if positioned objects are missing source-pixel coordinates or if the manifest cannot independently rebuild the page.
 
-For a directly rebuilt single-page input, use:
-
-```bash
-editppt run record <run> --page page_001 --agent-id main
-```
-
 ### Phase 4: Finalize
 
-Read the finalize examples in `references/cli-helper.md` and the deck-level QA points in `references/qa-rubric.md`.
+Read the finalize examples in `references/cli-helper.md`.
 
 When `editppt run next <run>` returns the finalize stage:
 
@@ -119,6 +101,17 @@ editppt run finalize <run>
 
 `finalize` treats each recorded `pages/page_NNN/manifest.json` as the authoritative source: it rebuilds the final deck from page manifests in page order, then validates the resulting PPTX. `page.pptx` remains a page-level deliverability artifact for record-time checks.
 
+Deck-level structural QA at this stage:
+
+- The PPTX is a valid zip/package.
+- Slide count matches the input page count.
+- PDF/PPTX page mapping is correct.
+- Media relationships are complete.
+- All asset files referenced by the manifests exist.
+- Media hashes match manifest provenance.
+- Speaker notes hashes match.
+- There is no invalid full-slide source raster plus editable text overlay pattern.
+
 The final reply must report the final PPTX path and validation result.
 
 ## State Principles
@@ -127,7 +120,7 @@ Agents continue only from file facts and `editppt run next`. Required states:
 
 - `pending`: created by `editppt prepare`.
 - `dispatched`: `editppt run dispatch` records a real spawned worker.
-- `recorded`: `editppt run record` validates required outputs and writes the result; direct single-page reconstruction is also recorded through this command.
+- `recorded`: `editppt run record` validates required outputs and writes the result.
 - `accepted` / `complete`: written by `editppt run finalize`.
 
 `imagegen-jobs.json` is the page-local provenance/job record. Only these forced file states are kept:
@@ -139,8 +132,7 @@ Agents continue only from file facts and `editppt run next`. Required states:
 
 - Each page is self-checked once by the page reconstructor; the evidence is written into structured fields in `manifest.json` and into `validation.json`.
 - The final output must be a currently openable, structurally valid `.pptx`. A full-slide `source.png` with editable text overlaid on top is not an acceptable fallback.
-- Warnings are allowed only after the required object-source workflow has succeeded. A warning may describe small visual drift in an already separated asset or low-risk font differences; a warning may never replace a missing required workflow step.
-- Minor drift in icons, bitmap assets, fonts, positions, shapes, and similar details may be delivered as warnings only after the object-source decision follows the page decision tree. Missing asset edges, forbidden source types for foreground assets, native approximations of foreground visuals, emoji/text-symbol substitutes, or replacing required asset-sheet separation with a direct source-image snippet are current-page failures, not warnings.
+- Whether an imperfection must be fixed inside its page or may ship as a recorded warning is governed by the "Fix versus Warning" section of `references/page-decision-tree.md`. A warning may never replace a missing required workflow step.
 
 ## Updating This Skill
 

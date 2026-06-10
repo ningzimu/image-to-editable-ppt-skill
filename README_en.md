@@ -48,8 +48,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 ## Highlights
 
 - Broad input coverage for many slide-reconstruction scenarios: one image, multiple images, multi-page PDFs, and image-based PPT files into editable `.pptx`.
-- Single-image input is rebuilt directly by the main agent.
-- Multi-page input is dispatched directly to page workers/subagents according to `max_concurrent_pages`.
+- Every page — including single-image input — is dispatched by the main agent to page workers/subagents, in parallel according to `max_concurrent_pages`.
 - Image generation and editing are unified through the `editppt image` CLI. The CLI uses local Codex OAuth first, then OpenAI-compatible API fallback when Codex auth is unavailable.
 - Third-party API fallback configuration lives in `~/.editppt/config.yaml`; on Windows this is `%USERPROFILE%\.editppt\config.yaml`.
 - Text sizes and positions are measurement-driven: prepare generates per-page text annotations (box coordinates + font sizes + size groups), and same-level text keeps one consistent size automatically.
@@ -132,7 +131,7 @@ $image-to-editable-ppt convert <path-to-image-based.pptx> into an editable Power
 The normal workflow is:
 
 1. Create an isolated job folder, normalize inputs into `pages/page_NNN/source.png`, and write the default `editppt image` backend.
-2. Rebuild a single image directly with the main agent and record it with `editppt run record --agent-id main`; for multi-page input, dispatch pages to page workers in `max_concurrent_pages` batches.
+2. Dispatch every page — single-image input included — to page workers in `max_concurrent_pages` batches.
 3. Each page worker owns one page directory and completes reconstruction, self-check, and page-local correction there.
 4. Build one page manifest per page with editable text, simple shapes, and positioned image assets.
 5. Use `editppt` commands to record dispatches, page results, and accepted status.

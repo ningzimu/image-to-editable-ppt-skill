@@ -109,6 +109,20 @@ Includes:
 - validation path
 - page-local output hashes, which may be supplemented by `editppt run record`
 
+Minimal required shape (paths are relative to the page directory):
+
+```json
+{
+  "page_manifest": "manifest.json",
+  "imagegen_jobs": "imagegen-jobs.json",
+  "page_pptx": "page.pptx",
+  "preview": "preview.png",
+  "contact_sheet": "split_assets_contact.png",
+  "validation": "validation.json",
+  "page_result": "page_result.json"
+}
+```
+
 The `manifest` artifact is the authoritative page source for final assembly. `editppt run finalize` rebuilds the final deck from recorded page manifests in page order. The `page_pptx` artifact remains a page-level deliverability artifact and is validated by `editppt run record`, but it is not the final assembly input.
 
 ## `pages/page_NNN/validation.json`
@@ -150,7 +164,10 @@ Must contain:
 - `asset_provenance`
 - page strategy
 
-`slide`, `content_box`, and `source.width_px/source.height_px` must come from `page_request.json`. All `box_px`, `points_px`, and `polygon_px` values use `source.png` pixel coordinates; the runtime maps these coordinates into `content_box` instead of stretching them to the whole slide.
+`slide`, `content_box`, and `source.width_px/source.height_px` must come from `page_request.json`. All `box_px`, `points_px`, and `polygon_px` values use `source.png` pixel coordinates; the runtime maps these coordinates into `content_box` instead of stretching them to the whole slide. Coordinate layouts:
+
+- `box_px: [x, y, width, height]`
+- `points_px: [x1, y1, x2, y2]`
 
 Positioned build object requirements:
 
@@ -158,6 +175,8 @@ Positioned build object requirements:
 - Every `images[]` item must have `box_px`.
 - Every non-line `shapes[]` item must have `box_px`.
 - Every line shape must have `points_px`.
+
+`text_inventory` and `visual_inventory` are only inventories; they do not substitute for positioned `text_boxes`, `images`, and `shapes`. The manifest must be sufficient to rebuild the page without reading any custom page script.
 
 Missing coordinates are page-contract violations. The runtime must reject them during `editppt run record` and deck validation because otherwise missing values fall back to default positions such as the top-left corner.
 
@@ -190,10 +209,10 @@ Text-size fitting:
 
 `background_strategy` must explain at least:
 
-- mode: `native-or-script`, `source-preserving-local-cleanup`, `imagegen-full-clean-base`, or similar.
-- source consistency: which composition, perspective, objects, colors, lighting, and details are preserved.
-- removed foreground: which foreground objects will be removed and rebuilt.
-- comparison note: the background consistency conclusion after comparing preview against source.
+- `mode`: `native-or-script`, `source-preserving-local-cleanup`, `imagegen-full-clean-base`, or similar.
+- `source_consistency_contract`: which composition, perspective, object positions, colors, lighting, and key details are preserved.
+- `removed_foreground`: which foreground objects were removed from the background and rebuilt later.
+- `comparison_note`: the background consistency conclusion after comparing the preview against the source.
 
 `roundRect` shapes must record `source_corner_radius_px`; they may also record `corner_reason`. If the source is a straight-corner rectangle, use `rect`.
 

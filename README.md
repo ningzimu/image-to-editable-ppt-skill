@@ -48,8 +48,7 @@
 ## 特点
 
 - 适用场景广泛，支持多种输入：单张图片、多张图片、多页 PDF、图片版PPT 到可编辑 `.pptx`。
-- 单张图片输入由主 agent 直接重建。
-- 多页输入由主 agent 按 `max_concurrent_pages` 直接分派给 page worker/subagent 并行处理。
+- 每一页（包括单张图片输入）都由主 agent 分派给 page worker/subagent 重建，多页时按 `max_concurrent_pages` 并行处理。
 - 图片生成和编辑统一通过 `editppt image` CLI 完成；CLI 会优先使用本机 Codex OAuth，缺失时再使用 OpenAI-compatible API 配置。
 - 第三方 API fallback 配置保存在 `~/.editppt/config.yaml`；Windows 下对应 `%USERPROFILE%\.editppt\config.yaml`。
 - 文字大小与位置由测量驱动：prepare 阶段为每页生成文字标注（框坐标 + 字号 + 字号分组），模型按测量值还原文字，同级文字字号自动保持一致。
@@ -132,7 +131,7 @@ $image-to-editable-ppt 把 <path-to-image-based.pptx> 转成可编辑 PPT。
 skill 通常会完成这些步骤：
 
 1. 创建独立任务目录，把输入归一化为 `pages/page_NNN/source.png`，并写入默认 `editppt image` backend。
-2. 单张图片由主 agent 直接重建，并用 `editppt run record --agent-id main` 记录；多页输入按 `max_concurrent_pages` 分批分派给 page worker。
+2. 每一页（含单张图片输入）都按 `max_concurrent_pages` 分批分派给 page worker 重建。
 3. 每个 page worker 负责自己的页面目录，完成页面重建、自检和 page-local 修正。
 4. 每页创建 manifest，重建可编辑文本、简单形状和图片资产。
 5. 用 `editppt` 命令记录 dispatch、page result 和 accepted 状态。
