@@ -12,6 +12,8 @@ Release notes are generated from this file. Keep changelog entries in English.
 - Add `editppt config --paddle-ocr-token` and first-use guidance: doctor reports the active text-hints backend and, when no token is configured, prepare and doctor point to the token application page (https://aistudio.baidu.com/account/accessToken). The token is stored masked in `~/.editppt/config.yaml` alongside the image API credentials.
 - Snap measured font sizes to design levels: detected lines are clustered into size groups (same-level text gets exactly one font size instead of per-line jitter), exposed as `size_group` in the hints output.
 - Trust measured font sizes in the deterministic builder: text boxes tagged `"font_size_source": "measured"` are clamped only at the geometric fit limit instead of the conservative 0.9 safety shrink, which made correctly sized text systematically smaller than the source. Hand-written boxes keep the existing conservative behavior.
+- Add `editppt run reset`: return a failed or stuck page to `pending`, clearing its dispatch and result records so a new worker can be dispatched. This closes the previously dead-ended failure paths — a worker returning `passed: false`, a rejected record, or a lost worker.
+- Add `editppt page build`, `editppt page contact-sheet`, and `editppt page validate`: page workers build `page.pptx`/`preview.png` from `manifest.json`, create the origin-versus-preview contact sheet, and pre-check the page with the same manifest-contract checks `run record` runs — through documented CLI commands instead of undocumented runtime scripts.
 
 ### Fixes
 
@@ -23,17 +25,23 @@ Release notes are generated from this file. Keep changelog entries in English.
 - Remove the `editppt run prompt` subcommand so the CLI no longer reads skill prompt templates or reference files.
 - Keep CLI environment diagnostics scoped to CLI config, dependencies, and image backend readiness without requiring skill-root discovery.
 - Replace path-like prompt placeholders with explicit `{{NAME}}` tokens and fail the prompt build when any placeholder remains unfilled.
+- Dispatch every page to a page worker, including single-page inputs: `editppt run next` no longer returns a `rebuild_page` stage and `editppt run record` no longer accepts direct main-agent recording from `pending`, so single-page and multi-page runs follow one identical flow and one prompt contract.
+- Reject non-deliverable pages at record time: `editppt run record` fails with a `run reset` hint when `validation.json` does not contain top-level `passed: true`, so the `recorded` state always means deliverable and finalize can no longer be reached with failed pages aboard.
 
 ### Documentation
 
 - Clarify that image API fallback configuration is AI-assisted, without manual CLI installation or key-configuration commands in the READMEs.
 - Document the OCR token in both READMEs: text size/position correction relies on a free PaddleOCR-VL token (application URL, config command, free-quota reassurance), replacing the outdated "no third-party OCR dependency" claim; the offline detector remains the degraded fallback.
-- Lock the three-step execution order in the worker prompt, SKILL.md, and decision tree: text hints belong to step 3 and are consumed only after background and foreground decisions, with step-1/2 image jobs submitted first so the order costs no wall-clock time.
+- Lock the three-step execution order in the worker prompt and decision tree: text hints belong to step 3 and are consumed only after background and foreground decisions, with step-1/2 image jobs submitted first so the order costs no wall-clock time.
 - Clarify that final deck assembly rebuilds from recorded page manifests rather than concatenating page-level PPTX files.
 - Document the skill-local page-worker prompt builder script in the skill workflow and CLI helper.
-- Deduplicate orchestration rules so each rule has one authoritative location: SKILL.md states the entry contract once, the CLI helper and QA rubric reference it, and the QA rubric defers object-source fix/warning splits to the page decision tree.
+- Restructure skill documentation around single-ownership: every rule lives in exactly one file, other files carry pointers. The page decision tree absorbs the QA rubric (now a Final Self-Check plus a Fix versus Warning section), the manifest schema becomes the only home for JSON field contracts, the CLI helper becomes a pure command manual, and the worker prompt shrinks to hard-rule reminders plus pointers with a mandatory read-references-first instruction.
 - Drop SKILL.md from the page-worker required reading list so workers load only page-level references instead of the parent orchestration contract.
 - Broaden skill description triggers, add a CLI availability check to the entry contract, and document non-pipx install fallbacks (`uv tool install`, `pip install --user`).
+- Document the failure-handling loop in SKILL.md Phase 3: never re-dispatch a page unchanged, diagnose repeated same-root-cause failures autonomously instead of pushing debugging questions to the user, and define the worker failure contract — a failed page returns at minimum `validation.json` (`passed: false` with the concrete reason) plus `page_result.json`, and leftover artifacts from a failed attempt are untrusted by the next worker.
+- Document the `asset_provenance` field contract (the five allowed `source_type` values, required `source` and `provenance_note`) and the validator's substring-level keyword scanning of inventory and provenance text.
+- Treat formula rendering blocked by missing local TeX tooling as a recorded warning with `passed: true` instead of an undefined pass state.
+- Add a skill documentation architecture spec to AGENTS.md: design principles (single-ownership, reader-role split, docs-and-CLI-move-together) and per-file responsibility boundaries for future contributors.
 
 ## 0.2.0-beta.1
 
