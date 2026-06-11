@@ -129,20 +129,23 @@ def sort_components(components, mode):
     return sorted(components, key=lambda item: (item["box"][0], item["box"][1]))
 
 
-def crop_component(image, box, pad, square):
+def extract_component_asset(image, box, pad, square):
     width, height = image.size
     left, top, right, bottom = box
     left = max(0, left - pad)
     top = max(0, top - pad)
     right = min(width, right + pad)
     bottom = min(height, bottom + pad)
-    crop = image.crop((left, top, right, bottom))
+    component_image = image.crop((left, top, right, bottom))
     if not square:
-        return crop, [left, top, right, bottom]
+        return component_image, [left, top, right, bottom]
 
-    side = max(crop.size)
+    side = max(component_image.size)
     canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
-    canvas.alpha_composite(crop, ((side - crop.size[0]) // 2, (side - crop.size[1]) // 2))
+    canvas.alpha_composite(
+        component_image,
+        ((side - component_image.size[0]) // 2, (side - component_image.size[1]) // 2),
+    )
     return canvas, [left, top, right, bottom]
 
 
@@ -182,7 +185,7 @@ def main():
     parser.add_argument("--merge-union-growth", type=float, default=2.4, help="Maximum union-box growth allowed when merging fragments")
     parser.add_argument("--pad", type=int, default=24)
     parser.add_argument("--limit", type=int, help="Maximum number of components to write")
-    parser.add_argument("--square", action="store_true", help="Place each crop on a transparent square canvas")
+    parser.add_argument("--square", action="store_true", help="Place each extracted asset on a transparent square canvas")
     parser.add_argument("--manifest", help="Optional JSON report path for component boxes and outputs")
     parser.add_argument("--contact-sheet", help="Optional contact sheet image for visual QA")
     args = parser.parse_args()
@@ -209,9 +212,9 @@ def main():
         name = names[index - 1] if names else f"asset_{index:02d}.png"
         if not name.lower().endswith(".png"):
             name += ".png"
-        crop, padded_box = crop_component(image, component["box"], args.pad, args.square)
+        component_image, padded_box = extract_component_asset(image, component["box"], args.pad, args.square)
         out_path = out_dir / name
-        crop.save(out_path)
+        component_image.save(out_path)
         entry = {
             "path": str(out_path),
             "source": str(src),
@@ -219,11 +222,11 @@ def main():
             "padded_box": padded_box,
             "area": component["area"],
             "merged_count": component.get("merged_count", 1),
-            "size": list(crop.size),
+            "size": list(component_image.size),
         }
         outputs.append(entry)
-        contact_items.append({"name": name, "image": crop})
-        print(f"{name}: box={component['box']} area={component['area']} size={crop.size}")
+        contact_items.append({"name": name, "image": component_image})
+        print(f"{name}: box={component['box']} area={component['area']} size={component_image.size}")
 
     if args.manifest:
         Path(args.manifest).write_text(json.dumps({"source": str(src), "assets": outputs}, ensure_ascii=False, indent=2))

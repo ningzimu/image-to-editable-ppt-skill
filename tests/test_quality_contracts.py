@@ -1,15 +1,13 @@
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT_DIR = ROOT / "skills/image-to-editable-ppt/scripts"
-sys.path.insert(0, str(SCRIPT_DIR))
+RUNTIME_DIR = ROOT / "skills/image-to-editable-ppt/cli/editppt/runtime"
+sys.path.insert(0, str(RUNTIME_DIR))
 
-from PIL import Image  # noqa: E402
-from validate_pptx import ALLOWED_SOURCE_TYPES, alpha_edge_violations, quality_contract_violations  # noqa: E402
+from validate_pptx import ALLOWED_SOURCE_TYPES, quality_contract_violations, required_texts_from_manifest  # noqa: E402
 from build_pptx_from_manifest import shape_xml  # noqa: E402
 
 
@@ -49,8 +47,70 @@ class QualityContractTest(unittest.TestCase):
         manifest["shapes"] = [{"type": "rect", "box_px": [0, 0, 100, 40]}]
         self.assertEqual([], quality_contract_violations(manifest))
 
-    def test_source_derived_assets_are_allowed(self):
-        self.assertIn("source-derived-rasterization", ALLOWED_SOURCE_TYPES)
+    def test_source_derived_assets_are_not_allowed(self):
+        self.assertNotIn("source-derived-rasterization", ALLOWED_SOURCE_TYPES)
+
+    def test_latex_rendered_formula_assets_are_allowed(self):
+        self.assertIn("latex-rendered-formula", ALLOWED_SOURCE_TYPES)
+
+    def test_asset_sheet_separated_assets_are_allowed(self):
+        self.assertIn("asset-sheet-separated", ALLOWED_SOURCE_TYPES)
+
+    def test_foreground_native_approximation_is_contract_violation(self):
+        manifest = base_manifest()
+        manifest["visual_inventory"] = [
+            {
+                "id": "bottom_icon",
+                "description": "semantic icon in the bottom flow",
+                "decision": "native approximation with text symbol",
+            }
+        ]
+        violations = quality_contract_violations(manifest)
+        reasons = " ".join(item["reason"] for item in violations)
+        self.assertIn("foreground visual decisions", reasons)
+
+    def test_foreground_direct_crop_provenance_is_contract_violation(self):
+        manifest = base_manifest()
+        manifest["visual_inventory"] = [
+            {
+                "id": "photo_panel",
+                "description": "foreground photo panel",
+                "decision": "source-faithful asset-sheet separation",
+                "path": "assets/source_crops/photo.png",
+            }
+        ]
+        manifest["asset_provenance"] = [
+            {
+                "path": "assets/source_crops/photo.png",
+                "source_type": "user-provided",
+                "source": "source.png",
+                "provenance_note": "cropped from source foreground photo",
+            }
+        ]
+        violations = quality_contract_violations(manifest)
+        fields = [item["field"] for item in violations]
+        self.assertIn("visual_inventory[0]", fields)
+        self.assertIn("asset_provenance[0]", fields)
+
+    def test_foreground_asset_sheet_decision_passes_contract(self):
+        manifest = base_manifest()
+        manifest["visual_inventory"] = [
+            {
+                "id": "photo_panel",
+                "description": "foreground photo panel",
+                "decision": "source-faithful asset-sheet separation through editppt image edit",
+                "path": "assets/photo_panel.png",
+            }
+        ]
+        manifest["asset_provenance"] = [
+            {
+                "path": "assets/photo_panel.png",
+                "source_type": "asset-sheet-separated",
+                "source": "assets/photo_sheet.png",
+                "provenance_note": "split from source-faithful asset sheet generated with editppt image edit",
+            }
+        ]
+        self.assertEqual([], quality_contract_violations(manifest))
 
     def test_round_rect_writes_ooxml_adjustment(self):
         xml = shape_xml(
@@ -71,15 +131,18 @@ class QualityContractTest(unittest.TestCase):
         self.assertIn('name="adj"', xml)
         self.assertIn('fmla="val 5000"', xml)
 
-    def test_alpha_edge_helper_reports_visible_pixels_touching_edge(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "clipped.png"
-            image = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
-            for x in range(0, 5):
-                image.putpixel((x, 5), (0, 0, 255, 255))
-            image.save(path)
-            violations = alpha_edge_violations(path)
-        self.assertTrue(violations)
+    def test_structured_text_inventory_flattens_to_required_strings(self):
+        required = required_texts_from_manifest(
+            {
+                "required_text": ["市场概览"],
+                "text_inventory": [
+                    {"id": "metric", "text": "4280 万", "decision": "native-text"},
+                    {"id": "insights", "required_text": ["扩张", "续约"]},
+                    {"id": "note", "description": "not an exact text requirement"},
+                ],
+            }
+        )
+        self.assertEqual(["市场概览", "4280 万", "扩张", "续约"], required)
 
 
 if __name__ == "__main__":

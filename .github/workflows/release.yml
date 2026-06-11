@@ -27,6 +27,28 @@ jobs:
             exit 1
           fi
 
+          if [[ "${TAG_NAME}" == *-* ]]; then
+            echo "IS_PRERELEASE=true" >> "$GITHUB_ENV"
+            echo "REQUIRED_BRANCH=beta" >> "$GITHUB_ENV"
+          else
+            echo "IS_PRERELEASE=false" >> "$GITHUB_ENV"
+            echo "REQUIRED_BRANCH=main" >> "$GITHUB_ENV"
+          fi
+
+      - name: Validate release branch
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin "${REQUIRED_BRANCH}:refs/remotes/origin/${REQUIRED_BRANCH}"
+          if ! git merge-base --is-ancestor "${COMMIT_SHA}" "origin/${REQUIRED_BRANCH}"; then
+            echo "Tag ${TAG_NAME} must point to a commit contained in origin/${REQUIRED_BRANCH}."
+            echo "Prerelease tags such as v0.2.0-beta.1 must come from beta; stable tags such as v0.2.0 must come from main."
+            exit 1
+          fi
+
       - name: Extract release notes
         env:
           TAG_NAME: ${{ github.ref_name }}
@@ -131,9 +153,15 @@ jobs:
         run: |
           set -euo pipefail
 
+          release_flags=()
+          if [[ "${IS_PRERELEASE}" == "true" ]]; then
+            release_flags+=(--prerelease)
+          fi
+
           gh release create "${TAG_NAME}" \
             --repo "${GITHUB_REPOSITORY}" \
             --title "${TAG_NAME}" \
             --notes-file "${RUNNER_TEMP}/release-notes.md" \
+            "${release_flags[@]}" \
             --verify-tag \
             "${SKILL_ZIP}"

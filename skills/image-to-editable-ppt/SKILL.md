@@ -1,139 +1,156 @@
 ---
 name: image-to-editable-ppt
-description: 当用户提供一张或多张幻灯片图片、图片版 PPT/PPTX 或 PDF，并要求转成可编辑 PowerPoint/PPTX、重建幻灯片对象、保留页面备注或做可编辑化复刻时使用。
+description: Rebuild slide images, image-based or scanned PPT/PPTX files, and PDF decks into object-level editable PowerPoint (.pptx). Use whenever the user provides any visual slide source and wants slides they can edit — "make this PPT editable", "把图片/截图转成可编辑 PPT", "this PDF is a scanned deck, restore it", recreating slides from screenshots, reconstructing slide objects, or preserving speaker notes — even if they do not say "convert". Not for authoring new presentations from scratch.
 ---
 # Image to Editable PPT
 
 ## Overview
 
-这个 skill 用于把视觉型幻灯片输入重建成对象级可编辑的 PowerPoint `.pptx`。
+This skill rebuilds visual slide inputs into object-level editable PowerPoint `.pptx` files.
 
-输入可以是一张图片、多张图片、PDF、图片版 PPT/PPTX。输出始终是 `.pptx`。目标不是把整页截图包进 PPT，而是尽量让可读文字成为原生 PowerPoint 文本框，让基础结构成为原生形状，让复杂视觉元素成为独立图片资产，并用 manifest、预览和验证报告保证结果可检查、可返工。
+Inputs can be a single image, multiple images, a PDF, or an image-based PPT/PPTX. The output is always `.pptx`. The goal is not to wrap a full-slide screenshot inside PowerPoint; the goal is to use the `editppt` runtime and page-level prompts to decompose, reconstruct, validate, and assemble editable slides.
 
-默认取舍：对象级可编辑率优先。宁可视觉略粗糙，也不要用整页 raster 冒充可编辑 PPT。
+## References
 
-## Hard Constraints
+Each rule in this skill has exactly one authoritative home; the other files point to it instead of restating it.
 
-- 每一个来源页面都必须由 page subagent 重建，包括单张图片输入。
-- 主 agent 不做页面重建，只做 orchestration。
-- 不设计父 agent 单独执行、顺序降级执行或低保真降级模式。没有可用 page subagent 就停止，不进入页面重建。
-- 所有生图、改图、背景修复、透明 bitmap 资产和 asset sheet 都必须使用 `$imagegen` skill。
-- `$imagegen` 的默认路径是 built-in `image_gen`。不要在本 skill 里直接调用 Image API。
-- 如果页面需要 `$imagegen`，但 `$imagegen` 或 built-in `image_gen` 不可用，停止该页并报告 blocker，不伪造资产。
-- 原始整页 `source.png` 加可编辑文本覆盖是失败模式，不是 fallback。
-- 只有基础 primitive 和简单结构对象可以用原生 PPT shape。非文字视觉对象不确定时，默认用 `$imagegen` 重绘成独立资产。
-- page worker 必须先做文字字号、视觉对象、背景策略和形状角形的清单校准，再写 manifest；不能靠审美猜测默认字号或默认圆角。
-- 关键状态只能由脚本推进。agent 不能手写 JSON 把 page、imagegen job 或 run 标成完成。
+- `prompts/page-worker.md`: execution template for page workers — ownership boundary, execution order, required outputs, and return format. The parent agent uses it when generating page-worker prompts.
+- `scripts/build-page-worker-prompt.py`: skill-local prompt builder. It reads `prompts/page-worker.md`, fills run/page paths, writes `worker-prompt.md`, and prints the dispatch command template.
+- `references/cli-helper.md`: CLI install check (Pre-Run Check), command tree, and command syntax examples. Read it when deciding which `editppt` command to call.
+- `references/manifest-schema.md`: the single home for JSON field contracts of deck/page/image artifacts — required manifest fields, positioned-object coordinates, `validation.json`, and `page_result.json` shapes. Read it when writing or validating any run/page file.
+- `references/page-decision-tree.md`: the single source of truth for page object decisions — background handling, foreground asset separation, native shapes, formulas, text-hints usage, the final self-check, and the fix-versus-warning split. Read it before reconstructing any page.
 
-## Visible Progress Plan
+## Entry Contract
 
-正常运行时，主 agent 必须保持一个用户可见 checklist，同一时间只有一个 active step：
+These parent-level rules are stated once here; page-level rules live in the references above and are not restated in this file.
 
-1. 准备输入和任务目录。
-2. 分派页面重建。
-3. 重建页面对象。
-4. 检查并修复页面。
-5. 组装和验证 PPTX。
+- The `editppt` CLI is a required runtime surface. If `editppt --help` fails, install it first by following the Pre-Run Check in `references/cli-helper.md` before doing anything else.
+- First run `editppt prepare <input...>` to create a run directory. After that, all key state transitions are advanced only through `editppt` commands; never hand-write run/page state JSON. This keeps run state deterministic and resumable.
+- Every page — including the only page of a single-page input — is rebuilt by a dispatched page worker. The parent agent only orchestrates and never rebuilds pages itself. If no subagent capability is available, stop and report this to the user; do not degrade into parent-agent page reconstruction.
+- The parent agent must not write any page reconstruction artifact — `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, or `page_result.json`. These files may only be produced by the page worker that owns the page directory.
+- All image generation, image editing, background repair, transparent bitmap assets, and asset sheets go through `editppt image generate/edit/batch`.
+- All page object decisions follow `references/page-decision-tree.md`, including its no-fallback rule for foreground visual objects and its rule that deterministic validation is a structure gate that never waives an object-source decision.
+- `manifest.json` is the authoritative page build source: `editppt run record` validates `page.pptx` against it, and `editppt run finalize` rebuilds the final deck from recorded page manifests. Required fields and coordinate contracts are defined in `references/manifest-schema.md`.
+- `editppt prepare` writes per-page text measurements (`text_hints.json`/`text_hints.png`). How page workers consume them is defined in `references/page-decision-tree.md` section 3.1.
+- Page workers are driven by prompts generated from `prompts/page-worker.md`.
 
-完成条件：
+## Roles
 
-- `准备输入和任务目录`：`deck_manifest.json`、`page_jobs.json`、`pages/page_NNN/source.png`、`notes_manifest.json` 已存在。
-- `分派页面重建`：主 agent 按 `max_concurrent_pages` 分批 spawn page subagent；每个已 spawn page 都由 `record_page_dispatch.py` 记录为 dispatched。如果不能继续 spawn subagent，停在这里并报告 blocker。
-- `重建页面对象`：每个 page 都由 page worker 产出 `manifest.json`、`page.pptx`、`preview.png`、`split_assets_contact.png`、`validation.json`、`page_result.json`。
-- `检查并修复页面`：所有 page 通过 `record_page_result.py` 记录，repair queue 清空；无法修复时报告 blocker。
-- `组装和验证 PPTX`：`final/<origin>_edited.pptx` 和 `final/validation.json` 已存在。
+The parent agent owns orchestration and user interaction:
 
-不要只因为聊天里说完成就标记步骤完成；必须有真实文件或脚本推进的状态。
+- Run `editppt prepare`. The image backend is chosen automatically (Codex OAuth first, then API fallback), so the normal path needs no extra backend configuration command.
+- Drive the run with `editppt run next` through dispatch → record → finalize, exactly as the Workflow phases below describe. Single-page inputs follow the same path: one page means one dispatched worker.
+- Report progress, the final PPTX path, and the validation result to the user.
+- Do not repeat page-level visual QA that page workers already completed; `record` and `finalize` re-validate deterministically.
 
-## Default Workflow
+Each page worker owns exactly one `pages/page_NNN/` directory. Its full contract — ownership boundary, decision order, required outputs, and return format — is the prompt generated from `prompts/page-worker.md`; the rules it follows live in `references/page-decision-tree.md` and `references/manifest-schema.md`.
 
-1. 运行 `prepare_deck_run.py` 创建 run 目录、归一化输入、生成 deck/page manifest 和 page request。
-2. 运行 `page_job_status.py` 查看待分派页面、active dispatches 和可用 dispatch slot。
-3. 主 agent 按 `max_concurrent_pages` 分批 spawn 普通 Codex worker subagent；不要一次性 spawn 超过运行时并发上限。
-4. spawn 后立即运行 `record_page_dispatch.py` 记录 dispatch。
-5. 每个 page worker 只在自己的 page 目录内工作，完成 page-level build、preview、contact sheet、validation。
-6. page worker 返回后，主 agent 运行 `record_page_result.py` 检查文件、路径和 hash，并推进 page 状态。
-7. 再次运行 `page_job_status.py`；如果还有 pending/repair_needed page，就继续下一批分派。
-8. 如有页面问题，运行 `queue_page_repairs.py` 生成 repair item，再分批分派 repair worker。
-9. 所有 page accepted 后，运行 `finalize_deck_run.py` 组装最终 PPTX、复制 notes、运行 deck validation 和 QA summary。
+## Workflow
 
-正常主入口是 `prepare_deck_run.py`。不再保留旧输入归一化脚本作为公开入口或兼容 wrapper。
+### Phase 1: Prepare
 
-## Generation Delegation
+Read the prepare examples in `references/cli-helper.md` and the run/page file descriptions in `references/manifest-schema.md`.
 
-使用 `$imagegen` 前必须读取并遵守：
-
-```text
-${CODEX_HOME:-$HOME/.codex}/skills/.system/imagegen/SKILL.md
+```bash
+editppt prepare <input...>
 ```
 
-本 skill 只组合 `$imagegen`，不重新定义图片生成 API 规则。
+After this completes, there must be a run directory, `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, and each page must have `source.png` plus `page_request.json`.
 
-页面内需要 `$imagegen` 的常见场景：
+Prepare also writes per-page text hints. Whenever `editppt doctor` or prepare reports that no PaddleOCR token is configured (offline fallback), ask the user once before dispatching any page: a free token from https://aistudio.baidu.com/account/accessToken stored via `editppt config --paddle-ocr-token <token>` makes the hints content-aware and noticeably improves text fidelity, and `editppt run hints <run>` regenerates the current run's hints in place. Tell the user the free personal quota is currently more than enough for this skill — applying is risk-free with no extra cost. Wait for their choice; if they decline or want to proceed, continue with the offline hints and do not ask again.
 
-- complex background 上有文字、图标或前景对象，需要 source-preserving foreground removal + localized background restoration。
-- 图标、pictogram、徽章、贴纸、手绘标记、风格化箭头、装饰符号等需要作为独立资产。
-- 需要生成 chroma-key asset sheet，再本地去底、切分、透明化。
-- 需要 targeted repair 某个 clean base 或某个前景资产。
+### Phase 2: Dispatch Pages
 
-项目实际使用的生成图片必须复制到 page 目录，并通过 page-local `imagegen-jobs.json` 记录。不要让 manifest 引用只存在于 `$CODEX_HOME/generated_images/...` 的图片。
+Every prepared page is dispatched to a page worker, single-page inputs included. Read the run/dispatch examples in `references/cli-helper.md` and call repeatedly:
 
-复杂背景默认保留 source identity。可以用 `$imagegen` 生成 clean background，但必须把 source 当作 edit target 和强约束参考来修复/重建，不能生成一个“同类但不同”的新背景。遮挡少时优先局部修复；遮挡多或需要整张 clean base 时，也必须保留原始构图、透视、主要物体位置、色彩、光照和背景细节，并在 manifest 的 `background_strategy` 里记录保真策略。
+```bash
+editppt run next <run>
+```
 
-## Subagent Dispatch
+When the dispatch stage is returned, the following steps are mandatory for each suggested page:
 
-page subagent 是唯一的页面重建执行者。主 agent 不重建页面。
+1. `python <skill-root>/scripts/build-page-worker-prompt.py <run> --page <page_id> --out <absolute-run-dir>/pages/<page_id>/worker-prompt.md`
+2. Spawn a page worker using the current environment's available subagent/multi-agent tool.
+3. `editppt run dispatch <run> --page <page_id> --agent-id <id> --prompt-file <absolute-run-dir>/pages/<page_id>/worker-prompt.md`
 
-每个 page worker 必须收到自包含 prompt，至少包含：
+`--out` and `--prompt-file` must be absolute paths to avoid the page directory being prepended again to relative paths. The prompt builder only writes the prompt and prints a dispatch command template; it does not create the worker, so run `editppt run dispatch` only after a real spawn succeeds.
 
-- run dir、page id、page dir、source image 绝对路径。
-- 允许写入范围：只能写当前 page dir。
-- 禁止写入范围：deck manifest、notes manifest、final deck、其他 page。
-- 必读 reference：`page-decision-tree.md`、`imagegen-integration.md`、`manifest-schema.md`、`qa-rubric.md`。
-- 必读 `$imagegen/SKILL.md`。
-- required outputs 和返回格式。
+Concurrency slots come from `page_jobs.json.max_concurrent_pages` (default 6). In the normal flow prefer `editppt run next`; `editppt run status` is only for debugging or manual inspection.
 
-page worker prompt 模板在 `prompts/page-worker.md`。
+### Phase 3: Record
 
-如果无法 spawn page subagent，停止并报告 blocker。不要顺序执行页面重建。
+Read the record examples in `references/cli-helper.md` and the `page_result.json` description in `references/manifest-schema.md`.
 
-## Rules
+After a worker returns, run:
 
-- 文字：所有可读文字都应成为可见原生 PPT text box。隐藏、透明、1 pt、off-canvas 或 metadata-only 文本不算可编辑文字。
-- 字号：先根据 source 字形高度、容器高度和同行密度估算，再用 preview 对照缩放；不确定时偏小而不是偏大。manifest 必须记录 `quality_checks.font_size_calibrated=true`。
-- 结构：只有基础 primitive 可以用原生 PPT shape，例如直线、矩形、圆形、表格线、坐标轴、简单柱状块、基础容器。矩形容器默认用 `rect`；只有 source 明确是圆角时才用 `roundRect`，并记录 `source_corner_radius_px` 或 `corner_reason`。
-- 前景：图标、pictogram、logo-like mark、手绘标记、贴纸、徽章、复杂箭头、装饰元素默认用 `$imagegen` 重绘成独立资产。若源图里的小型视觉对象需要高度一致、无可读文字、且重绘会改变身份，可作为独立 source-derived raster asset 裁出并记录来源区域；这不是整页截图 fallback。
-- 背景：纯色、简单渐变、规则网格、普通卡片可用原生或脚本重建；复杂照片、纹理、插画被前景遮挡时，用 `$imagegen` 做 inpainting/restoration。
-- asset sheet：默认用稀疏 chroma-key asset sheet 减少生图次数。元素间距优先，不能拥挤、粘连、互相投影。
-- provenance：每个最终 raster asset 都必须有来源记录。不能把原始 source crop 当成默认视觉资产。
-- QA：确定性 validation 必要但不充分。必须检查 `preview.png` 和 `split_assets_contact.png`。
-- repair：修最小失败范围。不要为了一个文本框或一个图标重建整页。
-- 状态：`page_jobs.json`、`imagegen-jobs.json` 的关键状态必须由脚本推进。
+```bash
+editppt run record <run> --page <page_id> --agent-id <id>
+```
 
-## Acceptance Criteria
+This command validates `page.pptx` against `manifest.json` before recording. It fails if positioned objects are missing source-pixel coordinates, if the manifest cannot independently rebuild the page, or if `validation.json` does not contain top-level `passed: true` — a failed page is never recorded.
 
-- 输出是有效 `.pptx`。
-- 单图输出 1 页；多图每图 1 页；PDF 第 N 页对应输出第 N 页；PPT/PPTX 第 N 页对应输出第 N 页。
-- PPT/PPTX speaker notes 按页原样复制，不翻译、不摘要、不交给 page worker 改写。
-- 每页有 `manifest.json`、`page.pptx`、`preview.png`、`split_assets_contact.png`、`validation.json`、`page_result.json`。
-- 每页 source image size、text inventory、object decisions、asset provenance、known limits 都有记录。
-- 每个 page 都由 `record_page_dispatch.py` 记录 dispatch，并由 `record_page_result.py` 记录结果。
-- 最终 deck 有 `final/<origin>_edited.pptx` 和 `final/validation.json`。
-- 若出现 blocker，最终回复必须说明 blocker 阶段、证据路径和未完成原因；不能称为正常完成。
+Handling a failed page: when a worker returns a failure (`passed: false`), when `run record` rejects the outputs, or when a dispatched worker is lost and will not return, do not hand-edit state files and do not rebuild the page yourself. Read the page's `validation.json` for the failure reason, fix the root cause (for example a missing image-backend login reported by the worker), then run:
 
-## Reference Map
+```bash
+editppt run reset <run> --page <page_id>
+```
 
-- `references/architecture.md`：职责边界、run/page 目录结构、owner 原则。
-- `references/state-machine.md`：run/page/imagegen 状态机和脚本推进规则。
-- `references/subagent-contract.md`：page worker、repair worker 的提示词契约和返回格式。
-- `references/imagegen-integration.md`：如何组合 `$imagegen`，包括 clean base、asset sheet、透明化和记录。
-- `references/page-decision-tree.md`：页面分析、背景策略、前景/结构对象边界。
-- `references/manifest-schema.md`：deck/page/imagegen JSON schema 第一版。
-- `references/qa-rubric.md`：结构、文字、资产、背景、视觉 QA 标准。
-- `references/repair-policy.md`：repair queue、最小返工范围和 blocker 判定。
-- `references/script-contracts.md`：脚本职责、输入输出和允许调用者。
-- `prompts/page-worker.md`：普通页面重建 worker prompt。
-- `prompts/page-repair-worker.md`：页面修复 worker prompt。
-- `prompts/imagegen-clean-base.md`：clean base 生成/编辑 prompt。
-- `prompts/imagegen-asset-sheet.md`：稀疏 asset sheet prompt。
-- `prompts/imagegen-repair.md`：targeted imagegen repair prompt。
+This returns the page to `pending`. Then rebuild the worker prompt and dispatch a new worker through the normal Phase 2 steps. Never re-dispatch without changing something first: a worker re-run under identical conditions fails identically. When the same page fails twice on the same root cause, the diagnosis is yours, not the user's — read the failed attempt's `validation.json` and artifacts, reproduce the failing command yourself if needed, and fix the underlying cause (backend login, missing tools, broken assets) before resetting again. Only surface a problem to the user when it genuinely requires something only the user has (credentials, a paid account decision, the original file); phrase it as the concrete action needed, never as a debugging question.
+
+### Phase 4: Finalize
+
+Read the finalize examples in `references/cli-helper.md`.
+
+When `editppt run next <run>` returns the finalize stage:
+
+```bash
+editppt run finalize <run>
+```
+
+`finalize` treats each recorded `pages/page_NNN/manifest.json` as the authoritative source: it rebuilds the final deck from page manifests in page order, then validates the resulting PPTX. `page.pptx` remains a page-level deliverability artifact for record-time checks.
+
+Deck-level structural QA at this stage:
+
+- The PPTX is a valid zip/package.
+- Slide count matches the input page count.
+- PDF/PPTX page mapping is correct.
+- Media relationships are complete.
+- All asset files referenced by the manifests exist.
+- Media hashes match manifest provenance.
+- Speaker notes hashes match.
+- There is no invalid full-slide source raster plus editable text overlay pattern.
+
+The final reply must report the final PPTX path and validation result.
+
+## State Principles
+
+Agents continue only from file facts and `editppt run next`. Required states:
+
+- `pending`: created by `editppt prepare`; restored by `editppt run reset` when a page must be re-dispatched.
+- `dispatched`: `editppt run dispatch` records a real spawned worker.
+- `recorded`: `editppt run record` validates required outputs and writes the result; only deliverable pages (`validation.json` top-level `passed: true`) reach this state.
+- `accepted` / `complete`: written by `editppt run finalize`.
+
+`imagegen-jobs.json` is the page-local provenance/job record. Only these forced file states are kept:
+
+- `recorded`: `editppt image import` has copied the selected output and written hash/metadata.
+- `processed`: `editppt image process-sheet` has completed background removal and splitting.
+
+## Delivery Principles
+
+- Each page is self-checked once by the page reconstructor; the evidence is written into structured fields in `manifest.json` and into `validation.json`.
+- The final output must be a currently openable, structurally valid `.pptx`. A full-slide `source.png` with editable text overlaid on top is not an acceptable fallback.
+- Whether an imperfection must be fixed inside its page or may ship as a recorded warning is governed by the "Fix versus Warning" section of `references/page-decision-tree.md`. A warning may never replace a missing required workflow step.
+
+## Updating This Skill
+
+Reinstall through the installation channel, refresh the CLI from the updated skill directory, then restart the agent session and verify:
+
+```bash
+npx -y skills@latest add ningzimu/image-to-editable-ppt-skill \
+  --skill image-to-editable-ppt \
+  --agent <agent-id> \
+  --global
+pipx install --force --editable <skill-root>/cli
+editppt doctor
+```

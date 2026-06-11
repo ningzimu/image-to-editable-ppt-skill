@@ -18,10 +18,11 @@ NS = {
 }
 
 ALLOWED_SOURCE_TYPES = {
+    "asset-sheet-separated",
     "imagegen",
+    "latex-rendered-formula",
     "user-provided",
     "user-approved-rasterization",
-    "source-derived-rasterization",
 }
 REQUIRED_QUALITY_CHECKS = {
     "font_size_calibrated",
@@ -29,12 +30,187 @@ REQUIRED_QUALITY_CHECKS = {
     "background_strategy_checked",
     "shape_corner_geometry_checked",
 }
+FOREGROUND_TERMS = {
+    "badge",
+    "decorative",
+    "foreground",
+    "hand-drawn",
+    "icon",
+    "illustration",
+    "image block",
+    "logo",
+    "mark",
+    "photo",
+    "pictogram",
+    "screenshot",
+    "semantic",
+    "sticker",
+    "symbol",
+    "trend",
+    "visual object",
+    "前景",
+    "图标",
+    "照片",
+    "截图",
+    "徽章",
+    "贴纸",
+    "语义",
+    "视觉对象",
+}
+NON_FOREGROUND_TERMS = {
+    "background",
+    "clean base",
+    "formula",
+    "latex",
+    "native structural",
+    "structural shape",
+    "背景",
+    "公式",
+    "结构",
+}
+ASSET_SHEET_TERMS = {
+    "asset-sheet",
+    "asset sheet",
+    "asset_sheet",
+    "image edit",
+    "imagegen",
+    "separated",
+    "source-faithful",
+    "source faithful",
+    "split",
+    "分离",
+}
+FORBIDDEN_FOREGROUND_FALLBACK_TERMS = {
+    "approximate",
+    "approximation",
+    "approximated",
+    "crop",
+    "cropped",
+    "direct crop",
+    "direct source",
+    "emoji",
+    "fallback",
+    "native approximation",
+    "source crop",
+    "source snippet",
+    "text symbol",
+    "warning only",
+    "warning_only",
+    "近似",
+    "裁切",
+    "裁剪",
+    "降级",
+}
 
 
 def read_manifest(path):
     if not path:
         return {}
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def compact_text(value):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.lower()
+    if isinstance(value, (int, float, bool)):
+        return str(value).lower()
+    if isinstance(value, dict):
+        return " ".join(compact_text(item) for item in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(compact_text(item) for item in value)
+    return str(value).lower()
+
+
+def contains_any(text, terms):
+    return any(term in text for term in terms)
+
+
+def visual_item_path(item):
+    for key in ("path", "asset", "asset_path", "image", "image_path", "corresponding_asset"):
+        value = item.get(key) if isinstance(item, dict) else None
+        if isinstance(value, str) and value.strip():
+            return Path(value).as_posix()
+    return None
+
+
+def is_foreground_visual_item(item):
+    text = compact_text(item)
+    if contains_any(text, NON_FOREGROUND_TERMS):
+        return False
+    return contains_any(text, FOREGROUND_TERMS)
+
+
+def foreground_asset_contract_violations(manifest):
+    violations = []
+    provenance_by_path = {
+        Path(entry.get("path", "")).as_posix(): entry
+        for entry in manifest.get("asset_provenance", [])
+        if entry.get("path")
+    }
+
+    for index, item in enumerate(manifest.get("visual_inventory", [])):
+        if not isinstance(item, dict):
+            continue
+        text = compact_text(item)
+        field = f"visual_inventory[{index}]"
+        if contains_any(text, FORBIDDEN_FOREGROUND_FALLBACK_TERMS):
+            violations.append(
+                {
+                    "field": field,
+                    "reason": "foreground visual decisions must not use direct crops, native approximations, emoji/text symbols, warning-only fallbacks, or similar shortcuts",
+                }
+            )
+        if not is_foreground_visual_item(item):
+            continue
+        if not contains_any(text, ASSET_SHEET_TERMS):
+            violations.append(
+                {
+                    "field": field,
+                    "reason": "foreground visual objects must explicitly use source-faithful asset-sheet separation",
+                }
+            )
+        path = visual_item_path(item)
+        if path:
+            provenance = provenance_by_path.get(path, {})
+            source_type = provenance.get("source_type")
+            if source_type in {"user-provided", "user-approved-rasterization"}:
+                violations.append(
+                    {
+                        "field": field,
+                        "path": path,
+                        "reason": "foreground visual objects cannot use user-provided/direct raster provenance; use asset-sheet separation",
+                    }
+                )
+
+    for index, entry in enumerate(manifest.get("asset_provenance", [])):
+        if not isinstance(entry, dict):
+            continue
+        text = compact_text(entry)
+        source_type = entry.get("source_type")
+        path = Path(entry.get("path", "")).as_posix()
+        field = f"asset_provenance[{index}]"
+        if source_type in {"user-provided", "user-approved-rasterization"} and contains_any(
+            text, FOREGROUND_TERMS | FORBIDDEN_FOREGROUND_FALLBACK_TERMS
+        ):
+            violations.append(
+                {
+                    "field": field,
+                    "path": path,
+                    "reason": "foreground-like raster provenance cannot be direct user-provided/cropped source material",
+                }
+            )
+        if contains_any(text, FORBIDDEN_FOREGROUND_FALLBACK_TERMS):
+            violations.append(
+                {
+                    "field": field,
+                    "path": path,
+                    "reason": "asset provenance records a forbidden foreground fallback such as crop, approximation, or warning-only delivery",
+                }
+            )
+
+    return violations
 
 
 def is_full_slide_image(item, slide):
@@ -76,7 +252,7 @@ def page_contract_violations(manifest):
             )
         if (
             is_full_slide_image(image, slide)
-            and source_type in {"user-provided", "user-approved-rasterization", "source-derived-rasterization"}
+            and source_type in {"user-provided", "user-approved-rasterization"}
             and text_boxes
         ):
             violations.append(
@@ -88,16 +264,6 @@ def page_contract_violations(manifest):
             )
 
     return violations
-
-
-def source_region_size(entry):
-    region = entry.get("source_region_px")
-    if isinstance(region, list) and len(region) == 4:
-        return float(region[2]), float(region[3])
-    bbox = entry.get("source_bbox_px")
-    if isinstance(bbox, list) and len(bbox) == 4:
-        return abs(float(bbox[2]) - float(bbox[0])), abs(float(bbox[3]) - float(bbox[1]))
-    return None
 
 
 def quality_contract_violations(manifest):
@@ -156,35 +322,8 @@ def quality_contract_violations(manifest):
                     }
                 )
 
+    violations.extend(foreground_asset_contract_violations(manifest))
     return violations
-
-
-def alpha_edge_violations(image_path, edge_padding=3):
-    try:
-        from PIL import Image
-    except Exception as exc:
-        return [{"field": "asset_alpha", "reason": f"unable to import Pillow for asset edge check: {exc}"}]
-
-    try:
-        image = Image.open(image_path).convert("RGBA")
-    except Exception as exc:
-        return [{"field": "asset_alpha", "reason": f"unable to open asset for edge check: {exc}"}]
-
-    alpha = image.getchannel("A")
-    bbox = alpha.point(lambda value: 255 if value > 8 else 0).getbbox()
-    if not bbox:
-        return [{"field": "asset_alpha", "reason": "asset has no visible opaque pixels"}]
-    left, top, right, bottom = bbox
-    width, height = image.size
-    problems = []
-    if left < edge_padding or top < edge_padding or width - right < edge_padding or height - bottom < edge_padding:
-        problems.append(
-            {
-                "field": "asset_alpha",
-                "reason": "visible pixels touch the asset edge; inspect source/contact sheet or add safe padding when this asset requires edge-safe alpha",
-            }
-        )
-    return problems
 
 
 def pixel_authoring_violations(manifest):
@@ -239,6 +378,39 @@ def normalize_for_validation(manifest):
 
 def sha256_text(value):
     return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
+
+
+def flatten_required_text(value):
+    """Return exact text strings that should be verified in the PPTX."""
+    items = []
+    if value is None:
+        return items
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, (int, float)):
+        return [str(value)]
+    if isinstance(value, dict):
+        if "required_text" in value:
+            return flatten_required_text(value.get("required_text"))
+        if "items" in value:
+            return flatten_required_text(value.get("items"))
+        if "texts" in value:
+            return flatten_required_text(value.get("texts"))
+        if "text" in value:
+            return flatten_required_text(value.get("text"))
+        return items
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            items.extend(flatten_required_text(item))
+    return items
+
+
+def required_texts_from_manifest(manifest):
+    required = []
+    required.extend(flatten_required_text(manifest.get("required_text", [])))
+    required.extend(flatten_required_text(manifest.get("text_inventory", [])))
+    return required
 
 
 def collect_text(xml_bytes):
@@ -309,16 +481,27 @@ def validate_deck(args):
         else:
             try:
                 raw_manifest = read_manifest(manifest_path)
-                manifest, violations = normalize_for_validation(raw_manifest)
-                violations.extend(page_contract_violations(manifest))
-                violations.extend(quality_contract_violations(raw_manifest))
+                normalized_manifest, authoring_violations = normalize_for_validation(raw_manifest)
+                violations = (
+                    authoring_violations
+                    + page_contract_violations(normalized_manifest)
+                    + quality_contract_violations(raw_manifest)
+                )
                 if violations:
                     report["page_contract_violations"].append(
-                        {"manifest": str(manifest_path), "violations": violations}
+                        {
+                            "page_id": page.get("page_id"),
+                            "manifest": str(manifest_path),
+                            "violations": violations,
+                        }
                     )
             except Exception as exc:
                 report["page_contract_violations"].append(
-                    {"manifest": str(manifest_path), "violations": [{"reason": str(exc)}]}
+                    {
+                        "page_id": page.get("page_id"),
+                        "manifest": str(manifest_path),
+                        "violations": [{"field": "manifest", "reason": str(exc)}],
+                    }
                 )
         if not validation_path.exists():
             report["page_validation_missing"].append(str(validation_path))
@@ -429,8 +612,7 @@ def main():
     manifest, authoring_violations = normalize_for_validation(raw_manifest)
     manifest_base = Path(args.manifest).resolve().parent if args.manifest else Path.cwd()
     required = list(args.required_text)
-    required.extend(manifest.get("required_text", []))
-    required.extend(manifest.get("text_inventory", []))
+    required.extend(required_texts_from_manifest(manifest))
 
     report = {
         "pptx": str(Path(args.pptx).resolve()),
@@ -554,7 +736,7 @@ def main():
             continue
         report["asset_provenance_checked"] += 1
         source_type = entry.get("source_type")
-        provenance_note = entry.get("provenance_note") or entry.get("qa_note")
+        provenance_note = entry.get("provenance_note")
         if source_type not in ALLOWED_SOURCE_TYPES:
             report["invalid_asset_provenance"].append(
                 {"path": key, "field": "source_type", "value": source_type}
@@ -567,22 +749,6 @@ def main():
             report["invalid_asset_provenance"].append(
                 {"path": key, "field": "approval_note", "value": entry.get("approval_note")}
             )
-        if source_type in {"user-approved-rasterization", "source-derived-rasterization"} and not (
-            entry.get("source_region_px") or entry.get("source_bbox_px")
-        ):
-            report["invalid_asset_provenance"].append(
-                {
-                    "path": key,
-                    "field": "source_region_px/source_bbox_px",
-                    "value": entry.get("source_region_px") or entry.get("source_bbox_px"),
-                }
-            )
-        if source_type == "source-derived-rasterization":
-            region_size = source_region_size(entry)
-            if region_size and (region_size[0] <= 0 or region_size[1] <= 0):
-                report["invalid_asset_provenance"].append(
-                    {"path": key, "field": "source_region_px/source_bbox_px", "value": entry.get("source_region_px") or entry.get("source_bbox_px")}
-                )
         source = entry.get("source")
         if not source:
             report["missing_provenance_sources"].append({"path": key, "source": source})
@@ -592,13 +758,6 @@ def main():
             source_path = manifest_base / source_path
         if not source_path.exists():
             report["missing_provenance_sources"].append({"path": key, "source": str(source)})
-        if source_type == "source-derived-rasterization" and entry.get("require_edge_safe_alpha") is True:
-            asset_file = Path(key)
-            if not asset_file.is_absolute():
-                asset_file = manifest_base / asset_file
-            for problem in alpha_edge_violations(asset_file):
-                report["invalid_asset_provenance"].append({"path": key, **problem})
-
     report["page_contract_violations"] = (
         authoring_violations + page_contract_violations(manifest) + quality_contract_violations(raw_manifest)
     )
