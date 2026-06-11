@@ -537,7 +537,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             )
             self.assertEqual(0, result.returncode, result.stderr)
             payload = json.loads(result.stdout)
-            self.assertEqual({"fitz", "PIL", "openai", "yaml"}, set(payload["dependencies"]))
+            self.assertEqual({"fitz", "PIL", "openai", "yaml", "numpy", "requests"}, set(payload["dependencies"]))
             self.assertNotIn("skill_root", payload)
             self.assertNotIn("LibreOffice", result.stdout)
             self.assertNotIn("ImageMagick", result.stdout)
@@ -720,7 +720,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             jobs = read_json(run_dir / "page_jobs.json")
             self.assertEqual("dispatched", jobs["pages"][0]["status"])
 
-    def test_single_page_next_and_record_allow_main_agent_direct_rebuild(self):
+    def test_single_page_next_requires_dispatch_like_multi_page(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = make_minimal_run(tmp)
             deck = read_json(run_dir / "deck_manifest.json")
@@ -739,13 +739,14 @@ class MultiAgentBackendTest(unittest.TestCase):
             )
             self.assertEqual(0, next_result.returncode, next_result.stderr)
             next_payload = json.loads(next_result.stdout)
-            self.assertEqual("rebuild_page", next_payload["stage"])
-            self.assertIn("editppt run record", next_payload["next_command"])
+            self.assertEqual("dispatch_pages", next_payload["stage"])
+            self.assertEqual(["page_001"], next_payload["suggested_pages"])
+            self.assertIn("editppt run dispatch", next_payload["next_command"])
 
             page_dir = run_dir / "pages/page_001"
             write_page_outputs(page_dir, "Direct Page")
 
-            record = subprocess.run(
+            record_pending = subprocess.run(
                 [
                     sys.executable,
                     "-m",
@@ -762,11 +763,69 @@ class MultiAgentBackendTest(unittest.TestCase):
                 text=True,
                 capture_output=True,
             )
+            self.assertNotEqual(0, record_pending.returncode)
+            self.assertIn("must be dispatched", record_pending.stderr)
+
+            prompt_path = (run_dir / "pages/page_001/worker-prompt.md").resolve()
+            prompt = subprocess.run(
+                [
+                    sys.executable,
+                    PROMPT_SCRIPT,
+                    run_dir,
+                    "--page",
+                    "page_001",
+                    "--out",
+                    str(prompt_path),
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, prompt.returncode, prompt.stderr)
+
+            dispatch = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "editppt.cli",
+                    "run",
+                    "dispatch",
+                    run_dir,
+                    "--page",
+                    "page_001",
+                    "--agent-id",
+                    "worker-1",
+                    "--prompt-file",
+                    str(prompt_path),
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, dispatch.returncode, dispatch.stderr)
+
+            record = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "editppt.cli",
+                    "run",
+                    "record",
+                    run_dir,
+                    "--page",
+                    "page_001",
+                    "--agent-id",
+                    "worker-1",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
             self.assertEqual(0, record.returncode, record.stderr)
             jobs = read_json(run_dir / "page_jobs.json")
             result_payload = jobs["pages"][0]["result"]
             self.assertEqual("recorded", jobs["pages"][0]["status"])
-            self.assertEqual("direct-main-agent", result_payload["record_mode"])
+            self.assertEqual("dispatched-worker", result_payload["record_mode"])
 
     def test_configure_image_backend_writes_deck_and_requests(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -867,7 +926,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertIn("Page manifest contract validation failed", combined_output)
             self.assertIn("text_boxes[0].box_px", combined_output)
 
-    def test_record_page_result_refreshes_recorded_page(self):
+    def test_record_rejects_failed_validation_then_accepts_fixed_page(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = make_minimal_run(tmp)
             jobs = read_json(run_dir / "page_jobs.json")
@@ -892,7 +951,11 @@ class MultiAgentBackendTest(unittest.TestCase):
                 text=True,
                 capture_output=True,
             )
-            self.assertEqual(0, first.returncode, first.stderr)
+            self.assertNotEqual(0, first.returncode)
+            self.assertIn("passed", first.stdout + first.stderr)
+            self.assertIn("run reset", first.stdout + first.stderr)
+            jobs = read_json(run_dir / "page_jobs.json")
+            self.assertEqual("dispatched", jobs["pages"][1]["status"])
 
             write_json(page_dir / "validation.json", {"passed": True})
             second = subprocess.run(
@@ -910,7 +973,80 @@ class MultiAgentBackendTest(unittest.TestCase):
             )
             self.assertEqual(0, second.returncode, second.stderr)
             jobs = read_json(run_dir / "page_jobs.json")
+            self.assertEqual("recorded", jobs["pages"][1]["status"])
             self.assertIs(jobs["pages"][1]["result"]["validation_passed"], True)
+
+    def test_run_reset_returns_page_to_pending_for_redispatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = make_minimal_run(tmp)
+            jobs = read_json(run_dir / "page_jobs.json")
+            page_2 = jobs["pages"][1]
+            page_2["status"] = "dispatched"
+            page_2["dispatch"] = {"agent_id": "worker-1"}
+            write_json(run_dir / "page_jobs.json", jobs)
+
+            reset = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "editppt.cli",
+                    "run",
+                    "reset",
+                    run_dir,
+                    "--page",
+                    "page_002",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, reset.returncode, reset.stderr)
+            jobs = read_json(run_dir / "page_jobs.json")
+            self.assertEqual("pending", jobs["pages"][1]["status"])
+            self.assertIsNone(jobs["pages"][1]["dispatch"])
+            self.assertIsNone(jobs["pages"][1]["result"])
+
+            reset_pending = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "editppt.cli",
+                    "run",
+                    "reset",
+                    run_dir,
+                    "--page",
+                    "page_002",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(0, reset_pending.returncode)
+            self.assertIn("cannot be reset", reset_pending.stdout + reset_pending.stderr)
+
+    def test_page_build_and_validate_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            page_dir = Path(tmp) / "pages/page_001"
+            page_dir.mkdir(parents=True)
+            write_json(page_dir / "manifest.json", valid_page_manifest("Page Build"))
+
+            build = subprocess.run(
+                [sys.executable, "-m", "editppt.cli", "page", "build", str(page_dir)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, build.returncode, build.stderr)
+            self.assertTrue((page_dir / "page.pptx").exists())
+            self.assertTrue((page_dir / "preview.png").exists())
+
+            validate = subprocess.run(
+                [sys.executable, "-m", "editppt.cli", "page", "validate", str(page_dir)],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, validate.returncode, validate.stdout + validate.stderr)
 
     def test_finalize_rebuilds_final_deck_from_page_manifests(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -12,7 +12,8 @@ DEFAULT_CONFIG_HOME = "~/.editppt"
 DEFAULT_CODEX_AUTH_FILE = "~/.codex/auth.json"
 CODEX_PPT_RUNTIME_HOME = "~/.codex-ppt-skill"
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
-ENV_FIELDS = ("OPENAI_API_KEY", "OPENAI_BASE_URL", "IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL")
+ENV_FIELDS = ("OPENAI_API_KEY", "OPENAI_BASE_URL", "IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL", "PADDLE_OCR_TOKEN")
+PADDLE_TOKEN_APPLY_URL = "https://aistudio.baidu.com/account/accessToken"
 CODEX_PPT_ENV_MAP = {
     "OPENAI_API_KEY": "OPENAI_API_KEY",
     "OPENAI_BASE_URL": "OPENAI_BASE_URL",
@@ -137,6 +138,8 @@ def config(args):
         values.pop("OPENAI_BASE_URL", None)
     if args.model is not None:
         values["IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL"] = args.model.strip()
+    if getattr(args, "paddle_ocr_token", None):
+        values["PADDLE_OCR_TOKEN"] = args.paddle_ocr_token.strip()
     changed = sorted(key for key in ENV_FIELDS if before.get(key) != values.get(key))
     if changed or not config_path(home).exists():
         write_config_file(config_path(home), values)
@@ -152,7 +155,7 @@ def config(args):
         print("changed=<none>")
     for key in ENV_FIELDS:
         value = values.get(key, "")
-        if key == "OPENAI_API_KEY":
+        if key in ("OPENAI_API_KEY", "PADDLE_OCR_TOKEN"):
             value = mask_secret(value)
         print(f"{key}={value or '<unset>'}")
     return 0
@@ -175,7 +178,7 @@ def collect_status(check_api=False):
 
     dependencies = {
         module: current_python_has_module(module)
-        for module in ("fitz", "PIL", "openai", "yaml")
+        for module in ("fitz", "PIL", "openai", "yaml", "numpy", "requests")
     }
     api_key = values.get("OPENAI_API_KEY", "")
     api_ready = bool(api_key)
@@ -208,6 +211,12 @@ def collect_status(check_api=False):
             "ready": image_backend_ready,
             "selection": "codex-oauth" if codex_ready else ("openai-compatible-api" if api_ready else "missing"),
         },
+        "text_hints": {
+            "selection": "paddleocr-vl" if values.get("PADDLE_OCR_TOKEN") else "builtin-ink",
+            "paddle_token": "set" if values.get("PADDLE_OCR_TOKEN") else "unset",
+            "apply_url": PADDLE_TOKEN_APPLY_URL,
+            "configure_command": "editppt config --paddle-ocr-token <token>",
+        },
         "next": "no action needed" if ok else (
             "run `codex login` or `editppt config --api-key <key>`" if check_api and not image_backend_ready
             else cli_reinstall_hint().strip("`")
@@ -232,6 +241,19 @@ def doctor(args):
     print(f"IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL={api['IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL']}")
     print(f"Codex OAuth={'ready' if codex['ready'] else 'missing'} ({codex['auth_file']})")
     print(f"image backend={image_backend['selection']}")
+    hints = status["text_hints"]
+    print(f"text hints={hints['selection']} (PADDLE_OCR_TOKEN {hints['paddle_token']})")
+    if hints["paddle_token"] == "unset":
+        print(
+            "text hints: ASK THE USER once — a free PaddleOCR token makes text hints content-aware "
+            "(recognized text + cleaner blocks, noticeably better text fidelity). The free personal "
+            "quota is currently more than enough for this skill, so applying is risk-free with no "
+            "extra cost. They can apply at "
+            "{url} and you run `{cmd}`; or they can choose to continue with the offline detector. "
+            "Wait for their choice before reconstructing pages, then do not ask again.".format(
+                url=hints["apply_url"], cmd=hints["configure_command"]
+            )
+        )
     for module, module_ok in status["dependencies"].items():
         print(f"python import {module}: {'ok' if module_ok else 'missing'}")
     if not all(status["dependencies"].values()):
@@ -261,6 +283,7 @@ def main():
     cfg.add_argument("--base-url", help="OpenAI-compatible base URL, for example https://api.openai.com/v1.")
     cfg.add_argument("--clear-base-url", action="store_true", help="Remove OPENAI_BASE_URL from the config file.")
     cfg.add_argument("--model", help="Default image model for API fallback.")
+    cfg.add_argument("--paddle-ocr-token", help=f"PaddleOCR-VL token for content-aware text hints. Apply at {PADDLE_TOKEN_APPLY_URL}.")
     cfg.add_argument("--import-codex-ppt", action="store_true", help="Import compatible values from ~/.codex-ppt-skill/.env when present.")
     cfg.set_defaults(func=config)
     args = parser.parse_args()

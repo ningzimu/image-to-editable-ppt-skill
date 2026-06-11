@@ -18,6 +18,7 @@ NS = {
 }
 
 ALLOWED_SOURCE_TYPES = {
+    "asset-sheet-separated",
     "imagegen",
     "latex-rendered-formula",
     "user-provided",
@@ -29,12 +30,187 @@ REQUIRED_QUALITY_CHECKS = {
     "background_strategy_checked",
     "shape_corner_geometry_checked",
 }
+FOREGROUND_TERMS = {
+    "badge",
+    "decorative",
+    "foreground",
+    "hand-drawn",
+    "icon",
+    "illustration",
+    "image block",
+    "logo",
+    "mark",
+    "photo",
+    "pictogram",
+    "screenshot",
+    "semantic",
+    "sticker",
+    "symbol",
+    "trend",
+    "visual object",
+    "前景",
+    "图标",
+    "照片",
+    "截图",
+    "徽章",
+    "贴纸",
+    "语义",
+    "视觉对象",
+}
+NON_FOREGROUND_TERMS = {
+    "background",
+    "clean base",
+    "formula",
+    "latex",
+    "native structural",
+    "structural shape",
+    "背景",
+    "公式",
+    "结构",
+}
+ASSET_SHEET_TERMS = {
+    "asset-sheet",
+    "asset sheet",
+    "asset_sheet",
+    "image edit",
+    "imagegen",
+    "separated",
+    "source-faithful",
+    "source faithful",
+    "split",
+    "分离",
+}
+FORBIDDEN_FOREGROUND_FALLBACK_TERMS = {
+    "approximate",
+    "approximation",
+    "approximated",
+    "crop",
+    "cropped",
+    "direct crop",
+    "direct source",
+    "emoji",
+    "fallback",
+    "native approximation",
+    "source crop",
+    "source snippet",
+    "text symbol",
+    "warning only",
+    "warning_only",
+    "近似",
+    "裁切",
+    "裁剪",
+    "降级",
+}
 
 
 def read_manifest(path):
     if not path:
         return {}
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def compact_text(value):
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.lower()
+    if isinstance(value, (int, float, bool)):
+        return str(value).lower()
+    if isinstance(value, dict):
+        return " ".join(compact_text(item) for item in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(compact_text(item) for item in value)
+    return str(value).lower()
+
+
+def contains_any(text, terms):
+    return any(term in text for term in terms)
+
+
+def visual_item_path(item):
+    for key in ("path", "asset", "asset_path", "image", "image_path", "corresponding_asset"):
+        value = item.get(key) if isinstance(item, dict) else None
+        if isinstance(value, str) and value.strip():
+            return Path(value).as_posix()
+    return None
+
+
+def is_foreground_visual_item(item):
+    text = compact_text(item)
+    if contains_any(text, NON_FOREGROUND_TERMS):
+        return False
+    return contains_any(text, FOREGROUND_TERMS)
+
+
+def foreground_asset_contract_violations(manifest):
+    violations = []
+    provenance_by_path = {
+        Path(entry.get("path", "")).as_posix(): entry
+        for entry in manifest.get("asset_provenance", [])
+        if entry.get("path")
+    }
+
+    for index, item in enumerate(manifest.get("visual_inventory", [])):
+        if not isinstance(item, dict):
+            continue
+        text = compact_text(item)
+        field = f"visual_inventory[{index}]"
+        if contains_any(text, FORBIDDEN_FOREGROUND_FALLBACK_TERMS):
+            violations.append(
+                {
+                    "field": field,
+                    "reason": "foreground visual decisions must not use direct crops, native approximations, emoji/text symbols, warning-only fallbacks, or similar shortcuts",
+                }
+            )
+        if not is_foreground_visual_item(item):
+            continue
+        if not contains_any(text, ASSET_SHEET_TERMS):
+            violations.append(
+                {
+                    "field": field,
+                    "reason": "foreground visual objects must explicitly use source-faithful asset-sheet separation",
+                }
+            )
+        path = visual_item_path(item)
+        if path:
+            provenance = provenance_by_path.get(path, {})
+            source_type = provenance.get("source_type")
+            if source_type in {"user-provided", "user-approved-rasterization"}:
+                violations.append(
+                    {
+                        "field": field,
+                        "path": path,
+                        "reason": "foreground visual objects cannot use user-provided/direct raster provenance; use asset-sheet separation",
+                    }
+                )
+
+    for index, entry in enumerate(manifest.get("asset_provenance", [])):
+        if not isinstance(entry, dict):
+            continue
+        text = compact_text(entry)
+        source_type = entry.get("source_type")
+        path = Path(entry.get("path", "")).as_posix()
+        field = f"asset_provenance[{index}]"
+        if source_type in {"user-provided", "user-approved-rasterization"} and contains_any(
+            text, FOREGROUND_TERMS | FORBIDDEN_FOREGROUND_FALLBACK_TERMS
+        ):
+            violations.append(
+                {
+                    "field": field,
+                    "path": path,
+                    "reason": "foreground-like raster provenance cannot be direct user-provided/cropped source material",
+                }
+            )
+        if contains_any(text, FORBIDDEN_FOREGROUND_FALLBACK_TERMS):
+            violations.append(
+                {
+                    "field": field,
+                    "path": path,
+                    "reason": "asset provenance records a forbidden foreground fallback such as crop, approximation, or warning-only delivery",
+                }
+            )
+
+    return violations
 
 
 def is_full_slide_image(item, slide):
@@ -146,6 +322,7 @@ def quality_contract_violations(manifest):
                     }
                 )
 
+    violations.extend(foreground_asset_contract_violations(manifest))
     return violations
 
 

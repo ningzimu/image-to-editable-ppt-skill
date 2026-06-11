@@ -69,8 +69,9 @@ def page_worker_template() -> str:
     if start == -1:
         return text.strip()
     start += len(marker)
-    end = text.find("```", start)
-    if end == -1:
+    # Use rfind so nested code fences inside the template cannot truncate it.
+    end = text.rfind("```")
+    if end <= start:
         return text[start:].strip()
     return text[start:end].strip()
 
@@ -79,14 +80,20 @@ def build_prompt(run_dir: Path, page: dict, page_dir: Path) -> str:
     request = read_json(page_dir / "page_request.json")
     page_id = page.get("page_id")
     source_image = request.get("source_image") or str(page_dir / "source.png")
-    return (
-        page_worker_template()
-        .replace("<absolute run dir>", str(run_dir))
-        .replace("<page_001>", str(page_id))
-        .replace("<absolute page dir>/source.png", str(source_image))
-        .replace("<absolute page dir>", str(page_dir))
-        .replace("<skill root>", str(SKILL_ROOT))
-    )
+    replacements = {
+        "{{RUN_DIR}}": str(run_dir),
+        "{{PAGE_ID}}": str(page_id),
+        "{{PAGE_DIR}}": str(page_dir),
+        "{{SOURCE_IMAGE}}": str(source_image),
+        "{{SKILL_ROOT}}": str(SKILL_ROOT),
+    }
+    prompt = page_worker_template()
+    for placeholder, value in replacements.items():
+        prompt = prompt.replace(placeholder, value)
+    missing = [p for p in replacements if p in prompt]
+    if missing:
+        raise SystemExit(f"Unfilled placeholders in worker prompt: {missing}")
+    return prompt
 
 
 def main() -> int:

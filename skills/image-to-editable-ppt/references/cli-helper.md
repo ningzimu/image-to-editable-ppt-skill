@@ -1,6 +1,6 @@
 # CLI Helper
 
-This is the `editppt` command manual. It reduces hand-written scripts, hand-written state JSON, and repeated trial-and-error.
+This is the `editppt` command manual: install check, command tree, and syntax examples. Workflow policy lives in `SKILL.md`; object decisions and text-hints usage live in `references/page-decision-tree.md`; file and field contracts live in `references/manifest-schema.md`.
 
 Usage principles:
 
@@ -21,7 +21,14 @@ editppt                         - top-level CLI for setup, run orchestration, im
 |   |-- backend                 - override or inspect the run-level image backend contract
 |   |-- dispatch                - record that a real page worker/subagent was spawned
 |   |-- record                  - validate required page outputs and record page result hashes
+|   |-- reset                   - return a failed or stuck page to pending for re-dispatch
+|   |-- hints                   - regenerate per-page text hints for a prepared run
 |   `-- finalize                - rebuild the final PPTX from recorded page manifests and validate it
+|-- page                        - page-local helpers
+|   |-- hints                   - detect and measure text lines for one page directory
+|   |-- build                   - build page.pptx and preview.png from manifest.json
+|   |-- contact-sheet           - create the origin-versus-preview comparison image
+|   `-- validate                - validate page.pptx against manifest.json as run record will
 |-- image                       - generate, edit, import, and process bitmap assets
 |   |-- generate                - create a new image from a text prompt
 |   |-- edit                    - edit a source image for clean bases or source-faithful asset sheets
@@ -37,6 +44,7 @@ editppt                         - top-level CLI for setup, run orchestration, im
 ```bash
 editppt --help
 editppt run --help
+editppt page hints --help
 editppt image --help
 editppt image edit --help
 editppt image batch --help
@@ -69,6 +77,13 @@ If the shell returns command not found, or if the skill was just updated, instal
 pipx install --force --editable <skill-root>/cli
 ```
 
+If `pipx` itself is unavailable, fall back to one of:
+
+```bash
+uv tool install --force --editable <skill-root>/cli
+python3 -m pip install --user -e <skill-root>/cli
+```
+
 `<skill-root>` is the `image-to-editable-ppt` directory that contains `SKILL.md`. On Windows, use the same directory's `cli` subdirectory path.
 
 After the CLI is available, run local runtime checks:
@@ -81,41 +96,28 @@ editppt config --api-key "<key>" --base-url "<openai-compatible-base-url>" --mod
 
 Write `editppt config` only when API fallback is needed or when the user explicitly provides a third-party image API. Do not write API keys into the project directory, run directory, prompts, or manifests.
 
-## Common Single-Page Commands
+Optional but recommended on first use: configure a PaddleOCR-VL token. The offline detector only measures text geometry (where and how large); with a token the hints also carry recognized text content and cleaner block boundaries. Store it next to the other credentials:
+
+```bash
+editppt config --paddle-ocr-token "<token>"
+```
+
+`editppt doctor` reports the current text-hints backend; without a token everything still works through the built-in offline detector. When and how to ask the user about the token — including the application URL and the regenerate step — is defined in `SKILL.md` Phase 1.
+
+## Run Commands
 
 ```bash
 editppt prepare input.png
-```
-
-Purpose: normalize a single image into a run directory and generate `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, `pages/page_001/source.png`, and `pages/page_001/page_request.json`.
-
-```bash
-editppt run record <run> --page page_001 --agent-id main
-```
-
-Purpose: after the parent agent directly completes the current single page, self-checks it, and writes all page-local outputs, validate `page.pptx` against `manifest.json` and record that page result.
-
-```bash
-editppt run finalize <run>
-```
-
-Purpose: after recording is complete, rebuild and validate the final PPTX from the recorded page manifests in page order.
-
-## Common Multi-Page Commands
-
-```bash
 editppt prepare input.pdf
 ```
 
-Purpose: normalize a PDF, PPTX, or multiple images into a multi-page run directory and generate `pages/page_NNN/source.png` plus `page_request.json` for each page.
+Purpose: normalize a single image, multiple images, a PDF, or an image-based PPTX into a run directory and generate `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, plus per-page `pages/page_NNN/source.png`, `page_request.json`, and text hints.
 
 ```bash
 editppt run next <run> --json
 ```
 
-Purpose: read current run state and return the next stage. `stage=rebuild_page` applies only to an actual single-page input, where the parent agent may complete the page directly. `stage=dispatch_pages` applies to multi-page inputs, where the parent agent reads `suggested_pages` and must dispatch page workers. `stage=wait` means wait for dispatched pages to complete. `stage=finalize` means proceed to final assembly.
-
-For multi-page inputs, the parent agent must not create page reconstruction artifacts and must not write `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, or `page_result.json`. These files are generated by page workers inside their own `pages/page_NNN/` directories.
+Purpose: read current run state and return the next stage. `stage=dispatch_pages` lists `suggested_pages` that must each be dispatched to a page worker — single-page inputs dispatch their one page the same way. `stage=wait` means wait for dispatched pages to complete. `stage=finalize` means proceed to final assembly. `stage=configure_backend` appears only when `deck_manifest.json.image_backend` is missing; follow the returned `next_command`.
 
 Generate the page-worker prompt with the skill script before spawning a worker:
 
@@ -127,21 +129,61 @@ python <skill-root>/scripts/build-page-worker-prompt.py <run> --page page_001 --
 editppt run dispatch <run> --page page_001 --agent-id <worker-id> --prompt-file <absolute-run-dir>/pages/page_001/worker-prompt.md
 ```
 
-Purpose: record that a page has been dispatched to a worker. This command only records a dispatch that has really happened; first create the worker with the current environment's available subagent/multi-agent tool, then run this command. `--prompt-file` uses the same absolute path as the prompt-builder `--out`.
+Purpose: record that a page has been dispatched to a worker. This command only records a dispatch that has really happened; first create the worker with the current environment's available subagent/multi-agent tool, then run this command. `--prompt-file` uses the same absolute path as the prompt-builder `--out`. `--agent-id` is any stable identifier the parent chooses for this worker (use the spawn tool's id when it provides one); the same id must be reused at `run record`.
 
 ```bash
 editppt run record <run> --page page_001 --agent-id <worker-id>
 ```
 
-Purpose: after the page worker writes `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, and `page_result.json`, validate `page.pptx` against `manifest.json` and record that page result. Missing `box_px` / `points_px` on positioned objects is a page failure.
+Purpose: after the page worker writes its required outputs (see `manifest-schema.md`), validate `page.pptx` against `manifest.json` and record the page result. Missing `box_px` / `points_px` on positioned objects is a page failure. The command also fails when `validation.json` does not contain top-level `passed: true` — a failed page is never recorded; fix the root cause, `run reset` the page, and dispatch a new worker.
+
+```bash
+editppt run reset <run> --page page_001
+```
+
+Purpose: return a dispatched or recorded page to `pending`, clearing its dispatch and result records, so a new worker can be dispatched. Use it when a worker returned a failed page, `run record` rejected the outputs, or a dispatched worker is lost. The failure-handling policy is in `SKILL.md` Phase 3.
 
 ```bash
 editppt run finalize <run>
 ```
 
-Purpose: after all pages are recorded, rebuild, validate, and output the final PPTX. Final assembly reads each recorded `pages/page_NNN/manifest.json` in page order and generates the final deck from those manifests. `page.pptx` remains a page-local deliverability artifact, not the final assembly input.
+Purpose: after all pages are recorded, rebuild, validate, and output the final PPTX. Final assembly reads each recorded `pages/page_NNN/manifest.json` in page order; `page.pptx` is a page-local deliverability artifact, not the final assembly input.
 
-Concurrency slots come from `page_jobs.json.max_concurrent_pages`; the default is 6. In normal flow, prefer `editppt run next` to determine the next action. `editppt run status` is only for debugging or manual inspection.
+## Page Build Commands
+
+These are the worker-side commands for turning a finished `manifest.json` into the required page artifacts. Use them instead of writing any page-local PowerPoint or imaging code.
+
+```bash
+editppt page build pages/page_001
+```
+
+Purpose: build `page.pptx` and render `preview.png` from `manifest.json` with the deterministic runtime. Optional `--manifest/--out/--preview` override the default file names inside the page directory.
+
+```bash
+editppt page contact-sheet pages/page_001
+```
+
+Purpose: create `split_assets_contact.png`, the origin-versus-preview comparison image, from `source.png` and `preview.png` in the page directory.
+
+```bash
+editppt page validate pages/page_001
+```
+
+Purpose: validate `page.pptx` against `manifest.json` with the same manifest-contract checks `editppt run record` will run (record additionally verifies the full artifact set, hashes, and top-level `passed: true`). Run it before returning so manifest-contract failures are fixed inside the page instead of bouncing back from the parent's record step. Optional `--report <file>` writes a JSON report.
+
+## Text Measurement Commands
+
+```bash
+editppt run hints <run>
+```
+
+Purpose: regenerate `text_hints.json`/`text_hints.png` for every page of a prepared run — for example right after configuring a PaddleOCR token, so the current run gets content-aware hints without re-running prepare.
+
+```bash
+editppt page hints pages/page_001
+```
+
+Purpose: detect the text lines on one page's `source.png` and write `text_hints.json` (each line's source-pixel `box_px`, measured glyph height, and derived font sizes) plus `text_hints.png`, the source image with every detected line framed and labeled. `editppt prepare` already runs this for every page (PDF inputs are OCR'd in one batch job when a PaddleOCR token is available via the `PADDLE_OCR_TOKEN` environment variable or `~/.editppt/config.yaml`; otherwise the built-in offline detector runs). Use this command only to regenerate hints for a page. How to consume the hints is defined in `page-decision-tree.md` section 3.1.
 
 ## Image Backend Commands
 
@@ -199,7 +241,7 @@ editppt image process-sheet pages/page_001 \
   --assets-dir assets/icons
 ```
 
-The asset sheet key color is determined by the generation prompt. `process-sheet` samples the key color from the image edge. Cyan, green, magenta, and similar colors can all be candidates. Prefer a pure color that does not appear in the current assets and is far from the subject colors. If background removal makes the subject fade, cuts off edges, or leaves key-color remnants, first regenerate the asset sheet with a new key color.
+The asset sheet key color is determined by the generation prompt; `process-sheet` samples the key color from the image edge. Key-color selection and when to regenerate a sheet with a different key color are defined in `page-decision-tree.md` section 2.2.
 
 ## Formula Commands
 

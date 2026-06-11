@@ -68,7 +68,6 @@ def main():
     run_dir = run_dir_from_target(args.run)
     jobs = load_jobs(run_dir)
     page = find_page(jobs, args.page)
-    direct_single_page = len(jobs.get("pages", [])) == 1 and page.get("status") == "pending"
     if page.get("status") == "dispatched":
         dispatch = page.get("dispatch") or {}
         if dispatch.get("agent_id") != args.agent_id:
@@ -83,19 +82,24 @@ def main():
                 f"Agent id mismatch for recorded {page['page_id']}: previous={previous.get('agent_id')} result={args.agent_id}"
             )
         record_mode = previous.get("record_mode") or "refresh-recorded-page"
-    elif direct_single_page:
-        record_mode = "direct-main-agent"
     else:
         raise SystemExit(f"{page['page_id']} must be dispatched before result recording; got {page.get('status')}")
 
     page_dir = page_dir_for(run_dir, page)
     page_result_path = inside_or_missing(page_dir, args.page_result)
     result = read_json(page_result_path)
-    paths = {key: output_path(page_dir, result, key, default) for key, default in REQUIRED_OUTPUTS.items()}
-
-    validate_page_contract(paths)
-    validation = read_json(paths["validation"])
+    validation_path = output_path(page_dir, result, "validation", REQUIRED_OUTPUTS["validation"])
+    validation = read_json(validation_path)
     validation_passed = validation.get("passed") is True
+    if not validation_passed:
+        raise SystemExit(
+            f"{page['page_id']} validation.json does not contain top-level \"passed\": true; "
+            "the page is not deliverable and was not recorded. Inspect the worker's "
+            "validation.json for the failure reason, fix the root cause, then run "
+            f"`editppt run reset {run_dir} --page {page['page_id']}` and dispatch a new worker."
+        )
+    paths = {key: output_path(page_dir, result, key, default) for key, default in REQUIRED_OUTPUTS.items()}
+    validate_page_contract(paths)
     hashes = {key: sha256_file(path) for key, path in paths.items()}
     page["result"] = {
         "agent_id": args.agent_id,

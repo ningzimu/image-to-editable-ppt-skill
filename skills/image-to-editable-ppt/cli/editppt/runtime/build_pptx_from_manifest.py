@@ -191,6 +191,11 @@ def longest_unbreakable_units(text):
     return max(text_width_units(token) for token in tokens)
 
 
+def is_measured_text(item):
+    """True when the author marked this box as sized from `page hints` measurement."""
+    return str(item.get("font_size_source", "")).strip().lower() in {"measured", "hints"}
+
+
 def fitted_font_size(item, manifest):
     if item.get("fit_text") is False or manifest.get("fit_text") is False:
         return None
@@ -200,7 +205,14 @@ def fitted_font_size(item, manifest):
     requested = float(item.get("font_size", 18))
     width_pt = max(1.0, float(item.get("width", 1)) * 72)
     height_pt = max(1.0, float(item.get("height", 0.4)) * 72)
-    safety = float(item.get("text_fit_safety", manifest.get("text_fit_safety", DEFAULT_TEXT_FIT_SAFETY)))
+    if is_measured_text(item):
+        # Box and font size were both measured from source ink; the safety
+        # discount exists to absorb estimation error in hand-written boxes
+        # and would systematically shrink correct text here. Clamp only at
+        # the geometric limit.
+        safety = 1.0
+    else:
+        safety = float(item.get("text_fit_safety", manifest.get("text_fit_safety", DEFAULT_TEXT_FIT_SAFETY)))
     line_height = float(item.get("line_height", manifest.get("text_line_height", DEFAULT_TEXT_LINE_HEIGHT)))
     wrap_enabled = item.get("wrap") not in (None, "", "none")
     if wrap_enabled:

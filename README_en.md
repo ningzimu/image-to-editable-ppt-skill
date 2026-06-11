@@ -48,11 +48,10 @@ It is useful when screenshot-like or image-based slides need to become easier to
 ## Highlights
 
 - Broad input coverage for many slide-reconstruction scenarios: one image, multiple images, multi-page PDFs, and image-based PPT files into editable `.pptx`.
-- Single-image input is rebuilt directly by the main agent.
-- Multi-page input is dispatched directly to page workers/subagents according to `max_concurrent_pages`.
+- Every page — including single-image input — is dispatched by the main agent to page workers/subagents, in parallel according to `max_concurrent_pages`.
 - Image generation and editing are unified through the `editppt image` CLI. The CLI uses local Codex OAuth first, then OpenAI-compatible API fallback when Codex auth is unavailable.
 - Third-party API fallback configuration lives in `~/.editppt/config.yaml`; on Windows this is `%USERPROFILE%\.editppt\config.yaml`.
-- Uses a pure visual reconstruction workflow with no third-party OCR or layout-analysis service dependency.
+- Text sizes and positions are measurement-driven: prepare generates per-page text annotations (box coordinates + font sizes + size groups), and same-level text keeps one consistent size automatically.
 - Keep multiple images in the provided order; preserve PDF and `.pptx` page order.
 - Preserve `.pptx` speaker notes on matching output slides without modifying note text.
 - Decides page by page whether to use the confirmed image backend for visual-layer extraction; when needed, sparse asset sheets group foreground assets to reduce image generation calls.
@@ -72,29 +71,29 @@ It is useful when screenshot-like or image-based slides need to become easier to
 - Complex background cleanup, foreground icon extraction, transparent asset sheets, and local image edits use `editppt image edit/generate/batch`.
 - If local Codex OAuth exists (`~/.codex/auth.json`), the CLI uses it directly; otherwise it uses API fallback.
 - API fallback configuration lives in `~/.editppt/config.yaml`; on Windows this is `%USERPROFILE%\.editppt\config.yaml`.
+- Correcting text sizes and positions relies on a third-party OCR token (Baidu AI Studio, free) — see "Text Correction And OCR Token" below. Without it the skill falls back to the built-in offline detector with reduced text fidelity.
 
 ## Image Backend And Third-Party API Configuration
 
 `editppt image` selects the image backend automatically: it uses local Codex OAuth first, then falls back to OpenAI-compatible API settings from `~/.editppt/config.yaml` or environment variables.
 
-Manual API fallback setup is usually unnecessary. Configure it only when:
+You usually do not need to configure this yourself. Ask the AI to configure API fallback only when:
 
 - The user explicitly asks to use a third-party API or OpenAI-compatible proxy.
 - The skill is used in Claude Code, OpenClaw, Hermes Agent, or another non-Codex environment without usable Codex OAuth auth.
 - `editppt image` reports that both Codex OAuth and `OPENAI_API_KEY` are unavailable.
 
-API keys belong only in user-level config, not in the project, run, or skill directory. Common commands:
+If third-party API fallback is needed, tell the AI which service, base URL, model name, and API key to use. While executing the skill, the AI handles environment checks and configuration, writes credentials to user-level config at `~/.editppt/config.yaml` (or `%USERPROFILE%\.editppt\config.yaml` on Windows), and masks sensitive values in output. Do not put API keys in the project, run, or skill directory.
 
-```bash
-editppt config --api-key "your-api-key" --model gpt-image-2
+## Text Correction And OCR Token (Recommended)
 
-editppt config \
-  --api-key "your-api-key" \
-  --base-url "https://your-openai-compatible-endpoint/v1" \
-  --model openai/gpt-image-2
+This skill uses a third-party OCR service (PaddleOCR-VL) to **correct text sizes and positions**: at the start of a conversion the whole input is submitted as one batch job, producing per-page text annotations (precise box coordinates, font sizes measured from source ink, size groups, and recognized text content). The AI reconstructs text from these measurements instead of visual guessing.
 
-editppt doctor --check-api
-```
+**The only thing you need to do is apply for a token**: get an Access Token at Baidu AI Studio: <https://aistudio.baidu.com/account/accessToken>. **For personal use the current free quota is more than enough — applying is risk-free with no extra cost.**
+
+No manual commands are needed: the `editppt` CLI this skill relies on is **installed automatically by the AI while executing the skill**, and configuration is handled by the AI too. On first use, if no token is configured, the AI will ask you once — just paste the token you applied for, and the AI stores it in the user-level config (same file as the image API credentials, masked in output). Configure once and it works from then on, with no further prompts.
+
+The skill still runs without a token: it falls back to the built-in offline detector (geometry only — it measures where text is and how large, but cannot read it), with reduced text fidelity.
 
 ## Known Limitations
 
@@ -109,6 +108,8 @@ editppt doctor --check-api
 ```text
 Install the image-to-editable-ppt skill from https://github.com/ningzimu/image-to-editable-ppt-skill
 ```
+
+After the skill is installed, normal conversion, image API fallback, and OCR token configuration are checked and handled by the AI while it executes the skill. You only need to provide third-party API details or an OCR token when the AI asks.
 
 ## Update
 
@@ -130,7 +131,7 @@ $image-to-editable-ppt convert <path-to-image-based.pptx> into an editable Power
 The normal workflow is:
 
 1. Create an isolated job folder, normalize inputs into `pages/page_NNN/source.png`, and write the default `editppt image` backend.
-2. Rebuild a single image directly with the main agent and record it with `editppt run record --agent-id main`; for multi-page input, dispatch pages to page workers in `max_concurrent_pages` batches.
+2. Dispatch every page — single-image input included — to page workers in `max_concurrent_pages` batches.
 3. Each page worker owns one page directory and completes reconstruction, self-check, and page-local correction there.
 4. Build one page manifest per page with editable text, simple shapes, and positioned image assets.
 5. Use `editppt` commands to record dispatches, page results, and accepted status.
