@@ -239,7 +239,7 @@ def cmd_next(args: argparse.Namespace) -> int:
             "stage": "wait",
             "active_or_unfinished_pages": unfinished,
             "next_command": f"{cli_prog()} run status {run_dir}",
-            "agent_focus": "Wait for dispatched workers, then record completed page results.",
+            "agent_focus": "Wait for dispatched workers, then record completed page results. If a worker returned a failure, fix the root cause and `run reset` that page for re-dispatch.",
         }
         return print_json(payload) if args.json else _print_next_text(payload)
 
@@ -285,6 +285,32 @@ def cmd_record(args: argparse.Namespace) -> int:
         "record_page_result.py",
         [args.run, "--page", args.page, "--agent-id", args.agent_id, "--page-result", args.page_result],
     )
+
+
+def cmd_reset(args: argparse.Namespace) -> int:
+    return run_script("reset_page_job.py", [args.run, "--page", args.page])
+
+
+def cmd_page_build(args: argparse.Namespace) -> int:
+    page_dir = Path(args.page_dir).expanduser().resolve()
+    return run_script(
+        "build_pptx_from_manifest.py",
+        [
+            str(page_dir / args.manifest),
+            "--out",
+            str(page_dir / args.out),
+            "--preview",
+            str(page_dir / args.preview),
+        ],
+    )
+
+
+def cmd_page_validate(args: argparse.Namespace) -> int:
+    page_dir = Path(args.page_dir).expanduser().resolve()
+    argv = [str(page_dir / args.pptx), "--manifest", str(page_dir / args.manifest)]
+    if args.report:
+        argv.extend(["--report", str(page_dir / args.report)])
+    return run_script("validate_pptx.py", argv)
 
 
 def cmd_finalize(args: argparse.Namespace) -> int:
@@ -527,7 +553,7 @@ Use this only when forcing OpenAI-compatible API metadata or a custom image back
     record = run_sub.add_parser(
         "record",
         help="Record and verify a page result.",
-        description="Validate required page outputs, record hashes, and mark the page recorded. Pages must be dispatched to a worker before recording.",
+        description="Validate required page outputs, record hashes, and mark the page recorded. Pages must be dispatched to a worker before recording. Fails when validation.json does not contain top-level passed: true; fix the page, then use `run reset` to re-dispatch.",
         formatter_class=HELP_FORMATTER,
     )
     record.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
@@ -535,6 +561,16 @@ Use this only when forcing OpenAI-compatible API metadata or a custom image back
     record.add_argument("--agent-id", required=True, metavar="ID", help="Runtime worker/thread id that produced the result.")
     record.add_argument("--page-result", default="page_result.json", metavar="FILE", help="Result file relative to the page directory.")
     record.set_defaults(func=cmd_record)
+
+    reset = run_sub.add_parser(
+        "reset",
+        help="Reset a failed or stuck page back to pending for re-dispatch.",
+        description="Return a dispatched or recorded page to pending, clearing its dispatch and result records, so a new worker can be dispatched. Use it when a worker returned a failed page, record validation failed, or a dispatched worker is lost.",
+        formatter_class=HELP_FORMATTER,
+    )
+    reset.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
+    reset.add_argument("--page", required=True, metavar="PAGE", help="Page id such as page_001, or page number such as 1.")
+    reset.set_defaults(func=cmd_reset)
 
     run_hints = run_sub.add_parser(
         "hints",
@@ -612,23 +648,60 @@ PowerPoint, not an editable equation object.
 
     page = sub.add_parser(
         "page",
-        help="Deterministic page text measurement tools.",
-        description="""Text measurement for one page directory.
+        help="Deterministic page-local tools: text measurement, manifest build, contact sheet, validation.",
+        description="""Deterministic tools for one page directory.
 
 hints detects text lines on source.png and measures their pixel boxes and
 font sizes. Run it BEFORE writing the page manifest and use its output as
 the reference for text_boxes positions and font sizes.
+
+build renders page.pptx and preview.png from manifest.json with the
+deterministic runtime. validate checks page.pptx against manifest.json
+exactly as `run record` will. contact-sheet writes the origin-versus-preview
+comparison image.
 """,
         formatter_class=HELP_FORMATTER,
         epilog="""Examples:
   editppt page hints pages/page_001
-  editppt page hints pages/page_001 --min-glyph 8
+  editppt page build pages/page_001
+  editppt page contact-sheet pages/page_001
+  editppt page validate pages/page_001
 """,
     )
     page_sub = page.add_subparsers(dest="page_command", metavar="page-command", required=True)
     page_hints = page_sub.add_parser("hints", help="Measure text line boxes and font sizes from source.png as advisory hints.", add_help=False)
     page_hints.add_argument("page_args", nargs=argparse.REMAINDER)
     page_hints.set_defaults(func=lambda args: run_script("text_hints.py", args.page_args))
+
+    page_build = page_sub.add_parser(
+        "build",
+        help="Build page.pptx and preview.png from manifest.json with the deterministic runtime.",
+        formatter_class=HELP_FORMATTER,
+    )
+    page_build.add_argument("page_dir", metavar="PAGE_DIR", help="Page directory containing manifest.json.")
+    page_build.add_argument("--manifest", default="manifest.json", metavar="FILE", help="Manifest file relative to the page directory.")
+    page_build.add_argument("--out", default="page.pptx", metavar="FILE", help="Output PPTX relative to the page directory.")
+    page_build.add_argument("--preview", default="preview.png", metavar="FILE", help="Preview PNG relative to the page directory.")
+    page_build.set_defaults(func=cmd_page_build)
+
+    page_contact = page_sub.add_parser(
+        "contact-sheet",
+        help="Create the origin-versus-preview contact sheet for a page.",
+        add_help=False,
+    )
+    page_contact.add_argument("page_args", nargs=argparse.REMAINDER)
+    page_contact.set_defaults(func=lambda args: run_script("make_page_contact_sheet.py", args.page_args))
+
+    page_validate = page_sub.add_parser(
+        "validate",
+        help="Validate page.pptx against manifest.json exactly as `run record` will.",
+        formatter_class=HELP_FORMATTER,
+    )
+    page_validate.add_argument("page_dir", metavar="PAGE_DIR", help="Page directory containing page.pptx and manifest.json.")
+    page_validate.add_argument("--pptx", default="page.pptx", metavar="FILE", help="PPTX file relative to the page directory.")
+    page_validate.add_argument("--manifest", default="manifest.json", metavar="FILE", help="Manifest file relative to the page directory.")
+    page_validate.add_argument("--report", metavar="FILE", help="Optional JSON validation report relative to the page directory.")
+    page_validate.set_defaults(func=cmd_page_validate)
 
     image = sub.add_parser(
         "image",

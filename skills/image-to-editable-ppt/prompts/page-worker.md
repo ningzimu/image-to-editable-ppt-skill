@@ -28,13 +28,15 @@ Image backend: before any image generation or image editing, use the `editppt im
 
 Goal: rebuild the source page as object-level editable PowerPoint. Do not invent an object-source strategy outside `page-decision-tree.md`.
 
+If the page dir already contains artifacts (manifest.json, page.pptx, validation.json, assets, ...) from a previous failed attempt, treat them as untrusted: run the full decision process yourself and re-derive every artifact. Never flip a leftover validation.json to `passed: true` or return leftover outputs without having rebuilt and re-verified them — the previous attempt failed for a reason recorded in its validation.json; read it.
+
 Work through the page in this order:
 1. Build the page inventory (Pre-Decision Checklist in page-decision-tree.md).
 2. Decide the background (page-decision-tree.md section 1) and record `background_strategy`.
 3. Decide and separate foreground assets (section 2). Submit all step-1/2 image jobs (clean bases and asset sheets) as one `editppt image batch` call, then record and process the results with `editppt image import` and `editppt image process-sheet`.
 4. Rebuild native text, shapes, and tables (section 3). Fill `text_boxes` from the measured text hints per section 3.1; render formulas with `editppt formula render-latex` per section 3.2.
 5. Write manifest.json following the field contracts in manifest-schema.md, including `text_inventory`, `visual_inventory`, `background_strategy`, `quality_checks`, and positioned `text_boxes`/`images`/`shapes`.
-6. Build page.pptx and render preview.png from manifest.json with the deterministic runtime, create split_assets_contact.png, and run page validation.
+6. Build the artifacts with the deterministic runtime: `editppt page build {{PAGE_DIR}}` (writes page.pptx and preview.png from manifest.json), then `editppt page contact-sheet {{PAGE_DIR}}`, then `editppt page validate {{PAGE_DIR}}` — it runs the same manifest-contract checks `editppt run record` will run, so fix every reported issue here, inside the page.
 
 The Page dir must contain when you return:
 - manifest.json
@@ -47,7 +49,9 @@ The Page dir must contain when you return:
 
 validation.json and page_result.json must follow the exact shapes defined in manifest-schema.md: validation.json carries the top-level boolean `passed` (not only a nested or renamed field), and page_result.json carries the minimal required key set.
 
-Before returning, run the Final Self-Check in page-decision-tree.md once: compare preview.png and split_assets_contact.png to the source, confirm validation.json contains top-level `passed: true`, confirm `editppt run record` can validate page.pptx against manifest.json (if manifest rebuild validation would fail, set `passed: false` and fix the manifest before returning), and confirm all required outputs exist. Page-local issues are fixed inside the current page by you before returning; if a hard rule cannot be satisfied, stop and return a page failure with `passed: false`.
+Before returning, run the Final Self-Check in page-decision-tree.md once: compare preview.png and split_assets_contact.png to the source, confirm `editppt page validate {{PAGE_DIR}}` passes, confirm validation.json contains top-level `passed: true`, and confirm all required outputs exist. Page-local issues are fixed inside the current page by you before returning.
+
+On failure — when a hard rule cannot be satisfied or a required tool is unavailable — stop and return a page failure: write validation.json with `"passed": false` and the concrete failure reason (what failed, the exact error, what the parent must fix), plus page_result.json referencing whatever artifacts exist (omit keys for artifacts that were never produced). Do not fabricate the remaining artifacts and do not build an approximate page to make validation pass; the parent agent will fix the root cause and dispatch a fresh worker.
 
 Return only:
 page_manifest=`<absolute path>`

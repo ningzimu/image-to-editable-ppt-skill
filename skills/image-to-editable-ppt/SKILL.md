@@ -87,7 +87,15 @@ After a worker returns, run:
 editppt run record <run> --page <page_id> --agent-id <id>
 ```
 
-This command validates `page.pptx` against `manifest.json` before recording. It fails if positioned objects are missing source-pixel coordinates or if the manifest cannot independently rebuild the page.
+This command validates `page.pptx` against `manifest.json` before recording. It fails if positioned objects are missing source-pixel coordinates, if the manifest cannot independently rebuild the page, or if `validation.json` does not contain top-level `passed: true` — a failed page is never recorded.
+
+Handling a failed page: when a worker returns a failure (`passed: false`), when `run record` rejects the outputs, or when a dispatched worker is lost and will not return, do not hand-edit state files and do not rebuild the page yourself. Read the page's `validation.json` for the failure reason, fix the root cause (for example a missing image-backend login reported by the worker), then run:
+
+```bash
+editppt run reset <run> --page <page_id>
+```
+
+This returns the page to `pending`. Then rebuild the worker prompt and dispatch a new worker through the normal Phase 2 steps. Never re-dispatch without changing something first: a worker re-run under identical conditions fails identically. When the same page fails twice on the same root cause, the diagnosis is yours, not the user's — read the failed attempt's `validation.json` and artifacts, reproduce the failing command yourself if needed, and fix the underlying cause (backend login, missing tools, broken assets) before resetting again. Only surface a problem to the user when it genuinely requires something only the user has (credentials, a paid account decision, the original file); phrase it as the concrete action needed, never as a debugging question.
 
 ### Phase 4: Finalize
 
@@ -118,9 +126,9 @@ The final reply must report the final PPTX path and validation result.
 
 Agents continue only from file facts and `editppt run next`. Required states:
 
-- `pending`: created by `editppt prepare`.
+- `pending`: created by `editppt prepare`; restored by `editppt run reset` when a page must be re-dispatched.
 - `dispatched`: `editppt run dispatch` records a real spawned worker.
-- `recorded`: `editppt run record` validates required outputs and writes the result.
+- `recorded`: `editppt run record` validates required outputs and writes the result; only deliverable pages (`validation.json` top-level `passed: true`) reach this state.
 - `accepted` / `complete`: written by `editppt run finalize`.
 
 `imagegen-jobs.json` is the page-local provenance/job record. Only these forced file states are kept:

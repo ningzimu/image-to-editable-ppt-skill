@@ -21,10 +21,14 @@ editppt                         - top-level CLI for setup, run orchestration, im
 |   |-- backend                 - override or inspect the run-level image backend contract
 |   |-- dispatch                - record that a real page worker/subagent was spawned
 |   |-- record                  - validate required page outputs and record page result hashes
+|   |-- reset                   - return a failed or stuck page to pending for re-dispatch
 |   |-- hints                   - regenerate per-page text hints for a prepared run
 |   `-- finalize                - rebuild the final PPTX from recorded page manifests and validate it
 |-- page                        - page-local helpers
-|   `-- hints                   - detect and measure text lines for one page directory
+|   |-- hints                   - detect and measure text lines for one page directory
+|   |-- build                   - build page.pptx and preview.png from manifest.json
+|   |-- contact-sheet           - create the origin-versus-preview comparison image
+|   `-- validate                - validate page.pptx against manifest.json as run record will
 |-- image                       - generate, edit, import, and process bitmap assets
 |   |-- generate                - create a new image from a text prompt
 |   |-- edit                    - edit a source image for clean bases or source-faithful asset sheets
@@ -113,7 +117,7 @@ Purpose: normalize a single image, multiple images, a PDF, or an image-based PPT
 editppt run next <run> --json
 ```
 
-Purpose: read current run state and return the next stage. `stage=dispatch_pages` lists `suggested_pages` that must each be dispatched to a page worker — single-page inputs dispatch their one page the same way. `stage=wait` means wait for dispatched pages to complete. `stage=finalize` means proceed to final assembly.
+Purpose: read current run state and return the next stage. `stage=dispatch_pages` lists `suggested_pages` that must each be dispatched to a page worker — single-page inputs dispatch their one page the same way. `stage=wait` means wait for dispatched pages to complete. `stage=finalize` means proceed to final assembly. `stage=configure_backend` appears only when `deck_manifest.json.image_backend` is missing; follow the returned `next_command`.
 
 Generate the page-worker prompt with the skill script before spawning a worker:
 
@@ -125,19 +129,47 @@ python <skill-root>/scripts/build-page-worker-prompt.py <run> --page page_001 --
 editppt run dispatch <run> --page page_001 --agent-id <worker-id> --prompt-file <absolute-run-dir>/pages/page_001/worker-prompt.md
 ```
 
-Purpose: record that a page has been dispatched to a worker. This command only records a dispatch that has really happened; first create the worker with the current environment's available subagent/multi-agent tool, then run this command. `--prompt-file` uses the same absolute path as the prompt-builder `--out`.
+Purpose: record that a page has been dispatched to a worker. This command only records a dispatch that has really happened; first create the worker with the current environment's available subagent/multi-agent tool, then run this command. `--prompt-file` uses the same absolute path as the prompt-builder `--out`. `--agent-id` is any stable identifier the parent chooses for this worker (use the spawn tool's id when it provides one); the same id must be reused at `run record`.
 
 ```bash
 editppt run record <run> --page page_001 --agent-id <worker-id>
 ```
 
-Purpose: after the page worker writes its required outputs (see `manifest-schema.md`), validate `page.pptx` against `manifest.json` and record the page result. Missing `box_px` / `points_px` on positioned objects is a page failure.
+Purpose: after the page worker writes its required outputs (see `manifest-schema.md`), validate `page.pptx` against `manifest.json` and record the page result. Missing `box_px` / `points_px` on positioned objects is a page failure. The command also fails when `validation.json` does not contain top-level `passed: true` — a failed page is never recorded; fix the root cause, `run reset` the page, and dispatch a new worker.
+
+```bash
+editppt run reset <run> --page page_001
+```
+
+Purpose: return a dispatched or recorded page to `pending`, clearing its dispatch and result records, so a new worker can be dispatched. Use it when a worker returned a failed page, `run record` rejected the outputs, or a dispatched worker is lost. The failure-handling policy is in `SKILL.md` Phase 3.
 
 ```bash
 editppt run finalize <run>
 ```
 
 Purpose: after all pages are recorded, rebuild, validate, and output the final PPTX. Final assembly reads each recorded `pages/page_NNN/manifest.json` in page order; `page.pptx` is a page-local deliverability artifact, not the final assembly input.
+
+## Page Build Commands
+
+These are the worker-side commands for turning a finished `manifest.json` into the required page artifacts. Use them instead of writing any page-local PowerPoint or imaging code.
+
+```bash
+editppt page build pages/page_001
+```
+
+Purpose: build `page.pptx` and render `preview.png` from `manifest.json` with the deterministic runtime. Optional `--manifest/--out/--preview` override the default file names inside the page directory.
+
+```bash
+editppt page contact-sheet pages/page_001
+```
+
+Purpose: create `split_assets_contact.png`, the origin-versus-preview comparison image, from `source.png` and `preview.png` in the page directory.
+
+```bash
+editppt page validate pages/page_001
+```
+
+Purpose: validate `page.pptx` against `manifest.json` with the same manifest-contract checks `editppt run record` will run (record additionally verifies the full artifact set, hashes, and top-level `passed: true`). Run it before returning so manifest-contract failures are fixed inside the page instead of bouncing back from the parent's record step. Optional `--report <file>` writes a JSON report.
 
 ## Text Measurement Commands
 

@@ -186,7 +186,7 @@ editppt formula render-latex <page_dir> \
 
 Merge the fragment's `images`, `asset_provenance`, and `formula_inventory` into `manifest.json`; the required provenance fields are in `manifest-schema.md`. Never assemble formulas from Unicode subscripts/superscripts or many hand-written text boxes, and never use source-image formula snippets.
 
-If the machine lacks a TeX engine or converter, or compilation fails: still deliver the current openable PPT, record the formula id, LaTeX source, CLI error, and required tool/package repair in `validation.json`, and do not replace the formula with a full-page screenshot.
+If the machine lacks a TeX engine or converter, or compilation fails: still deliver the current openable PPT with `validation.json` keeping top-level `passed: true` and the failure recorded as a warning — formula id, LaTeX source, CLI error, and required tool/package repair. Do not replace the formula with a full-page screenshot.
 
 ### 3.3 Structural Primitives and Layout Objects
 
@@ -281,5 +281,6 @@ May ship as recorded warnings with the current PPT — but only after the requir
 - Minor line-width, antialiasing, proportion, shadow, or detail differences in separated assets.
 - Minor visual drift in non-critical decorations.
 - Recorded low-risk font differences.
+- A formula whose LaTeX rendering is blocked by missing local TeX tooling, with the LaTeX source, error, and required repair recorded per 3.2.
 
 Warnings never hide a failure to follow the three-step decision process: an object-source violation is always a current-page fix.
