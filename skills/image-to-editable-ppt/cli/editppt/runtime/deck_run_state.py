@@ -1,13 +1,12 @@
 import hashlib
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 
-ACTIVE_PAGE_STATUSES = {"dispatched", "repair_dispatched"}
-DISPATCHABLE_PAGE_STATUSES = {"pending", "repair_needed"}
-DEFAULT_MAX_CONCURRENT_PAGES = 4
+ACTIVE_PAGE_STATUSES = {"dispatched"}
+DISPATCHABLE_PAGE_STATUSES = {"pending"}
+DEFAULT_MAX_CONCURRENT_PAGES = 6
 
 
 def now_iso():
@@ -161,7 +160,11 @@ def active_pages(jobs):
 
 
 def dispatchable_pages(jobs):
-    return [page for page in jobs.get("pages", []) if page.get("status") in DISPATCHABLE_PAGE_STATUSES]
+    return [
+        page
+        for page in jobs.get("pages", [])
+        if page.get("status") in DISPATCHABLE_PAGE_STATUSES
+    ]
 
 
 def dispatch_slots_available(jobs):
@@ -170,7 +173,7 @@ def dispatch_slots_available(jobs):
 
 def update_jobs_run_status(jobs):
     pages = jobs.get("pages", [])
-    if pages and all(page.get("status") in {"dispatched", "recorded", "repair_dispatched", "accepted"} for page in pages):
+    if pages and all(page.get("status") in {"dispatched", "recorded", "accepted"} for page in pages):
         jobs["run_status"] = "pages_dispatched"
     if pages and all(page.get("status") in {"recorded", "accepted"} for page in pages):
         jobs["run_status"] = "pages_recorded"
@@ -209,7 +212,3 @@ def ensure_dir(path, label):
     if not path.exists() or not path.is_dir():
         raise FileNotFoundError(f"Missing {label}: {path}")
     return path
-
-
-def env_codex_home():
-    return Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()

@@ -16,6 +16,21 @@ from deck_run_state import (
 )
 
 
+def resolve_prompt_path(run_dir, page_dir, value):
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        prompt_path = path.resolve()
+    elif path.parts[:1] == ("pages",):
+        prompt_path = (run_dir / path).resolve()
+    else:
+        prompt_path = (page_dir / path).resolve()
+    try:
+        prompt_path.relative_to(page_dir)
+    except ValueError as exc:
+        raise SystemExit(f"Prompt file must live inside page dir: {prompt_path}") from exc
+    return prompt_path
+
+
 def main():
     parser = argparse.ArgumentParser(description="Record that a page was dispatched to a subagent.")
     parser.add_argument("run", help="Run directory or deck_manifest.json")
@@ -23,29 +38,18 @@ def main():
     parser.add_argument("--agent-id", required=True)
     parser.add_argument("--agent-nickname")
     parser.add_argument("--prompt-file", required=True)
-    parser.add_argument("--repair-item-id")
     args = parser.parse_args()
 
     run_dir = run_dir_from_target(args.run)
     jobs = load_jobs(run_dir)
     page = find_page(jobs, args.page)
     page_dir = page_dir_for(run_dir, page)
-    prompt_path = page_dir.joinpath(args.prompt_file).resolve() if not args.prompt_file.startswith("/") else Path(args.prompt_file).resolve()
-    try:
-        prompt_path.relative_to(page_dir)
-    except ValueError as exc:
-        raise SystemExit(f"Prompt file must live inside page dir: {prompt_path}") from exc
+    prompt_path = resolve_prompt_path(run_dir, page_dir, args.prompt_file)
     if not prompt_path.exists():
         raise SystemExit(f"Prompt file does not exist: {prompt_path}")
 
-    if args.repair_item_id:
-        if page.get("status") != "repair_needed":
-            raise SystemExit(f"{page['page_id']} must be repair_needed before repair dispatch; got {page.get('status')}")
-        next_status = "repair_dispatched"
-    else:
-        if page.get("status") != "pending":
-            raise SystemExit(f"{page['page_id']} must be pending before dispatch; got {page.get('status')}")
-        next_status = "dispatched"
+    if page.get("status") != "pending":
+        raise SystemExit(f"{page['page_id']} must be pending before dispatch; got {page.get('status')}")
 
     page_request = (run_dir / page["page_request"]).resolve()
     if not page_request.exists():
@@ -57,15 +61,14 @@ def main():
         "prompt": rel_to_run(run_dir, prompt_path),
         "prompt_sha256": sha256_file(prompt_path),
         "page_request_sha256": sha256_file(page_request),
-        "repair_item_id": args.repair_item_id,
         "dispatched_at": now_iso(),
     }
-    page["status"] = next_status
+    page["status"] = "dispatched"
     update_jobs_run_status(jobs)
     save_jobs(run_dir, jobs)
     if jobs.get("run_status") == "pages_dispatched":
         set_run_status(run_dir, "pages_dispatched", "all pages dispatched")
-    print(f"{page['page_id']} -> {next_status}")
+    print(f"{page['page_id']} -> dispatched")
 
 
 if __name__ == "__main__":

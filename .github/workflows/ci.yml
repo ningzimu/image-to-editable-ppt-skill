@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - beta
+  push:
+    branches:
+      - main
+      - beta
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install CLI package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e skills/image-to-editable-ppt/cli
+
+      - name: Check CLI help
+        run: |
+          editppt --help
+          editppt image --help
+          editppt run finalize --help
+          editppt formula render-latex --help
+
+      - name: Compile runtime Python files
+        run: |
+          python -m compileall -q skills/image-to-editable-ppt/cli/editppt tests
+
+      - name: Run tests
+        run: |
+          python -m unittest discover -s tests
+
+      - name: Check packaged skill hygiene
+        run: |
+          set -euo pipefail
+          if git ls-files "skills/image-to-editable-ppt/**/.DS_Store" "skills/image-to-editable-ppt/**/__pycache__/*" "skills/image-to-editable-ppt/**/*.pyc" | grep .; then
+            echo "Generated cache or OS metadata files must not be tracked in the packaged skill."
+            exit 1
+          fi

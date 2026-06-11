@@ -9,15 +9,72 @@ from deck_run_state import DEFAULT_MAX_CONCURRENT_PAGES
 from _input_normalization import normalize_inputs
 
 
+WIDE_SLIDE = {"width": 13.333, "height": 7.5, "size_mode": "wide"}
+PX_PER_INCH = 96
+ASPECT_16_9 = 16 / 9
+ASPECT_TOLERANCE = 0.03
+
+
 def source_size(path):
     with Image.open(path) as image:
         return image.size
 
 
-def page_request(run_dir, deck, page):
-    page_dir = (run_dir / page["page_dir"]).resolve()
+def is_close_to_wide(width_px, height_px):
+    if not width_px or not height_px:
+        return False
+    return abs((width_px / height_px) / ASPECT_16_9 - 1) <= ASPECT_TOLERANCE
+
+
+def source_size_slide(width_px, height_px):
+    return {
+        "width": width_px / PX_PER_INCH,
+        "height": height_px / PX_PER_INCH,
+        "size_mode": "source",
+        "px_per_inch": PX_PER_INCH,
+    }
+
+
+def slide_for_source(width_px, height_px):
+    if is_close_to_wide(width_px, height_px):
+        return dict(WIDE_SLIDE)
+    return source_size_slide(width_px, height_px)
+
+
+def fit_content_box(width_px, height_px, slide):
+    slide_width = float(slide["width"])
+    slide_height = float(slide["height"])
+    source_aspect = width_px / height_px
+    slide_aspect = slide_width / slide_height
+    if source_aspect >= slide_aspect:
+        width = slide_width
+        height = width / source_aspect
+        left = 0
+        top = (slide_height - height) / 2
+    else:
+        height = slide_height
+        width = height * source_aspect
+        left = (slide_width - width) / 2
+        top = 0
+    return {"left": left, "top": top, "width": width, "height": height, "fit": "contain"}
+
+
+def page_source_size(run_dir, page):
     source = (run_dir / page["source_image"]).resolve()
     width_px, height_px = source_size(source)
+    return source, width_px, height_px
+
+
+def deck_slide_layout(run_dir, deck):
+    first_page = deck.get("pages", [{}])[0]
+    _source, width_px, height_px = page_source_size(run_dir, first_page)
+    return slide_for_source(width_px, height_px)
+
+
+def page_request(run_dir, deck, page):
+    page_dir = (run_dir / page["page_dir"]).resolve()
+    source, width_px, height_px = page_source_size(run_dir, page)
+    slide = dict(deck["slide"])
     page_id = page["page_id"]
     return {
         "schema_version": 1,
@@ -27,7 +84,8 @@ def page_request(run_dir, deck, page):
         "page_dir": str(page_dir),
         "source_image": str(source),
         "source_size_px": {"width": width_px, "height": height_px},
-        "slide": {"width": 13.333, "height": 7.5},
+        "slide": slide,
+        "content_box": fit_content_box(width_px, height_px, slide),
         "max_concurrent_pages": deck["max_concurrent_pages"],
         "allowed_write_scope": str(page_dir),
         "forbidden_paths": [
@@ -80,8 +138,6 @@ def write_page_jobs(run_dir, deck):
                 "validation": page["validation"],
                 "dispatch": None,
                 "result": None,
-                "repair": [],
-                "blocker": None,
                 "accepted": False,
             }
         )
@@ -104,6 +160,7 @@ def upgrade_deck_manifest(deck_path, max_concurrent_pages):
             "max_concurrent_pages": max_concurrent_pages,
         }
     )
+    deck["slide"] = deck_slide_layout(run_dir, deck)
     for index, page in enumerate(deck.get("pages", []), start=1):
         page_id = f"page_{index:03d}"
         page["page_id"] = page_id
@@ -111,8 +168,6 @@ def upgrade_deck_manifest(deck_path, max_concurrent_pages):
         page["page_request"] = f"{page['page_dir']}/page_request.json"
         page["dispatch"] = None
         page["result"] = None
-        page["repair"] = []
-        page["blocker"] = None
         page["accepted"] = False
     save_deck(run_dir, deck)
     write_page_jobs(run_dir, deck)
@@ -130,7 +185,7 @@ def main():
         "--max-concurrent-pages",
         type=int,
         default=DEFAULT_MAX_CONCURRENT_PAGES,
-        help="Maximum page subagents that may be dispatched at the same time.",
+        help=f"Maximum page subagents that may be dispatched at the same time. Default: {DEFAULT_MAX_CONCURRENT_PAGES}.",
     )
     args = parser.parse_args()
     if args.max_concurrent_pages < 1:
