@@ -117,7 +117,7 @@ Purpose: normalize a single image, multiple images, a PDF, or an image-based PPT
 editppt run next <run> --json
 ```
 
-Purpose: read current run state and return the next stage. `stage=dispatch_pages` lists `suggested_pages` that must each be dispatched to a page worker — single-page inputs dispatch their one page the same way. `stage=wait` means wait for dispatched pages to complete. `stage=finalize` means proceed to final assembly. `stage=configure_backend` appears only when `deck_manifest.json.image_backend` is missing; follow the returned `next_command`.
+Purpose: read current run state and return the next stage. `stage=dispatch_pages` lists `suggested_pages` that must each be dispatched to a page worker — single-page inputs dispatch their one page the same way. `stage=wait` means wait for dispatched pages to complete; slow dispatched workers remain active and must not be reset or replaced because they occupy a slot. `stage=finalize` means proceed to final assembly. `stage=configure_backend` appears only when `deck_manifest.json.image_backend` is missing; follow the returned `next_command`.
 
 Generate the page-worker prompt with the skill script before spawning a worker:
 
@@ -138,10 +138,10 @@ editppt run record <run> --page page_001 --agent-id <worker-id>
 Purpose: after the page worker writes its required outputs (see `manifest-schema.md`), validate `page.pptx` against `manifest.json` and record the page result. Missing `box_px` / `points_px` on positioned objects is a page failure. The command also fails when `validation.json` does not contain top-level `passed: true` — a failed page is never recorded; fix the root cause, `run reset` the page, and dispatch a new worker.
 
 ```bash
-editppt run reset <run> --page page_001
+editppt run reset <run> --page page_001 --agent-id <worker-id> --confirm-lost
 ```
 
-Purpose: return a dispatched or recorded page to `pending`, clearing its dispatch and result records, so a new worker can be dispatched. Use it when a worker returned a failed page, `run record` rejected the outputs, or a dispatched worker is lost. The failure-handling policy is in `SKILL.md` Phase 3.
+Purpose: return a dispatched or recorded page to `pending`, clearing its dispatch and result records, so a new worker can be dispatched. Recorded pages can be reset with only `--page`. Dispatched pages require `--agent-id` plus `--confirm-lost`, and the id must match the recorded dispatch. Use this only when a worker returned a failed page, `run record` rejected the outputs, the runtime reports a terminal worker state, the user cancels that worker, or repeated reachability checks prove the worker is lost. The failure-handling policy is in `SKILL.md` Phase 3.
 
 ```bash
 editppt run finalize <run>

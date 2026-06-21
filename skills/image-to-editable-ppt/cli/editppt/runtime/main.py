@@ -239,7 +239,7 @@ def cmd_next(args: argparse.Namespace) -> int:
             "stage": "wait",
             "active_or_unfinished_pages": unfinished,
             "next_command": f"{cli_prog()} run status {run_dir}",
-            "agent_focus": "Wait for dispatched workers, then record completed page results. If a worker returned a failure, fix the root cause and `run reset` that page for re-dispatch.",
+            "agent_focus": "Wait for dispatched workers, then record completed page results. Do not reset slow active workers; use `run reset` only after failure, terminal state, cancellation, or lost-worker verification.",
         }
         return print_json(payload) if args.json else _print_next_text(payload)
 
@@ -288,7 +288,12 @@ def cmd_record(args: argparse.Namespace) -> int:
 
 
 def cmd_reset(args: argparse.Namespace) -> int:
-    return run_script("reset_page_job.py", [args.run, "--page", args.page])
+    argv = [args.run, "--page", args.page]
+    if args.agent_id:
+        argv.extend(["--agent-id", args.agent_id])
+    if args.confirm_lost:
+        argv.append("--confirm-lost")
+    return run_script("reset_page_job.py", argv)
 
 
 def cmd_page_build(args: argparse.Namespace) -> int:
@@ -564,12 +569,14 @@ Use this only when forcing OpenAI-compatible API metadata or a custom image back
 
     reset = run_sub.add_parser(
         "reset",
-        help="Reset a failed or stuck page back to pending for re-dispatch.",
-        description="Return a dispatched or recorded page to pending, clearing its dispatch and result records, so a new worker can be dispatched. Use it when a worker returned a failed page, record validation failed, or a dispatched worker is lost.",
+        help="Reset a failed or inactive page back to pending for re-dispatch.",
+        description="Return a recorded page, or an explicitly inactive/lost dispatched page, to pending. Dispatched pages require --confirm-lost and a matching --agent-id so active long-running workers are not reset accidentally.",
         formatter_class=HELP_FORMATTER,
     )
     reset.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
     reset.add_argument("--page", required=True, metavar="PAGE", help="Page id such as page_001, or page number such as 1.")
+    reset.add_argument("--agent-id", metavar="ID", help="Required for dispatched pages; must match the recorded worker/thread id.")
+    reset.add_argument("--confirm-lost", action="store_true", help="Required for dispatched pages. Confirms the original worker is no longer active or must be abandoned.")
     reset.set_defaults(func=cmd_reset)
 
     run_hints = run_sub.add_parser(

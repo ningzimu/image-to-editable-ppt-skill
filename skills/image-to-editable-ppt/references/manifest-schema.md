@@ -64,7 +64,7 @@ Structure:
 }
 ```
 
-`dispatch` is written by `editppt run dispatch`. `result` is written by `editppt run record`. `accepted` is written by `editppt run finalize`.
+`dispatch` is written by `editppt run dispatch`. A page with status `dispatched` is an active worker lease until explicit completion, failure, cancellation, or lost-worker verification; elapsed time alone does not make it lost. `result` is written by `editppt run record`. `accepted` is written by `editppt run finalize`.
 
 ## `page_request.json`
 

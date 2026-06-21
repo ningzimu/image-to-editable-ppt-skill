@@ -937,6 +937,45 @@ class MultiAgentBackendTest(unittest.TestCase):
             page_2["dispatch"] = {"agent_id": "worker-1"}
             write_json(run_dir / "page_jobs.json", jobs)
 
+            reset_active = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "editppt.cli",
+                    "run",
+                    "reset",
+                    run_dir,
+                    "--page",
+                    "page_002",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(0, reset_active.returncode)
+            self.assertIn("Do not reset active workers", reset_active.stdout + reset_active.stderr)
+
+            reset_wrong_agent = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "editppt.cli",
+                    "run",
+                    "reset",
+                    run_dir,
+                    "--page",
+                    "page_002",
+                    "--agent-id",
+                    "worker-2",
+                    "--confirm-lost",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(0, reset_wrong_agent.returncode)
+            self.assertIn("Agent id mismatch", reset_wrong_agent.stdout + reset_wrong_agent.stderr)
+
             reset = subprocess.run(
                 [
                     sys.executable,
@@ -947,6 +986,9 @@ class MultiAgentBackendTest(unittest.TestCase):
                     run_dir,
                     "--page",
                     "page_002",
+                    "--agent-id",
+                    "worker-1",
+                    "--confirm-lost",
                 ],
                 cwd=ROOT,
                 text=True,
