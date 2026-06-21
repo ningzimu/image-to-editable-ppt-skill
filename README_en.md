@@ -13,7 +13,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 >
 > **GPT Pro is recommended. Plus users should use this skill cautiously.**
 >
-> Reconstructing a 10-page PPT may consume your entire 5-hour usage window. A single-page PPT reconstruction may take more than 10 minutes. Multi-page inputs are dispatched directly to page workers according to the configured concurrency slots.
+> Reconstructing a 10-page PPT may consume your entire 5-hour usage window. A single-page PPT reconstruction may take more than 10 minutes. Single-page or single-image input can be rebuilt locally by the main agent through the same page workflow; multi-page inputs are dispatched to page workers according to the configured concurrency slots.
 >
 > **If you do not strongly need editability, avoid this skill.**
 >
@@ -50,7 +50,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 ## Highlights
 
 - Broad input coverage for many slide-reconstruction scenarios: one image, multiple images, multi-page PDFs, and image-based PPT files into editable `.pptx`.
-- Every page — including single-image input — is dispatched by the main agent to page workers/subagents, in parallel according to `max_concurrent_pages`.
+- Single-page or single-image input can be rebuilt locally by the main agent through the same page workflow; multi-page input is dispatched by the main agent to page workers/subagents, in parallel according to `max_concurrent_pages`.
 - Image generation and editing are unified through the `editppt image` CLI. The CLI uses local Codex OAuth first, then OpenAI-compatible API fallback when Codex auth is unavailable.
 - Third-party API fallback configuration lives in `~/.editppt/config.yaml`; on Windows this is `%USERPROFILE%\.editppt\config.yaml`.
 - Text sizes and positions are measurement-driven: prepare generates per-page text annotations (box coordinates + font sizes + size groups), and same-level text keeps one consistent size automatically.
@@ -69,7 +69,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 
 ## Runtime Requirements
 
-- Multi-page input requires the agent to dispatch page workers/subagents; if page workers cannot be created, run the skill in an environment that supports page workers.
+- Single-page or single-image input does not require creating a page worker, but it still must use the same page prompt, artifacts, and `editppt run record` validation flow. Multi-page input requires the agent to dispatch page workers/subagents; if page workers cannot be created, run the skill in an environment that supports page workers.
 - Complex background cleanup, foreground icon extraction, transparent asset sheets, and local image edits use serial `editppt image edit/generate` calls.
 - If local Codex OAuth exists (`~/.codex/auth.json`), the CLI uses it directly; otherwise it uses API fallback.
 - API fallback configuration lives in `~/.editppt/config.yaml`; on Windows this is `%USERPROFILE%\.editppt\config.yaml`.
@@ -101,7 +101,7 @@ The skill still runs without a token: it falls back to the built-in offline dete
 
 ## Known Limitations
 
-- Other agents need skill loading, file access, CLI execution, and a page worker/subagent dispatch mechanism.
+- Other agents need skill loading, file access, and CLI execution; multi-page runs also need a page worker/subagent dispatch mechanism.
 - Codex OAuth depends on the local Codex auth session and subscription-side image limits; API fallback depends on the selected OpenAI-compatible service's image generation/editing capabilities.
 - This skill has relatively complex flow control and high token usage. The cost of converting an image-based PPT into an editable PPT **may be 2-3x the cost of generating an image-based PPT**.
 - Results are limited by the model's baseline visual understanding and its ability to follow the skill workflow; usage quality is **not guaranteed for models below gpt-5.5**.
@@ -135,8 +135,8 @@ $image-to-editable-ppt convert <path-to-image-based.pptx> into an editable Power
 The normal workflow is:
 
 1. Create an isolated job folder, normalize inputs into `pages/page_NNN/source.png`, and write the default `editppt image` backend.
-2. Dispatch every page — single-image input included — to page workers in `max_concurrent_pages` batches.
-3. Each page worker owns one page directory and completes reconstruction, self-check, and page-local correction there.
+2. If there is exactly 1 page, the main agent first claims it with `editppt run dispatch --local`, then rebuilds it locally from the same page prompt; if there are multiple pages, dispatch them to page workers in `max_concurrent_pages` batches.
+3. The page reconstructor — main-agent local mode or page worker — owns one page directory and completes reconstruction, self-check, and page-local correction there.
 4. Build one page manifest per page with editable text, simple shapes, and positioned image assets.
 5. Use `editppt` commands to record dispatches, page results, and accepted status.
 6. Use `editppt run finalize` to rebuild the final `.pptx` from recorded `manifest.json` files in page order, copy `.pptx` speaker notes when present, and run deck validation.
@@ -171,7 +171,7 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
     ├── page_001/                             # Page 1 workspace
     │   ├── source.png                        # Normalized source image for this page
     │   ├── page_request.json                 # Page request and image backend
-    │   ├── worker-prompt.md                  # Prompt generated for the page worker in multi-page runs
+    │   ├── worker-prompt.md                  # Prompt generated for the page reconstructor
     │   ├── imagegen-jobs.json                # Image generation/editing calls and result records for this page
     │   ├── assets/                           # Independent image assets for this page
     │   ├── page.pptx                         # Single-page PPTX used for record-time validation and deliverability checks
@@ -187,7 +187,7 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
 ## Scope
 
 - This skill reconstructs input pages; it is not a from-scratch deck content generator.
-- Multi-page input is rebuilt in parallel through page workers/subagents.
+- Single-page or single-image input can be rebuilt locally by the main agent; multi-page input is rebuilt in parallel through page workers/subagents.
 - Complex visual assets need an available `editppt image` backend; if image generation/editing is unavailable, still deliver the current openable, structurally valid PPT and describe missing assets in validation output.
 - Complex photos, illustrations, textures, and hand-drawn decorations are usually movable image assets, not internally editable PowerPoint objects.
 - Tables, charts, and diagrams should only be rebuilt as native objects when confidence is high enough; otherwise keep them as assets and document the limit.

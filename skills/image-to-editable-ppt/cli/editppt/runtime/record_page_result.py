@@ -58,7 +58,7 @@ def validate_page_contract(paths):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Record and verify a page worker result.")
+    parser = argparse.ArgumentParser(description="Record and verify a page reconstruction result.")
     parser.add_argument("run", help="Run directory or deck_manifest.json")
     parser.add_argument("--page", required=True, help="page_001 or 1")
     parser.add_argument("--agent-id", required=True)
@@ -74,7 +74,8 @@ def main():
             raise SystemExit(
                 f"Agent id mismatch for {page['page_id']}: dispatch={dispatch.get('agent_id')} result={args.agent_id}"
             )
-        record_mode = "dispatched-worker"
+        execution_mode = dispatch.get("execution_mode") or "worker"
+        record_mode = "local-main-agent" if execution_mode == "local" else "dispatched-worker"
     elif page.get("status") == "recorded":
         previous = page.get("result") or {}
         if previous.get("agent_id") != args.agent_id:

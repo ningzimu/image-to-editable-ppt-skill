@@ -216,6 +216,18 @@ def cmd_next(args: argparse.Namespace) -> int:
         selected = dispatchable[:slots]
         first_page = find_page(jobs, selected[0])
         prompt_out = page_dir_for(run_dir, first_page) / "worker-prompt.md"
+        if len(pages) == 1 and selected == [first_page.get("page_id")]:
+            payload = {
+                "run_dir": str(run_dir),
+                "stage": "rebuild_page_locally",
+                "dispatch_slots_available": slots,
+                "dispatchable_pages": dispatchable,
+                "suggested_pages": selected,
+                "prompt_file": str(prompt_out),
+                "next_command": f"{cli_prog()} run dispatch {run_dir} --page {selected[0]} --agent-id main --prompt-file {prompt_out} --local",
+                "agent_focus": "Build the page prompt, claim local execution with dispatch --local, rebuild the page yourself using that prompt, then record the result.",
+            }
+            return print_json(payload) if args.json else _print_next_text(payload)
         payload = {
             "run_dir": str(run_dir),
             "stage": "dispatch_pages",
@@ -277,6 +289,8 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     argv = [args.run, "--page", args.page, "--agent-id", args.agent_id, "--prompt-file", args.prompt_file]
     if args.agent_nickname:
         argv.extend(["--agent-nickname", args.agent_nickname])
+    if args.local:
+        argv.append("--local")
     return run_script("record_page_dispatch.py", argv)
 
 
@@ -545,7 +559,7 @@ Use this only when forcing OpenAI-compatible API metadata or a custom image back
     dispatch = run_sub.add_parser(
         "dispatch",
         help="Record page dispatch.",
-        description="Mark a page as dispatched after a worker/thread has been created.",
+        description="Mark a page as dispatched after a worker/thread has been created, or after the main agent claims a single-page run with --local.",
         formatter_class=HELP_FORMATTER,
     )
     dispatch.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
@@ -553,12 +567,13 @@ Use this only when forcing OpenAI-compatible API metadata or a custom image back
     dispatch.add_argument("--agent-id", required=True, metavar="ID", help="Runtime worker/thread id.")
     dispatch.add_argument("--prompt-file", required=True, metavar="FILE", help="Prompt file used to spawn the worker. It must resolve inside the page directory.")
     dispatch.add_argument("--agent-nickname", metavar="NAME", help="Optional human-readable worker label.")
+    dispatch.add_argument("--local", action="store_true", help="Claim a single-page run for main-agent local reconstruction instead of spawning a worker.")
     dispatch.set_defaults(func=cmd_dispatch)
 
     record = run_sub.add_parser(
         "record",
         help="Record and verify a page result.",
-        description="Validate required page outputs, record hashes, and mark the page recorded. Pages must be dispatched to a worker before recording. Fails when validation.json does not contain top-level passed: true; fix the page, then use `run reset` to re-dispatch.",
+        description="Validate required page outputs, record hashes, and mark the page recorded. Pages must be dispatched to a worker or claimed with --local before recording. Fails when validation.json does not contain top-level passed: true; fix the page, then use `run reset` to re-dispatch.",
         formatter_class=HELP_FORMATTER,
     )
     record.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")

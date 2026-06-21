@@ -11,6 +11,7 @@ Release notes are generated from this file. Keep changelog entries in English.
 - Remove the `editppt image batch` interface so page-local image jobs run serially, and document that foreground icons should be grouped into one sparse asset sheet with generous gaps unless one sheet cannot fit them.
 - Clarify that user-requested conversions authorize necessary OCR and image-backend calls while limiting uploads to task-local page images, prompts, masks, and references.
 - Guard `editppt run reset` for dispatched pages with `--confirm-lost` and a matching `--agent-id`, and document that slow active page workers must not be reset or replaced.
+- Support single-page local reconstruction by returning `rebuild_page_locally`, recording `editppt run dispatch --local`, and keeping the same page artifact and record/finalize path as worker-dispatched pages.
 
 ## 0.2.0
 

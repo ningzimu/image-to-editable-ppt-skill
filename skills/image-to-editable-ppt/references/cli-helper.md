@@ -19,7 +19,7 @@ editppt                         - top-level CLI for setup, run orchestration, im
 |   |-- next                    - read current run state and return the next required action
 |   |-- status                  - inspect run/page state for debugging or manual checks
 |   |-- backend                 - override or inspect the run-level image backend contract
-|   |-- dispatch                - record that a real page worker/subagent was spawned
+|   |-- dispatch                - record that a page worker was spawned or a single-page local rebuild was claimed
 |   |-- record                  - validate required page outputs and record page result hashes
 |   |-- reset                   - return a failed or stuck page to pending for re-dispatch
 |   |-- hints                   - regenerate per-page text hints for a prepared run
@@ -61,7 +61,7 @@ python <skill-root>/scripts/build-page-worker-prompt.py <run> --page page_001 --
 
 Purpose: generate a page-worker prompt from the skill-local `prompts/page-worker.md` template. This is a skill script, not an `editppt` CLI command, because it reads skill documentation and references.
 
-The script writes the prompt file and prints JSON with `prompt_file`, `page_id`, and `dispatch_command_template`. It does not create a page worker and must run before `editppt run dispatch`.
+The script writes the prompt file and prints JSON with `prompt_file`, `page_id`, and `dispatch_command_template`. It does not create a page worker or claim local execution and must run before `editppt run dispatch`.
 
 ## Pre-Run Check
 
@@ -117,7 +117,7 @@ Purpose: normalize a single image, multiple images, a PDF, or an image-based PPT
 editppt run next <run> --json
 ```
 
-Purpose: read current run state and return the next stage. `stage=dispatch_pages` lists `suggested_pages` that must each be dispatched to a page worker — single-page inputs dispatch their one page the same way. `stage=wait` means wait for dispatched pages to complete; slow dispatched workers remain active and must not be reset or replaced because they occupy a slot. `stage=finalize` means proceed to final assembly. `stage=configure_backend` appears only when `deck_manifest.json.image_backend` is missing; follow the returned `next_command`.
+Purpose: read current run state and return the next stage. `stage=rebuild_page_locally` appears only when the run has exactly one pending page; the parent agent must build the page prompt, claim local execution with `run dispatch --local`, and rebuild the page itself using that prompt. `stage=dispatch_pages` lists `suggested_pages` that must each be dispatched to a page worker. `stage=wait` means wait for dispatched pages to complete; slow dispatched workers remain active and must not be reset or replaced because they occupy a slot. `stage=finalize` means proceed to final assembly. `stage=configure_backend` appears only when `deck_manifest.json.image_backend` is missing; follow the returned `next_command`.
 
 Generate the page-worker prompt with the skill script before spawning a worker:
 
@@ -129,13 +129,19 @@ python <skill-root>/scripts/build-page-worker-prompt.py <run> --page page_001 --
 editppt run dispatch <run> --page page_001 --agent-id <worker-id> --prompt-file <absolute-run-dir>/pages/page_001/worker-prompt.md
 ```
 
-Purpose: record that a page has been dispatched to a worker. This command only records a dispatch that has really happened; first create the worker with the current environment's available subagent/multi-agent tool, then run this command. `--prompt-file` uses the same absolute path as the prompt-builder `--out`. `--agent-id` is any stable identifier the parent chooses for this worker (use the spawn tool's id when it provides one); the same id must be reused at `run record`.
+For a single-page local rebuild, use:
+
+```bash
+editppt run dispatch <run> --page page_001 --agent-id main --prompt-file <absolute-run-dir>/pages/page_001/worker-prompt.md --local
+```
+
+Purpose: record that a page has been dispatched to a worker or claimed for single-page local reconstruction. For worker dispatch, first create the worker with the current environment's available subagent/multi-agent tool, then run this command. For local reconstruction, `--local` is allowed only when the run has exactly one page. `--prompt-file` uses the same absolute path as the prompt-builder `--out`. `--agent-id` is any stable identifier for the execution; the same id must be reused at `run record`.
 
 ```bash
 editppt run record <run> --page page_001 --agent-id <worker-id>
 ```
 
-Purpose: after the page worker writes its required outputs (see `manifest-schema.md`), validate `page.pptx` against `manifest.json` and record the page result. Missing `box_px` / `points_px` on positioned objects is a page failure. The command also fails when `validation.json` does not contain top-level `passed: true` — a failed page is never recorded; fix the root cause, `run reset` the page, and dispatch a new worker.
+Purpose: after the page reconstructor writes its required outputs (see `manifest-schema.md`), validate `page.pptx` against `manifest.json` and record the page result. Missing `box_px` / `points_px` on positioned objects is a page failure. The command also fails when `validation.json` does not contain top-level `passed: true` — a failed page is never recorded; fix the root cause, `run reset` the page, and dispatch or claim a fresh page execution.
 
 ```bash
 editppt run reset <run> --page page_001 --agent-id <worker-id> --confirm-lost

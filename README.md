@@ -13,7 +13,7 @@
 >
 > **推荐 ChatGPT Pro 用户使用；Plus 用户请谨慎使用。**
 >
-> 复原一个 10 页 PPT 有可能消耗完你的 5 小时额度。单页PPT复原时间可能在10min以上。多页输入会按并发槽位直接分派给 page worker 处理。
+> 复原一个 10 页 PPT 有可能消耗完你的 5 小时额度。单页PPT复原时间可能在10min以上。单页/单图输入可由主 agent 按同一页面重建流程本地执行；多页输入会按并发槽位分派给 page worker 处理。
 >
 > **如果没有强烈的可编辑需求，请不要使用这个 skill。**
 >
@@ -50,7 +50,7 @@
 ## 特点
 
 - 适用场景广泛，支持多种输入：单张图片、多张图片、多页 PDF、图片版PPT 到可编辑 `.pptx`。
-- 每一页（包括单张图片输入）都由主 agent 分派给 page worker/subagent 重建，多页时按 `max_concurrent_pages` 并行处理。
+- 单页/单图输入可由主 agent 本地执行同一页面重建流程；多页输入由主 agent 分派给 page worker/subagent，并按 `max_concurrent_pages` 并行处理。
 - 图片生成和编辑统一通过 `editppt image` CLI 完成；CLI 会优先使用本机 Codex OAuth，缺失时再使用 OpenAI-compatible API 配置。
 - 第三方 API fallback 配置保存在 `~/.editppt/config.yaml`；Windows 下对应 `%USERPROFILE%\.editppt\config.yaml`。
 - 文字大小与位置由测量驱动：prepare 阶段为每页生成文字标注（框坐标 + 字号 + 字号分组），模型按测量值还原文字，同级文字字号自动保持一致。
@@ -69,7 +69,7 @@
 
 ## 运行要求
 
-- 多页输入需要 agent 能分派 page worker/subagent；如果不能创建 page worker，应换到支持 page worker 的环境执行。
+- 单页/单图输入不需要创建 page worker，但仍必须走同一页面 prompt、产物和 `editppt run record` 校验流程。多页输入需要 agent 能分派 page worker/subagent；如果不能创建 page worker，应换到支持 page worker 的环境执行。
 - 复杂背景补全、前景图标提取、透明 asset sheet 和局部图片编辑统一走串行 `editppt image edit/generate` 调用。
 - 如果本机有 Codex OAuth（`~/.codex/auth.json`），CLI 会直接使用；否则使用 API fallback。
 - API fallback 配置保存在 `~/.editppt/config.yaml`；Windows 下对应 `%USERPROFILE%\.editppt\config.yaml`。
@@ -101,7 +101,7 @@
 
 ## 已知问题
 
-- 其他 agent 需要支持 skill 加载、文件读写、CLI 执行，以及 page worker/subagent 分派机制。
+- 其他 agent 需要支持 skill 加载、文件读写和 CLI 执行；多页任务还需要 page worker/subagent 分派机制。
 - Codex OAuth 路径依赖本机 Codex auth 和订阅侧图片额度；API fallback 依赖所选 OpenAI-compatible 服务的图片生成/编辑能力。
 - 本 skill有着相对复杂的流程控制，Token花费比较高。将一个图片PPT转换成可编辑PPT的成本，**可能是生成图片PPT成本的2-3倍**。
 - 受限于模型基础理解能力和对 skill 的遵循能力，**不保证 gpt-5.5 以下模型的使用效果**。
@@ -135,8 +135,8 @@ $image-to-editable-ppt 把 <path-to-image-based.pptx> 转成可编辑 PPT。
 skill 通常会完成这些步骤：
 
 1. 创建独立任务目录，把输入归一化为 `pages/page_NNN/source.png`，并写入默认 `editppt image` backend。
-2. 每一页（含单张图片输入）都按 `max_concurrent_pages` 分批分派给 page worker 重建。
-3. 每个 page worker 负责自己的页面目录，完成页面重建、自检和 page-local 修正。
+2. 如果只有 1 页，主 agent 先用 `editppt run dispatch --local` 认领页面，再按同一页面 prompt 本地重建；如果有多页，则按 `max_concurrent_pages` 分批分派给 page worker 重建。
+3. 页面重建者（主 agent 本地模式或 page worker）负责自己的页面目录，完成页面重建、自检和 page-local 修正。
 4. 每页创建 manifest，重建可编辑文本、简单形状和图片资产。
 5. 用 `editppt` 命令记录 dispatch、page result 和 accepted 状态。
 6. 主 agent 用 `editppt run finalize` 按页顺序读取已记录的 `manifest.json` 重建最终 `.pptx`，复制 `.pptx` 页面备注，并运行 deck validation。
@@ -171,7 +171,7 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
     ├── page_001/                             # 第 1 页工作目录
     │   ├── source.png                        # 归一化后的页面源图
     │   ├── page_request.json                 # 页面请求和 image backend
-    │   ├── worker-prompt.md                  # 多页任务中生成给 page worker 的提示词
+    │   ├── worker-prompt.md                  # 生成给页面重建者的提示词
     │   ├── imagegen-jobs.json                # 本页图片生成/编辑调用和结果记录
     │   ├── assets/                           # 本页拆出的独立图片资产
     │   ├── page.pptx                         # 本页单页 PPTX；record 阶段用于校验和交付性检查
@@ -187,7 +187,7 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
 ## 边界
 
 - 这个 skill 面向输入页面的可编辑重建，不是从零生成整套 PPT 内容。
-- 多页输入通过 page worker/subagent 并行重建。
+- 单页/单图输入可由主 agent 本地重建；多页输入通过 page worker/subagent 并行重建。
 - 复杂视觉资产需要可用 `editppt image` backend；如果缺少图片生成/编辑能力，仍应先交付当前可打开、结构有效的 PPT，并在验证结果里说明缺失资产。
 - 对照片、插画、纹理、手绘装饰等复杂视觉元素，通常只能作为独立图片资产移动，不能保证内部对象可编辑。
 - 对表格、图表、流程图等结构化区域，会优先保留可编辑语义，但低置信度时应保留为资产并在验证报告里说明。
@@ -204,7 +204,7 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
 │       ├── agents/                       # Agent 展示用的 skill 元数据
 │       ├── cli/                          # 自包含 `editppt` CLI 和确定性 runtime 模块
 │       ├── references/                   # 页面重建、状态机、QA 等参考规范
-│       ├── prompts/                      # page worker prompt 模板
+│       ├── prompts/                      # 页面重建 prompt 模板
 │       └── scripts/                      # skill 内 prompt 组装脚本
 ├── AGENTS.md                             # 仓库级协作和编辑规则
 ├── CHANGELOG.md                          # 用户可见变更记录

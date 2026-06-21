@@ -64,7 +64,7 @@ Structure:
 }
 ```
 
-`dispatch` is written by `editppt run dispatch`. A page with status `dispatched` is an active worker lease until explicit completion, failure, cancellation, or lost-worker verification; elapsed time alone does not make it lost. `result` is written by `editppt run record`. `accepted` is written by `editppt run finalize`.
+`dispatch` is written by `editppt run dispatch`. It includes `execution_mode`: `"worker"` for normal page-worker dispatch and `"local"` for the parent agent's single-page local claim; older dispatch records without this field are treated as `"worker"`. A page with status `dispatched` is an active execution lease until explicit completion, failure, cancellation, or lost-worker verification; elapsed time alone does not make it lost. `result` is written by `editppt run record`. `accepted` is written by `editppt run finalize`.
 
 ## `page_request.json`
 
@@ -97,7 +97,7 @@ If the run uses an image backend, `page_request.json` must contain the same `ima
 
 ## `page_result.json`
 
-Owner: created by the page worker, validated by `editppt run record`.
+Owner: created by the page reconstructor, validated by `editppt run record`.
 
 Includes:
 
@@ -127,7 +127,7 @@ The `manifest` artifact is the authoritative page source for final assembly. `ed
 
 ## `pages/page_NNN/validation.json`
 
-Owner: created by the page worker, read by `editppt run record`.
+Owner: created by the page reconstructor, read by `editppt run record`.
 
 Purpose: page-level deliverability conclusion.
 
@@ -143,7 +143,7 @@ Must contain at top level:
 
 ## `pages/page_NNN/manifest.json`
 
-Owner: page worker.
+Owner: page reconstructor.
 
 Purpose: source of truth for page-level PPTX construction.
 

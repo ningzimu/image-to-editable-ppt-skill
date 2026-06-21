@@ -625,10 +625,12 @@ class MultiAgentBackendTest(unittest.TestCase):
             )
             self.assertEqual(0, result.returncode, result.stderr)
             payload = json.loads(result.stdout)
+            self.assertEqual("dispatch_pages", payload["stage"])
             prompt_path = (run_dir / "pages/page_001/worker-prompt.md").resolve()
             self.assertEqual(str(prompt_path), payload["prompt_file"])
             self.assertIn(str(prompt_path), payload["next_command"])
             self.assertIn("editppt run dispatch", payload["next_command"])
+            self.assertNotIn("--local", payload["next_command"])
 
             prompt = subprocess.run(
                 [
@@ -648,6 +650,29 @@ class MultiAgentBackendTest(unittest.TestCase):
             prompt_text = prompt_path.read_text(encoding="utf-8")
             self.assertIn(str(run_dir), prompt_text)
             self.assertIn(str(ROOT / "skills/image-to-editable-ppt/references/page-decision-tree.md"), prompt_text)
+
+            local_dispatch = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "editppt.cli",
+                    "run",
+                    "dispatch",
+                    run_dir,
+                    "--page",
+                    "page_001",
+                    "--agent-id",
+                    "main",
+                    "--prompt-file",
+                    str(prompt_path),
+                    "--local",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(0, local_dispatch.returncode)
+            self.assertIn("--local dispatch is only allowed", local_dispatch.stdout + local_dispatch.stderr)
 
             dispatch = subprocess.run(
                 [
@@ -671,8 +696,9 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertEqual(0, dispatch.returncode, dispatch.stderr)
             jobs = read_json(run_dir / "page_jobs.json")
             self.assertEqual("dispatched", jobs["pages"][0]["status"])
+            self.assertEqual("worker", jobs["pages"][0]["dispatch"]["execution_mode"])
 
-    def test_single_page_next_requires_dispatch_like_multi_page(self):
+    def test_single_page_next_uses_local_rebuild_with_same_record_flow(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = make_minimal_run(tmp)
             deck = read_json(run_dir / "deck_manifest.json")
@@ -691,9 +717,11 @@ class MultiAgentBackendTest(unittest.TestCase):
             )
             self.assertEqual(0, next_result.returncode, next_result.stderr)
             next_payload = json.loads(next_result.stdout)
-            self.assertEqual("dispatch_pages", next_payload["stage"])
+            self.assertEqual("rebuild_page_locally", next_payload["stage"])
             self.assertEqual(["page_001"], next_payload["suggested_pages"])
             self.assertIn("editppt run dispatch", next_payload["next_command"])
+            self.assertIn("--agent-id main", next_payload["next_command"])
+            self.assertIn("--local", next_payload["next_command"])
 
             page_dir = run_dir / "pages/page_001"
             write_page_outputs(page_dir, "Direct Page")
@@ -746,15 +774,20 @@ class MultiAgentBackendTest(unittest.TestCase):
                     "--page",
                     "page_001",
                     "--agent-id",
-                    "worker-1",
+                    "main",
                     "--prompt-file",
                     str(prompt_path),
+                    "--local",
                 ],
                 cwd=ROOT,
                 text=True,
                 capture_output=True,
             )
             self.assertEqual(0, dispatch.returncode, dispatch.stderr)
+            jobs = read_json(run_dir / "page_jobs.json")
+            self.assertEqual("dispatched", jobs["pages"][0]["status"])
+            self.assertEqual("main", jobs["pages"][0]["dispatch"]["agent_id"])
+            self.assertEqual("local", jobs["pages"][0]["dispatch"]["execution_mode"])
 
             record = subprocess.run(
                 [
@@ -767,7 +800,7 @@ class MultiAgentBackendTest(unittest.TestCase):
                     "--page",
                     "page_001",
                     "--agent-id",
-                    "worker-1",
+                    "main",
                 ],
                 cwd=ROOT,
                 text=True,
@@ -777,7 +810,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             jobs = read_json(run_dir / "page_jobs.json")
             result_payload = jobs["pages"][0]["result"]
             self.assertEqual("recorded", jobs["pages"][0]["status"])
-            self.assertEqual("dispatched-worker", result_payload["record_mode"])
+            self.assertEqual("local-main-agent", result_payload["record_mode"])
 
     def test_configure_image_backend_writes_deck_and_requests(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -843,6 +876,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertEqual(0, result.returncode, result.stderr)
             jobs = read_json(run_dir / "page_jobs.json")
             result_payload = jobs["pages"][1]["result"]
+            self.assertEqual("dispatched-worker", result_payload["record_mode"])
             self.assertNotIn("qa_note", result_payload)
             self.assertNotIn("known_limits", result_payload)
 
