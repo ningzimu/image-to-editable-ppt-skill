@@ -56,7 +56,7 @@
 - 文字大小与位置由测量驱动：prepare 阶段为每页生成文字标注（框坐标 + 字号 + 字号分组），模型按测量值还原文字，同级文字字号自动保持一致。
 - 多张图片按提供顺序生成页面；PDF 和 `.pptx` 保留原页码顺序。
 - `.pptx` 输入的页面备注会复制到输出对应页，备注内容不改动。
-- 根据具体页面情况决定是否通过已确认 image backend 做图片分层抽取；需要时用稀疏 asset sheet 合并前景素材，尽可能降低图片生成调用次数。
+- 根据具体页面情况决定是否通过已确认 image backend 做图片分层抽取；需要时用稀疏 asset sheet 合并前景素材，优先把图标放在一个素材板上，并保留充足间隙便于后续分离。
 - 支持复杂视觉页的混合策略：可编辑文字 + 简单形状 + 独立图片资产。
 
 ## 适用场景
@@ -70,7 +70,7 @@
 ## 运行要求
 
 - 多页输入需要 agent 能分派 page worker/subagent；如果不能创建 page worker，应换到支持 page worker 的环境执行。
-- 复杂背景补全、前景图标提取、透明 asset sheet 和局部图片编辑统一走 `editppt image edit/generate/batch`。
+- 复杂背景补全、前景图标提取、透明 asset sheet 和局部图片编辑统一走串行 `editppt image edit/generate` 调用。
 - 如果本机有 Codex OAuth（`~/.codex/auth.json`），CLI 会直接使用；否则使用 API fallback。
 - API fallback 配置保存在 `~/.editppt/config.yaml`；Windows 下对应 `%USERPROFILE%\.editppt\config.yaml`。
 - 文字大小与位置的校正需要一个第三方 OCR Token（百度 AI Studio，免费），详见下文「文字校正与 OCR Token」；未配置时退化为内置离线检测，文字还原质量会打折扣。
@@ -78,6 +78,8 @@
 ## 图片 Backend 与第三方 API 配置
 
 `editppt image` 会自动选择图片后端：优先使用本机 Codex OAuth；如果不可用，再读取 `~/.editppt/config.yaml` 或环境变量里的 OpenAI-compatible API 配置。
+
+`editppt image generate/edit` 的公开参数面保持精简：请求输入只需要 `--prompt` 或 `--prompt-file`，编辑图还需要 `--image`；页面重建时应显式传 `--out`。实用控制只保留 `--model`、`--size`、`--quality`、`--force`、`--dry-run`、`--timeout`，以及编辑图专用的 `--mask`。CLI 不会透传其它 image API 选项。
 
 通常不需要你自己配置。只有这些情况才需要让 AI 帮你配置 API fallback：
 

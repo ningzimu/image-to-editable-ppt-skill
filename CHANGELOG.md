@@ -4,6 +4,12 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Fixes
+
+- Route the Codex OAuth image backend through the Codex Images generation and edit endpoints instead of the Responses image-generation tool.
+- Align `editppt image` with the Codex GPT Image workflow: default model, automatic size and quality, a longer Codex OAuth timeout, and a narrow backend request payload that passes only the retained image parameters.
+- Remove the `editppt image batch` interface so page-local image jobs run serially, and document that foreground icons should be grouped into one sparse asset sheet with generous gaps unless one sheet cannot fit them.
+
 ## 0.2.0
 
 ### Features

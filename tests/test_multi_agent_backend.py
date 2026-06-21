@@ -1,6 +1,3 @@
-import argparse
-import asyncio
-import base64
 import json
 import os
 import subprocess
@@ -8,7 +5,6 @@ import sys
 import tempfile
 import unittest
 import zipfile
-from unittest import mock
 from pathlib import Path
 
 from PIL import Image
@@ -27,9 +23,6 @@ CLI_ENV["PYTHONPATH"] = (
     else str(CLI_DIR) + os.pathsep + CLI_ENV["PYTHONPATH"]
 )
 os.environ["PYTHONPATH"] = CLI_ENV["PYTHONPATH"]
-
-from editppt.runtime import image_gen  # noqa: E402
-
 
 def write_json(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -214,24 +207,15 @@ class MultiAgentBackendTest(unittest.TestCase):
         self.assertNotIn("<repo-path>", json.dumps(payload, ensure_ascii=False))
         self.assertNotIn("pipx upgrade image-to-editable-ppt", json.dumps(payload, ensure_ascii=False))
 
-    def test_image_batch_help_uses_public_command_name(self):
+    def test_image_batch_command_is_removed(self):
         result = subprocess.run(
             [sys.executable, "-m", "editppt.cli", "image", "batch", "--help"],
             cwd=ROOT,
             text=True,
             capture_output=True,
         )
-        self.assertEqual(0, result.returncode, result.stderr)
-        self.assertIn("usage: editppt image batch", result.stdout)
-        self.assertIn("Backend:", result.stdout)
-        self.assertIn("JSONL input:", result.stdout)
-        self.assertIn("image: \"source.png\" -> edit job", result.stdout)
-        self.assertIn("images: [\"source.png\", \"style.png\"]", result.stdout)
-        self.assertIn("Duplicate output paths fail before requests are sent.", result.stdout)
-        self.assertNotIn("--prompt PROMPT", result.stdout)
-        self.assertNotIn("--prompt-file", result.stdout)
-        self.assertNotIn("--out OUT", result.stdout)
-        self.assertNotIn("generate-batch", result.stdout)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("invalid choice", result.stderr)
 
     def test_image_help_documents_backend_contract(self):
         result = subprocess.run(
@@ -245,6 +229,51 @@ class MultiAgentBackendTest(unittest.TestCase):
         self.assertIn("Codex OAuth uses", result.stdout)
         self.assertIn("API fallback uses", result.stdout)
         self.assertIn("editppt image edit --image pages/page_001/source.png", result.stdout)
+        self.assertNotIn("batch", result.stdout)
+
+    def test_image_generate_help_limits_public_parameters(self):
+        result = subprocess.run(
+            [sys.executable, "-m", "editppt.cli", "image", "generate", "--help"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        for expected in (
+            "--model",
+            "--prompt",
+            "--prompt-file",
+            "--size",
+            "--quality",
+            "--out",
+            "--force",
+            "--dry-run",
+            "--timeout",
+        ):
+            self.assertIn(expected, result.stdout)
+        for removed in (
+            "--n",
+            "--background",
+            "--output-format",
+            "--output-compression",
+            "--moderation",
+            "--out-dir",
+            "--augment",
+            "--no-augment",
+            "--use-case",
+            "--scene",
+            "--subject",
+            "--composition",
+            "--lighting",
+            "--palette",
+            "--materials",
+            "--text",
+            "--constraints",
+            "--negative",
+            "--downscale-max-dim",
+            "--downscale-suffix",
+        ):
+            self.assertNotIn(removed, result.stdout)
 
     def test_image_edit_help_omits_unsupported_fidelity_flag(self):
         result = subprocess.run(
@@ -257,7 +286,21 @@ class MultiAgentBackendTest(unittest.TestCase):
         self.assertIn("usage: editppt image edit", result.stdout)
         self.assertIn("Background cleanup", result.stdout)
         self.assertIn("strict visual reference", result.stdout)
+        for expected in ("--model", "--size", "--quality", "--image", "--mask", "--out", "--dry-run"):
+            self.assertIn(expected, result.stdout)
         self.assertNotIn("--input-fidelity", result.stdout)
+        for removed in (
+            "--n",
+            "--background",
+            "--output-format",
+            "--output-compression",
+            "--moderation",
+            "--out-dir",
+            "--augment",
+            "--text",
+            "--downscale-max-dim",
+        ):
+            self.assertNotIn(removed, result.stdout)
 
     def test_process_sheet_resolves_asset_source_relative_to_page_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -287,139 +330,6 @@ class MultiAgentBackendTest(unittest.TestCase):
             )
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertTrue((page_dir / "copied-sheet.png").exists())
-
-    def test_image_batch_api_dry_run_routes_image_jobs_to_edit(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            source = Path(tmp) / "source.png"
-            jobs = Path(tmp) / "jobs.jsonl"
-            out_dir = Path(tmp) / "out"
-            Image.new("RGB", (24, 24), "white").save(source)
-            jobs.write_text(
-                json.dumps(
-                    {
-                        "prompt": "extract the foreground icon",
-                        "image": str(source),
-                        "out": "icon.png",
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            env = os.environ.copy()
-            env["CODEX_AUTH_FILE"] = str(Path(tmp) / "missing-auth.json")
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "editppt.cli",
-                    "image",
-                    "batch",
-                    "--input",
-                    str(jobs),
-                    "--out-dir",
-                    str(out_dir),
-                    "--dry-run",
-                ],
-                cwd=ROOT,
-                env=env,
-                text=True,
-                capture_output=True,
-            )
-            self.assertEqual(0, result.returncode, result.stderr)
-            payload = json.loads(result.stdout)
-            self.assertEqual("openai-compatible-api", payload["backend"])
-            self.assertEqual("/v1/images/edits", payload["endpoint"])
-            self.assertEqual("edit", payload["operation"])
-            self.assertEqual([str(source)], payload["image"])
-            self.assertEqual([str(out_dir / "icon.png")], payload["outputs"])
-
-    def test_image_batch_api_edit_jobs_run_concurrently(self):
-        class FakeImage:
-            b64_json = base64.b64encode(b"fake-png").decode("ascii")
-
-        class FakeResult:
-            data = [FakeImage()]
-
-        class FakeImages:
-            def __init__(self):
-                self.active = 0
-                self.max_active = 0
-                self.requests = []
-
-            async def edit(self, **request):
-                self.requests.append(request)
-                self.active += 1
-                self.max_active = max(self.max_active, self.active)
-                await asyncio.sleep(0.05)
-                self.active -= 1
-                return FakeResult()
-
-        class FakeClient:
-            def __init__(self):
-                self.images = FakeImages()
-
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            source_1 = tmp_path / "source-1.png"
-            source_2 = tmp_path / "source-2.png"
-            jobs = tmp_path / "jobs.jsonl"
-            out_dir = tmp_path / "out"
-            Image.new("RGB", (24, 24), "white").save(source_1)
-            Image.new("RGB", (24, 24), "black").save(source_2)
-            jobs.write_text(
-                "\n".join(
-                    [
-                        json.dumps({"prompt": "edit one", "image": str(source_1), "out": "one.png"}),
-                        json.dumps({"prompt": "edit two", "image": str(source_2), "out": "two.png"}),
-                    ]
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-            fake_client = FakeClient()
-            args = argparse.Namespace(
-                input=str(jobs),
-                out_dir=str(out_dir),
-                model="gpt-image-2",
-                n=1,
-                size="1024x1024",
-                quality="low",
-                background="auto",
-                output_format="png",
-                output_compression=None,
-                moderation=None,
-                downscale_max_dim=None,
-                downscale_suffix="-web",
-                augment=True,
-                use_case=None,
-                scene=None,
-                subject=None,
-                style=None,
-                composition=None,
-                lighting=None,
-                palette=None,
-                materials=None,
-                text=None,
-                constraints=None,
-                negative=None,
-                concurrency=2,
-                max_attempts=1,
-                fail_fast=False,
-                force=True,
-                dry_run=False,
-                timeout=180,
-            )
-
-            with mock.patch.object(image_gen, "_codex_available", return_value=False), mock.patch.object(
-                image_gen, "_create_async_client", return_value=fake_client
-            ):
-                exit_code = asyncio.run(image_gen._run_generate_batch(args))
-
-            self.assertEqual(0, exit_code)
-            self.assertEqual(2, fake_client.images.max_active)
-            self.assertEqual(2, len(fake_client.images.requests))
-            self.assertTrue((out_dir / "one.png").exists())
-            self.assertTrue((out_dir / "two.png").exists())
 
     def test_image_edit_passthrough_preserves_image_argument(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -451,7 +361,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertEqual(0, result.returncode, result.stderr)
             payload = json.loads(result.stdout)
             self.assertEqual([str(source)], payload["image"])
-            self.assertEqual("Primary request: test", payload["prompt"])
+            self.assertEqual("test", payload["prompt"])
 
     def test_image_edit_dry_run_prefers_codex_oauth_when_auth_exists(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -485,7 +395,49 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertEqual(0, result.returncode, result.stderr)
             payload = json.loads(result.stdout)
             self.assertEqual("codex-oauth", payload["backend"])
+            self.assertEqual("https://chatgpt.com/backend-api/codex/images/edits", payload["endpoint"])
+            self.assertEqual("edit", payload["operation"])
             self.assertEqual([str(source)], payload["input_images"])
+            self.assertEqual("auto", payload["size"])
+            self.assertEqual("auto", payload["quality"])
+            for removed in ("background", "moderation", "output_format", "output_compression", "n"):
+                self.assertNotIn(removed, payload)
+
+    def test_image_generate_dry_run_prefers_codex_images_endpoint_when_auth_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out.png"
+            auth = Path(tmp) / "auth.json"
+            write_json(auth, {"tokens": {"access_token": "test-token"}})
+            env = os.environ.copy()
+            env["CODEX_AUTH_FILE"] = str(auth)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "editppt.cli",
+                    "image",
+                    "generate",
+                    "--prompt",
+                    "test",
+                    "--out",
+                    str(out),
+                    "--dry-run",
+                ],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual("codex-oauth", payload["backend"])
+            self.assertEqual("https://chatgpt.com/backend-api/codex/images/generations", payload["endpoint"])
+            self.assertEqual("generate", payload["operation"])
+            self.assertEqual([], payload["input_images"])
+            self.assertEqual("auto", payload["size"])
+            self.assertEqual("auto", payload["quality"])
+            for removed in ("background", "moderation", "output_format", "output_compression", "n"):
+                self.assertNotIn(removed, payload)
 
     def test_runtime_config_writes_owner_only_yaml(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -622,7 +574,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             backend = deck["image_backend"]
             self.assertEqual("editppt-image-cli", backend["backend_id"])
             self.assertEqual("editppt image", backend["tool_name"])
-            self.assertEqual("editppt image generate/edit/batch", backend["tool_call"])
+            self.assertEqual("editppt image generate/edit", backend["tool_call"])
             self.assertFalse(backend["requires_openai_api_key"])
 
     def test_prepare_writes_default_backend_contract(self):

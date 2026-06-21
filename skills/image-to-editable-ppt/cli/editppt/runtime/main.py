@@ -708,7 +708,7 @@ comparison image.
         help="Generate/edit images and process image assets.",
         description="""Unified image generation/editing and deterministic image-file handling.
 
-Use generate/edit/batch for Codex OAuth first, with OpenAI-compatible API fallback
+Use generate/edit for Codex OAuth first, with OpenAI-compatible API fallback
 when local Codex auth is unavailable. Use process-sheet for deterministic
 asset-sheet splitting inside page directories.
 """,
@@ -723,10 +723,14 @@ Setup:
   editppt config --api-key "your-api-key" --model gpt-image-2
   editppt config --api-key "your-api-key" --base-url https://example.test/v1 --model openai/gpt-image-2
 
+Parameter surface:
+  generate/edit backend requests pass only model, prompt, size, and quality.
+  edit also passes input images and an optional mask. Local controls such as
+  --out, --force, --dry-run, and --timeout are not image API parameters.
+
 Patterns:
   editppt image edit --image pages/page_001/source.png --prompt-file clean-base.prompt.txt --out pages/page_001/assets/clean-base.png
   editppt image edit --image pages/page_001/source.png --prompt-file asset-sheet.prompt.txt --out pages/page_001/assets/asset-sheet.png
-  editppt image batch --input jobs.jsonl --out-dir pages/page_001/assets --concurrency 6
 """,
     )
     image_sub = image.add_subparsers(dest="image_command", metavar="image-command", required=True)
@@ -734,7 +738,6 @@ Patterns:
     for name, help_text in (
         ("generate", "Create a new image through the unified image backend."),
         ("edit", "Edit one or more images through the unified image backend."),
-        ("batch", "Generate multiple images from JSONL input."),
     ):
         image_api = image_sub.add_parser(name, help=help_text, add_help=False)
         image_api.add_argument("image_args", nargs=argparse.REMAINDER)
@@ -761,7 +764,7 @@ Patterns:
 
 def main() -> int:
     raw_argv = sys.argv[1:]
-    if len(raw_argv) >= 2 and raw_argv[0] == "image" and raw_argv[1] in {"generate", "edit", "batch"}:
+    if len(raw_argv) >= 2 and raw_argv[0] == "image" and raw_argv[1] in {"generate", "edit"}:
         return run_script("image_gen.py", [raw_argv[1], *raw_argv[2:]])
 
     parser = build_parser()

@@ -56,7 +56,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 - Text sizes and positions are measurement-driven: prepare generates per-page text annotations (box coordinates + font sizes + size groups), and same-level text keeps one consistent size automatically.
 - Keep multiple images in the provided order; preserve PDF and `.pptx` page order.
 - Preserve `.pptx` speaker notes on matching output slides without modifying note text.
-- Decides page by page whether to use the confirmed image backend for visual-layer extraction; when needed, sparse asset sheets group foreground assets to reduce image generation calls.
+- Decides page by page whether to use the confirmed image backend for visual-layer extraction; when needed, sparse asset sheets group foreground assets, prefer placing icons on one sheet, and keep generous gaps for later splitting.
 - Supports hybrid reconstruction: editable text, simple native shapes, and independent image assets.
 
 ## Use Cases
@@ -70,7 +70,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 ## Runtime Requirements
 
 - Multi-page input requires the agent to dispatch page workers/subagents; if page workers cannot be created, run the skill in an environment that supports page workers.
-- Complex background cleanup, foreground icon extraction, transparent asset sheets, and local image edits use `editppt image edit/generate/batch`.
+- Complex background cleanup, foreground icon extraction, transparent asset sheets, and local image edits use serial `editppt image edit/generate` calls.
 - If local Codex OAuth exists (`~/.codex/auth.json`), the CLI uses it directly; otherwise it uses API fallback.
 - API fallback configuration lives in `~/.editppt/config.yaml`; on Windows this is `%USERPROFILE%\.editppt\config.yaml`.
 - Correcting text sizes and positions relies on a third-party OCR token (Baidu AI Studio, free) — see "Text Correction And OCR Token" below. Without it the skill falls back to the built-in offline detector with reduced text fidelity.
@@ -78,6 +78,8 @@ It is useful when screenshot-like or image-based slides need to become easier to
 ## Image Backend And Third-Party API Configuration
 
 `editppt image` selects the image backend automatically: it uses local Codex OAuth first, then falls back to OpenAI-compatible API settings from `~/.editppt/config.yaml` or environment variables.
+
+The public `editppt image generate/edit` parameter surface is intentionally narrow: request inputs need `--prompt` or `--prompt-file`, and edits also need `--image`; page reconstruction should pass an explicit `--out`. The retained practical controls are `--model`, `--size`, `--quality`, `--force`, `--dry-run`, `--timeout`, and edit-only `--mask`. The CLI does not pass any other image API options.
 
 You usually do not need to configure this yourself. Ask the AI to configure API fallback only when:
 

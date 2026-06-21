@@ -32,7 +32,6 @@ editppt                         - top-level CLI for setup, run orchestration, im
 |-- image                       - generate, edit, import, and process bitmap assets
 |   |-- generate                - create a new image from a text prompt
 |   |-- edit                    - edit a source image for clean bases or source-faithful asset sheets
-|   |-- batch                   - run multiple generate/edit jobs from JSONL with concurrency
 |   |-- import                  - copy a selected image into the page dir and record provenance
 |   `-- process-sheet           - split a chroma-key asset sheet into transparent assets
 `-- formula                     - render formula assets from agent-transcribed LaTeX
@@ -47,11 +46,12 @@ editppt run --help
 editppt page hints --help
 editppt image --help
 editppt image edit --help
-editppt image batch --help
 editppt formula render-latex --help
 ```
 
 `editppt image` automatically chooses the image backend: Codex OAuth first, then OpenAI-compatible API credentials from `~/.editppt/config.yaml` or environment variables if OAuth is unavailable.
+
+Public `editppt image generate/edit` parameters are intentionally narrow. Required request inputs are `--prompt` or `--prompt-file`, plus at least one `--image` for `edit`. Page runs should pass an explicit `--out`. Retained useful controls are `--model` (default `gpt-image-2`), `--size` (default `auto`), `--quality` (default `auto`), `--force`, `--dry-run`, `--timeout`, and edit-only `--mask`. The CLI does not pass any other image API options.
 
 ## Skill Script Commands
 
@@ -209,16 +209,7 @@ editppt image edit \
   --out pages/page_001/assets/asset-sheet.png
 ```
 
-Batch generate or edit:
-
-```bash
-editppt image batch \
-  --input pages/page_001/image-jobs.jsonl \
-  --out-dir pages/page_001/assets \
-  --concurrency 6
-```
-
-A JSONL job without `image` / `images` is a generate job. A job with `image` / `images` is an edit job.
+When multiple image outputs are required, run `editppt image generate` or `editppt image edit` calls serially. For foreground icons and small visual objects, prefer one sparse asset sheet with generous spacing; create a second sheet only when one sheet cannot fit the required objects cleanly.
 
 ## Asset Processing Commands
 
