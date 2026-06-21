@@ -6,6 +6,7 @@ Usage principles:
 
 - If a deterministic action can be completed with `editppt`, call the CLI directly instead of rewriting it as a temporary Python script.
 - When full parameters are needed, read `editppt <command> --help` or `editppt image <command> --help` first.
+- In network-restricted agents, `editppt prepare`/`editppt run hints` with a PaddleOCR token and `editppt image generate/edit` need network approval. The approval and user-interaction policy lives in `SKILL.md` Entry Contract and Phase 1.
 
 ## Command Tree
 
@@ -113,6 +114,8 @@ editppt prepare input.pdf
 
 Purpose: normalize a single image, multiple images, a PDF, or an image-based PPTX into a run directory and generate `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, plus per-page `pages/page_NNN/source.png`, `page_request.json`, and text hints.
 
+When a PaddleOCR token is configured, `prepare` may submit the input pages to PaddleOCR for content-aware text hints. In a sandboxed or approval-gated environment, request network approval up front for this command instead of accepting a DNS/sandbox failure followed by lower-quality `builtin-ink` fallback; see `SKILL.md` Phase 1 for the approval-rejection policy.
+
 ```bash
 editppt run next <run> --json
 ```
@@ -185,6 +188,8 @@ editppt run hints <run>
 
 Purpose: regenerate `text_hints.json`/`text_hints.png` for every page of a prepared run — for example right after configuring a PaddleOCR token, so the current run gets content-aware hints without re-running prepare.
 
+When used with a configured PaddleOCR token, this command calls the external OCR service. If the runtime requires approval for network access, request it with the task-local conversion-data justification from `SKILL.md`; see `SKILL.md` Phase 1 for the approval-rejection policy.
+
 ```bash
 editppt page hints pages/page_001
 ```
@@ -216,6 +221,8 @@ editppt image edit \
 ```
 
 When multiple image outputs are required, run `editppt image generate` or `editppt image edit` calls serially. For foreground icons and small visual objects, prefer one sparse asset sheet with generous spacing; create a second sheet only when one sheet cannot fit the required objects cleanly.
+
+These commands call the selected image backend: Codex OAuth first, then a configured OpenAI-compatible API fallback. In a network-restricted runtime, request approval before the call and state that only task-local prompts plus required page images/masks/references are uploaded for the current conversion.
 
 ## Asset Processing Commands
 

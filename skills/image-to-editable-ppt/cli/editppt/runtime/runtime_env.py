@@ -217,6 +217,21 @@ def collect_status(check_api=False):
             "apply_url": PADDLE_TOKEN_APPLY_URL,
             "configure_command": "editppt config --paddle-ocr-token <token>",
         },
+        "network_approval": {
+            "commands": [
+                "editppt prepare / editppt run hints when PADDLE_OCR_TOKEN is set",
+                "editppt image generate/edit",
+            ],
+            "justification": (
+                "User-requested image-to-editable-ppt conversion; uploads are limited to "
+                "task-local page images, prompts, masks, and references required by OCR/image backends."
+            ),
+            "paddle_rejection_guidance": (
+                "If PaddleOCR approval is rejected, ask the user to authorize OCR explicitly; "
+                "explain that OCR corrects text boxes, font sizes, and size groups so reconstructed "
+                "PPT text sizing stays stable."
+            ),
+        },
         "next": "no action needed" if ok else (
             "run `codex login` or `editppt config --api-key <key>`" if check_api and not image_backend_ready
             else cli_reinstall_hint().strip("`")
@@ -243,6 +258,15 @@ def doctor(args):
     print(f"image backend={image_backend['selection']}")
     hints = status["text_hints"]
     print(f"text hints={hints['selection']} (PADDLE_OCR_TOKEN {hints['paddle_token']})")
+    print(
+        "network approval: in restricted agents, request approval up front for OCR/image backend "
+        "commands; conversion uploads are limited to task-local page images, prompts, masks, "
+        "and references."
+    )
+    print(
+        "paddle approval rejection: ask the user to authorize OCR and explain that it corrects "
+        "text boxes, font sizes, and size groups so reconstructed PPT text sizing stays stable."
+    )
     if hints["paddle_token"] == "unset":
         print(
             "text hints: ASK THE USER once — a free PaddleOCR token makes text hints content-aware "

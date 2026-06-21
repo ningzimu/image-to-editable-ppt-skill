@@ -10,6 +10,7 @@ Release notes are generated from this file. Keep changelog entries in English.
 - Align `editppt image` with the Codex GPT Image workflow: default model, automatic size and quality, a longer Codex OAuth timeout, and a narrow backend request payload that passes only the retained image parameters.
 - Remove the `editppt image batch` interface so page-local image jobs run serially, and document that foreground icons should be grouped into one sparse asset sheet with generous gaps unless one sheet cannot fit them.
 - Clarify that user-requested conversions authorize necessary OCR and image-backend calls while limiting uploads to task-local page images, prompts, masks, and references.
+- Document upfront network approval handling for PaddleOCR, Codex OAuth image calls, and configured OpenAI-compatible image APIs in restricted agent environments.
 - Guard `editppt run reset` for dispatched pages with `--confirm-lost` and a matching `--agent-id`, and document that slow active page workers must not be reset or replaced.
 - Support single-page local reconstruction by returning `rebuild_page_locally`, recording `editppt run dispatch --local`, and keeping the same page artifact and record/finalize path as worker-dispatched pages.
 

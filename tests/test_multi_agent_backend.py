@@ -203,9 +203,29 @@ class MultiAgentBackendTest(unittest.TestCase):
         )
         self.assertEqual(0, result.returncode, result.stderr)
         payload = json.loads(result.stdout)
+        self.assertIn("network_approval", payload)
+        self.assertIn("paddle_rejection_guidance", payload["network_approval"])
         self.assertNotIn("skill_root", payload)
         self.assertNotIn("<repo-path>", json.dumps(payload, ensure_ascii=False))
         self.assertNotIn("pipx upgrade image-to-editable-ppt", json.dumps(payload, ensure_ascii=False))
+
+    def test_runtime_doctor_text_mentions_network_approval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.environ.copy()
+            env["EDITPPT_CONFIG_HOME"] = tmp
+            result = subprocess.run(
+                [sys.executable, "-m", "editppt.cli", "doctor"],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn("network approval:", result.stdout)
+            self.assertIn("OCR/image backend", result.stdout)
+            self.assertIn("task-local page images", result.stdout)
+            self.assertIn("paddle approval rejection:", result.stdout)
+            self.assertIn("text sizing stays stable", result.stdout)
 
     def test_image_batch_command_is_removed(self):
         result = subprocess.run(
