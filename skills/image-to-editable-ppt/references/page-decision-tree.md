@@ -8,7 +8,7 @@ Every `source.png` is judged in three steps, in this order:
 2. Foreground asset separation.
 3. PPT native element reconstruction.
 
-The order exists because steps 1-2 decide object sources and step 3 consumes those decisions. Nativizing text and layout first locks in wrong choices: text that belongs to a logo, a UI screenshot, or a to-be-separated asset must not become a native text box, and which text needs clean-base removal depends on the background decision. Define the boundaries between background, foreground, and native structure first; then write the manifest. This order costs no wall-clock time — submit all step-1/2 image jobs as one `editppt image batch` call and fill text boxes from the measured hints while those jobs run.
+The order exists because steps 1-2 decide object sources and step 3 consumes those decisions. Nativizing text and layout first locks in wrong choices: text that belongs to a logo, a UI screenshot, or a to-be-separated asset must not become a native text box, and which text needs clean-base removal depends on the background decision. Define the boundaries between background, foreground, and native structure first; then write the manifest. Submit image jobs serially with `editppt image generate` or `editppt image edit`; do not parallelize page-local image jobs through a batch interface because concurrent asset-sheet calls make rate limits, retries, and reconciliation failures harder to diagnose.
 
 Contents:
 
@@ -122,7 +122,8 @@ An asset sheet is source-faithful separation, not redraw. The generation prompt 
 - Separate existing objects from the source.
 - Preserve original shapes, strokes, colors, proportions, internal spacing, texture, and visual identity.
 - Use a flat chroma-key background; choose the key color based on the subject colors in `visual_inventory`.
-- Every object complete, not touching or overlapping other objects, with sufficient padding.
+- Put as many icons and foreground visual objects as practical onto one sparse asset sheet. Create multiple asset sheets only when a single sheet cannot fit all required objects with clear separation.
+- Every object complete, not touching or overlapping other objects, with generous empty space between neighboring objects and sufficient outer padding so `process-sheet` can split each icon/object cleanly.
 - Object count and order match `visual_inventory`.
 - No readable text, labels, pseudo-text, or watermarks.
 - No whole cards, whole panels, whole charts, or full-page fragments.

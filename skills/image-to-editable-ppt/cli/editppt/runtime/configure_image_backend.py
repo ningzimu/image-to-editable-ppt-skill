@@ -19,7 +19,7 @@ def backend_contract(args):
         "chroma_key_helper": "editppt image process-sheet",
         "input_context_policy": args.input_context_policy,
         "save_path_policy": "write outputs directly to page dir or copy selected outputs before manifest references them",
-        "handoff_rule": "call editppt image generate/edit/batch; the CLI selects Codex OAuth first and OpenAI-compatible API fallback second",
+        "handoff_rule": "call editppt image generate/edit serially; the CLI selects Codex OAuth first and OpenAI-compatible API fallback second",
     }
 
 
@@ -38,7 +38,7 @@ def main():
     if args.tool_name is None:
         args.tool_name = "editppt image"
     if args.tool_call is None:
-        args.tool_call = "editppt image generate/edit/batch"
+        args.tool_call = "editppt image generate/edit"
     if args.fallback_command is None:
         args.fallback_command = "editppt image"
 

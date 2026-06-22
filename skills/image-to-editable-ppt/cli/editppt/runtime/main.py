@@ -216,6 +216,18 @@ def cmd_next(args: argparse.Namespace) -> int:
         selected = dispatchable[:slots]
         first_page = find_page(jobs, selected[0])
         prompt_out = page_dir_for(run_dir, first_page) / "worker-prompt.md"
+        if len(pages) == 1 and selected == [first_page.get("page_id")]:
+            payload = {
+                "run_dir": str(run_dir),
+                "stage": "rebuild_page_locally",
+                "dispatch_slots_available": slots,
+                "dispatchable_pages": dispatchable,
+                "suggested_pages": selected,
+                "prompt_file": str(prompt_out),
+                "next_command": f"{cli_prog()} run dispatch {run_dir} --page {selected[0]} --agent-id main --prompt-file {prompt_out} --local",
+                "agent_focus": "Build the page prompt, claim local execution with dispatch --local, rebuild the page yourself using that prompt, then record the result.",
+            }
+            return print_json(payload) if args.json else _print_next_text(payload)
         payload = {
             "run_dir": str(run_dir),
             "stage": "dispatch_pages",
@@ -239,7 +251,7 @@ def cmd_next(args: argparse.Namespace) -> int:
             "stage": "wait",
             "active_or_unfinished_pages": unfinished,
             "next_command": f"{cli_prog()} run status {run_dir}",
-            "agent_focus": "Wait for dispatched workers, then record completed page results. If a worker returned a failure, fix the root cause and `run reset` that page for re-dispatch.",
+            "agent_focus": "Wait for dispatched workers, then record completed page results. Do not reset slow active workers; use `run reset` only after failure, terminal state, cancellation, or lost-worker verification.",
         }
         return print_json(payload) if args.json else _print_next_text(payload)
 
@@ -277,6 +289,8 @@ def cmd_dispatch(args: argparse.Namespace) -> int:
     argv = [args.run, "--page", args.page, "--agent-id", args.agent_id, "--prompt-file", args.prompt_file]
     if args.agent_nickname:
         argv.extend(["--agent-nickname", args.agent_nickname])
+    if args.local:
+        argv.append("--local")
     return run_script("record_page_dispatch.py", argv)
 
 
@@ -288,7 +302,12 @@ def cmd_record(args: argparse.Namespace) -> int:
 
 
 def cmd_reset(args: argparse.Namespace) -> int:
-    return run_script("reset_page_job.py", [args.run, "--page", args.page])
+    argv = [args.run, "--page", args.page]
+    if args.agent_id:
+        argv.extend(["--agent-id", args.agent_id])
+    if args.confirm_lost:
+        argv.append("--confirm-lost")
+    return run_script("reset_page_job.py", argv)
 
 
 def cmd_page_build(args: argparse.Namespace) -> int:
@@ -540,7 +559,7 @@ Use this only when forcing OpenAI-compatible API metadata or a custom image back
     dispatch = run_sub.add_parser(
         "dispatch",
         help="Record page dispatch.",
-        description="Mark a page as dispatched after a worker/thread has been created.",
+        description="Mark a page as dispatched after a worker/thread has been created, or after the main agent claims a single-page run with --local.",
         formatter_class=HELP_FORMATTER,
     )
     dispatch.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
@@ -548,12 +567,13 @@ Use this only when forcing OpenAI-compatible API metadata or a custom image back
     dispatch.add_argument("--agent-id", required=True, metavar="ID", help="Runtime worker/thread id.")
     dispatch.add_argument("--prompt-file", required=True, metavar="FILE", help="Prompt file used to spawn the worker. It must resolve inside the page directory.")
     dispatch.add_argument("--agent-nickname", metavar="NAME", help="Optional human-readable worker label.")
+    dispatch.add_argument("--local", action="store_true", help="Claim a single-page run for main-agent local reconstruction instead of spawning a worker.")
     dispatch.set_defaults(func=cmd_dispatch)
 
     record = run_sub.add_parser(
         "record",
         help="Record and verify a page result.",
-        description="Validate required page outputs, record hashes, and mark the page recorded. Pages must be dispatched to a worker before recording. Fails when validation.json does not contain top-level passed: true; fix the page, then use `run reset` to re-dispatch.",
+        description="Validate required page outputs, record hashes, and mark the page recorded. Pages must be dispatched to a worker or claimed with --local before recording. Fails when validation.json does not contain top-level passed: true; fix the page, then use `run reset` to re-dispatch.",
         formatter_class=HELP_FORMATTER,
     )
     record.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
@@ -564,12 +584,14 @@ Use this only when forcing OpenAI-compatible API metadata or a custom image back
 
     reset = run_sub.add_parser(
         "reset",
-        help="Reset a failed or stuck page back to pending for re-dispatch.",
-        description="Return a dispatched or recorded page to pending, clearing its dispatch and result records, so a new worker can be dispatched. Use it when a worker returned a failed page, record validation failed, or a dispatched worker is lost.",
+        help="Reset a failed or inactive page back to pending for re-dispatch.",
+        description="Return a recorded page, or an explicitly inactive/lost dispatched page, to pending. Dispatched pages require --confirm-lost and a matching --agent-id so active long-running workers are not reset accidentally.",
         formatter_class=HELP_FORMATTER,
     )
     reset.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
     reset.add_argument("--page", required=True, metavar="PAGE", help="Page id such as page_001, or page number such as 1.")
+    reset.add_argument("--agent-id", metavar="ID", help="Required for dispatched pages; must match the recorded worker/thread id.")
+    reset.add_argument("--confirm-lost", action="store_true", help="Required for dispatched pages. Confirms the original worker is no longer active or must be abandoned.")
     reset.set_defaults(func=cmd_reset)
 
     run_hints = run_sub.add_parser(
@@ -708,7 +730,7 @@ comparison image.
         help="Generate/edit images and process image assets.",
         description="""Unified image generation/editing and deterministic image-file handling.
 
-Use generate/edit/batch for Codex OAuth first, with OpenAI-compatible API fallback
+Use generate/edit for Codex OAuth first, with OpenAI-compatible API fallback
 when local Codex auth is unavailable. Use process-sheet for deterministic
 asset-sheet splitting inside page directories.
 """,
@@ -723,10 +745,14 @@ Setup:
   editppt config --api-key "your-api-key" --model gpt-image-2
   editppt config --api-key "your-api-key" --base-url https://example.test/v1 --model openai/gpt-image-2
 
+Parameter surface:
+  generate/edit backend requests pass only model, prompt, size, and quality.
+  edit also passes input images and an optional mask. Local controls such as
+  --out, --force, --dry-run, and --timeout are not image API parameters.
+
 Patterns:
   editppt image edit --image pages/page_001/source.png --prompt-file clean-base.prompt.txt --out pages/page_001/assets/clean-base.png
   editppt image edit --image pages/page_001/source.png --prompt-file asset-sheet.prompt.txt --out pages/page_001/assets/asset-sheet.png
-  editppt image batch --input jobs.jsonl --out-dir pages/page_001/assets --concurrency 6
 """,
     )
     image_sub = image.add_subparsers(dest="image_command", metavar="image-command", required=True)
@@ -734,7 +760,6 @@ Patterns:
     for name, help_text in (
         ("generate", "Create a new image through the unified image backend."),
         ("edit", "Edit one or more images through the unified image backend."),
-        ("batch", "Generate multiple images from JSONL input."),
     ):
         image_api = image_sub.add_parser(name, help=help_text, add_help=False)
         image_api.add_argument("image_args", nargs=argparse.REMAINDER)
@@ -761,7 +786,7 @@ Patterns:
 
 def main() -> int:
     raw_argv = sys.argv[1:]
-    if len(raw_argv) >= 2 and raw_argv[0] == "image" and raw_argv[1] in {"generate", "edit", "batch"}:
+    if len(raw_argv) >= 2 and raw_argv[0] == "image" and raw_argv[1] in {"generate", "edit"}:
         return run_script("image_gen.py", [raw_argv[1], *raw_argv[2:]])
 
     parser = build_parser()

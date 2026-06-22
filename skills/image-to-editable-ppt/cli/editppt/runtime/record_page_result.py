@@ -58,7 +58,7 @@ def validate_page_contract(paths):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Record and verify a page worker result.")
+    parser = argparse.ArgumentParser(description="Record and verify a page reconstruction result.")
     parser.add_argument("run", help="Run directory or deck_manifest.json")
     parser.add_argument("--page", required=True, help="page_001 or 1")
     parser.add_argument("--agent-id", required=True)
@@ -74,7 +74,8 @@ def main():
             raise SystemExit(
                 f"Agent id mismatch for {page['page_id']}: dispatch={dispatch.get('agent_id')} result={args.agent_id}"
             )
-        record_mode = "dispatched-worker"
+        execution_mode = dispatch.get("execution_mode") or "worker"
+        record_mode = "local-main-agent" if execution_mode == "local" else "dispatched-worker"
     elif page.get("status") == "recorded":
         previous = page.get("result") or {}
         if previous.get("agent_id") != args.agent_id:
@@ -96,7 +97,8 @@ def main():
             f"{page['page_id']} validation.json does not contain top-level \"passed\": true; "
             "the page is not deliverable and was not recorded. Inspect the worker's "
             "validation.json for the failure reason, fix the root cause, then run "
-            f"`editppt run reset {run_dir} --page {page['page_id']}` and dispatch a new worker."
+            f"`editppt run reset {run_dir} --page {page['page_id']} "
+            f"--agent-id {args.agent_id} --confirm-lost` and dispatch a new worker."
         )
     paths = {key: output_path(page_dir, result, key, default) for key, default in REQUIRED_OUTPUTS.items()}
     validate_page_contract(paths)
