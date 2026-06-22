@@ -4,9 +4,11 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
-### Documentation
+## 0.3.0
 
-- Add upfront README guidance recommending Codex Full Access mode for long-running OCR and image-backend reconstruction workflows. (#12)
+### Features
+
+- Support single-page local reconstruction by returning `rebuild_page_locally`, recording `editppt run dispatch --local`, and keeping the same page artifact and record/finalize path as worker-dispatched pages. (#12)
 
 ### Fixes
 
@@ -16,7 +18,10 @@ Release notes are generated from this file. Keep changelog entries in English.
 - Clarify that user-requested conversions authorize necessary OCR and image-backend calls while limiting uploads to task-local page images, prompts, masks, and references. (#12)
 - Document upfront network approval handling for PaddleOCR, Codex OAuth image calls, and configured OpenAI-compatible image APIs in restricted agent environments. (#12)
 - Guard `editppt run reset` for dispatched pages with `--confirm-lost` and a matching `--agent-id`, and document that slow active page workers must not be reset or replaced. (#12)
-- Support single-page local reconstruction by returning `rebuild_page_locally`, recording `editppt run dispatch --local`, and keeping the same page artifact and record/finalize path as worker-dispatched pages. (#12)
+
+### Documentation
+
+- Add upfront README guidance recommending Codex Full Access mode for long-running OCR and image-backend reconstruction workflows. (#12)
 
 ## 0.2.0
 
