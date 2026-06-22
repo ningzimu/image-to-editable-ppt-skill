@@ -4,6 +4,10 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Documentation
+
+- Add upfront README guidance recommending Codex Full Access mode for long-running OCR and image-backend reconstruction workflows.
+
 ### Fixes
 
 - Route the Codex OAuth image backend through the Codex Images generation and edit endpoints instead of the Responses image-generation tool.

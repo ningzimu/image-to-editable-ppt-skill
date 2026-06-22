@@ -8,6 +8,15 @@ A skill for converting images, PDFs, and image-based PPT files into editable Pow
 
 It is useful when screenshot-like or image-based slides need to become easier to edit again, with text, simple shapes, and visual assets separated where practical.
 
+> [!IMPORTANT]
+> **Run this skill in Codex with Full Access whenever possible.** This skill can run for a long time and automatically performs OCR, image generation/editing, file writes, subagent dispatch, and long polling. "Request approval" mode can interrupt the workflow repeatedly and may block required steps, especially inside subagent execution.
+>
+> "Approve for me" mode is also known to still block some OCR requests, ChatGPT image generation/editing requests, or third-party API calls until you manually approve them. If you are away from the computer, the conversion may stall.
+>
+> During conversion, this skill automatically calls Baidu PaddleOCR-VL (when a token is configured) to correct text boxes, font sizes, and size groups. It also calls ChatGPT gpt-image-2 image generation/editing for foreground/background separation, icon or visual-asset extraction, and local image repair. These calls are required for reconstructing image-based pages into editable PPT files.
+>
+> ![Codex Full Access permission setting](assets/codex-full-access-permission.png)
+
 > [!WARNING]
 > This skill currently uses a multi-agent collaborative reconstruction workflow with complex flow control. It is not a lightweight converter. The AI runs a "**rebuild -> self-check -> page-local correction**" loop and may iterate multiple times until it judges the result close enough to the source. During this process, page workers may make **many attempts** per page, so the workflow can consume a large number of tokens.
 >
