@@ -9,7 +9,9 @@ A skill for converting images, PDFs, and image-based PPT files into editable Pow
 It is useful when screenshot-like or image-based slides need to become easier to edit again, with text, simple shapes, and visual assets separated where practical.
 
 > [!IMPORTANT]
-> **Run this skill in Codex with Full Access whenever possible.** This skill can run for a long time and automatically performs OCR, image generation/editing, file writes, subagent dispatch, and long polling. "Request approval" mode can interrupt the workflow repeatedly and may block required steps, especially inside subagent execution.
+> **Run this skill in Codex with Full Access whenever possible.**
+>
+> This skill can run for a long time and automatically performs OCR, image generation/editing, file writes, subagent dispatch, and long polling. "Request approval" mode can interrupt the workflow repeatedly and may block required steps, especially inside subagent execution.
 >
 > "Approve for me" mode is also known to still block some OCR requests, ChatGPT image generation/editing requests, or third-party API calls until you manually approve them. If you are away from the computer, the conversion may stall.
 >

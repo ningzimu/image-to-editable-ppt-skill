@@ -4,6 +4,10 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Documentation
+
+- Fix README rendering for the Codex Full Access recommendation callout.
+
 ## 0.3.0
 
 ### Features
