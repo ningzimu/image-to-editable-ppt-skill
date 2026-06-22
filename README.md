@@ -8,12 +8,21 @@
 
 它适合把截图式或图片式幻灯片变成更容易二次编辑的 PPT，让文字、简单形状和视觉素材尽量分开调整。
 
+> [!IMPORTANT]
+> **建议在 Codex 中使用“完全访问权限”执行本 skill。**本 skill 运行时间较长，并且会自动执行 OCR、图片生成/编辑、文件读写、子 agent 分派和长时间轮询等步骤。“请求批准”模式会频繁打断执行，可能阻塞部分步骤，尤其是在子 agent 环境里。
+>
+> “替我审批”模式已知仍可能在 OCR 阶段、ChatGPT 图片生成/编辑阶段或第三方 API 调用阶段拦截请求，要求你手动审批；如果你不在电脑旁，转换流程会停住。
+>
+> 本 skill 会在转换过程中自动调用百度 PaddleOCR-VL 接口（如果已配置 Token）来校正页面文字框、字体大小和字号分组，也会调用 ChatGPT 的 gpt-image-2 图像生成/编辑接口来做前背景分离、图标/视觉素材抽取和局部图片修复。这些调用是把图片式页面重建成可编辑 PPT 的必要步骤。
+>
+> ![Codex 完全访问权限设置示意](assets/codex-full-access-permission.png)
+
 > [!WARNING]
 > 目前该skill 采用了多智能体协作复原流程，有着复杂的流程控制，不是轻量转换器。AI 会执行“**重建 → 自我检查 → 页面内修正**”的循环，并可能进行多轮迭代，直到它认为结果足够接近原图。在这个过程中，page worker 可能会对页面做很**多轮尝试**，因此整体上比较费 token。
 >
 > **推荐 ChatGPT Pro 用户使用；Plus 用户请谨慎使用。**
 >
-> 复原一个 10 页 PPT 有可能消耗完你的 5 小时额度。单页PPT复原时间可能在10min以上。多页输入会按并发槽位直接分派给 page worker 处理。
+> 复原一个 10 页 PPT 有可能消耗完你的 5 小时额度。单页PPT复原时间可能在10min以上。单页/单图输入可由主 agent 按同一页面重建流程本地执行；多页输入会按并发槽位分派给 page worker 处理。
 >
 > **如果没有强烈的可编辑需求，请不要使用这个 skill。**
 >
@@ -50,13 +59,13 @@
 ## 特点
 
 - 适用场景广泛，支持多种输入：单张图片、多张图片、多页 PDF、图片版PPT 到可编辑 `.pptx`。
-- 每一页（包括单张图片输入）都由主 agent 分派给 page worker/subagent 重建，多页时按 `max_concurrent_pages` 并行处理。
+- 单页/单图输入可由主 agent 本地执行同一页面重建流程；多页输入由主 agent 分派给 page worker/subagent，并按 `max_concurrent_pages` 并行处理。
 - 图片生成和编辑统一通过 `editppt image` CLI 完成；CLI 会优先使用本机 Codex OAuth，缺失时再使用 OpenAI-compatible API 配置。
 - 第三方 API fallback 配置保存在 `~/.editppt/config.yaml`；Windows 下对应 `%USERPROFILE%\.editppt\config.yaml`。
 - 文字大小与位置由测量驱动：prepare 阶段为每页生成文字标注（框坐标 + 字号 + 字号分组），模型按测量值还原文字，同级文字字号自动保持一致。
 - 多张图片按提供顺序生成页面；PDF 和 `.pptx` 保留原页码顺序。
 - `.pptx` 输入的页面备注会复制到输出对应页，备注内容不改动。
-- 根据具体页面情况决定是否通过已确认 image backend 做图片分层抽取；需要时用稀疏 asset sheet 合并前景素材，尽可能降低图片生成调用次数。
+- 根据具体页面情况决定是否通过已确认 image backend 做图片分层抽取；需要时用稀疏 asset sheet 合并前景素材，优先把图标放在一个素材板上，并保留充足间隙便于后续分离。
 - 支持复杂视觉页的混合策略：可编辑文字 + 简单形状 + 独立图片资产。
 
 ## 适用场景
@@ -69,8 +78,8 @@
 
 ## 运行要求
 
-- 多页输入需要 agent 能分派 page worker/subagent；如果不能创建 page worker，应换到支持 page worker 的环境执行。
-- 复杂背景补全、前景图标提取、透明 asset sheet 和局部图片编辑统一走 `editppt image edit/generate/batch`。
+- 单页/单图输入不需要创建 page worker，但仍必须走同一页面 prompt、产物和 `editppt run record` 校验流程。多页输入需要 agent 能分派 page worker/subagent；如果不能创建 page worker，应换到支持 page worker 的环境执行。
+- 复杂背景补全、前景图标提取、透明 asset sheet 和局部图片编辑统一走串行 `editppt image edit/generate` 调用。
 - 如果本机有 Codex OAuth（`~/.codex/auth.json`），CLI 会直接使用；否则使用 API fallback。
 - API fallback 配置保存在 `~/.editppt/config.yaml`；Windows 下对应 `%USERPROFILE%\.editppt\config.yaml`。
 - 文字大小与位置的校正需要一个第三方 OCR Token（百度 AI Studio，免费），详见下文「文字校正与 OCR Token」；未配置时退化为内置离线检测，文字还原质量会打折扣。
@@ -78,6 +87,8 @@
 ## 图片 Backend 与第三方 API 配置
 
 `editppt image` 会自动选择图片后端：优先使用本机 Codex OAuth；如果不可用，再读取 `~/.editppt/config.yaml` 或环境变量里的 OpenAI-compatible API 配置。
+
+`editppt image generate/edit` 的公开参数面保持精简：请求输入只需要 `--prompt` 或 `--prompt-file`，编辑图还需要 `--image`；页面重建时应显式传 `--out`。实用控制只保留 `--model`、`--size`、`--quality`、`--force`、`--dry-run`、`--timeout`，以及编辑图专用的 `--mask`。CLI 不会透传其它 image API 选项。
 
 通常不需要你自己配置。只有这些情况才需要让 AI 帮你配置 API fallback：
 
@@ -99,7 +110,7 @@
 
 ## 已知问题
 
-- 其他 agent 需要支持 skill 加载、文件读写、CLI 执行，以及 page worker/subagent 分派机制。
+- 其他 agent 需要支持 skill 加载、文件读写和 CLI 执行；多页任务还需要 page worker/subagent 分派机制。
 - Codex OAuth 路径依赖本机 Codex auth 和订阅侧图片额度；API fallback 依赖所选 OpenAI-compatible 服务的图片生成/编辑能力。
 - 本 skill有着相对复杂的流程控制，Token花费比较高。将一个图片PPT转换成可编辑PPT的成本，**可能是生成图片PPT成本的2-3倍**。
 - 受限于模型基础理解能力和对 skill 的遵循能力，**不保证 gpt-5.5 以下模型的使用效果**。
@@ -133,8 +144,8 @@ $image-to-editable-ppt 把 <path-to-image-based.pptx> 转成可编辑 PPT。
 skill 通常会完成这些步骤：
 
 1. 创建独立任务目录，把输入归一化为 `pages/page_NNN/source.png`，并写入默认 `editppt image` backend。
-2. 每一页（含单张图片输入）都按 `max_concurrent_pages` 分批分派给 page worker 重建。
-3. 每个 page worker 负责自己的页面目录，完成页面重建、自检和 page-local 修正。
+2. 如果只有 1 页，主 agent 先用 `editppt run dispatch --local` 认领页面，再按同一页面 prompt 本地重建；如果有多页，则按 `max_concurrent_pages` 分批分派给 page worker 重建。
+3. 页面重建者（主 agent 本地模式或 page worker）负责自己的页面目录，完成页面重建、自检和 page-local 修正。
 4. 每页创建 manifest，重建可编辑文本、简单形状和图片资产。
 5. 用 `editppt` 命令记录 dispatch、page result 和 accepted 状态。
 6. 主 agent 用 `editppt run finalize` 按页顺序读取已记录的 `manifest.json` 重建最终 `.pptx`，复制 `.pptx` 页面备注，并运行 deck validation。
@@ -169,7 +180,7 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
     ├── page_001/                             # 第 1 页工作目录
     │   ├── source.png                        # 归一化后的页面源图
     │   ├── page_request.json                 # 页面请求和 image backend
-    │   ├── worker-prompt.md                  # 多页任务中生成给 page worker 的提示词
+    │   ├── worker-prompt.md                  # 生成给页面重建者的提示词
     │   ├── imagegen-jobs.json                # 本页图片生成/编辑调用和结果记录
     │   ├── assets/                           # 本页拆出的独立图片资产
     │   ├── page.pptx                         # 本页单页 PPTX；record 阶段用于校验和交付性检查
@@ -185,7 +196,7 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
 ## 边界
 
 - 这个 skill 面向输入页面的可编辑重建，不是从零生成整套 PPT 内容。
-- 多页输入通过 page worker/subagent 并行重建。
+- 单页/单图输入可由主 agent 本地重建；多页输入通过 page worker/subagent 并行重建。
 - 复杂视觉资产需要可用 `editppt image` backend；如果缺少图片生成/编辑能力，仍应先交付当前可打开、结构有效的 PPT，并在验证结果里说明缺失资产。
 - 对照片、插画、纹理、手绘装饰等复杂视觉元素，通常只能作为独立图片资产移动，不能保证内部对象可编辑。
 - 对表格、图表、流程图等结构化区域，会优先保留可编辑语义，但低置信度时应保留为资产并在验证报告里说明。
@@ -202,7 +213,7 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
 │       ├── agents/                       # Agent 展示用的 skill 元数据
 │       ├── cli/                          # 自包含 `editppt` CLI 和确定性 runtime 模块
 │       ├── references/                   # 页面重建、状态机、QA 等参考规范
-│       ├── prompts/                      # page worker prompt 模板
+│       ├── prompts/                      # 页面重建 prompt 模板
 │       └── scripts/                      # skill 内 prompt 组装脚本
 ├── AGENTS.md                             # 仓库级协作和编辑规则
 ├── CHANGELOG.md                          # 用户可见变更记录

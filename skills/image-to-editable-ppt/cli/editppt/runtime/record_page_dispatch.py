@@ -32,12 +32,13 @@ def resolve_prompt_path(run_dir, page_dir, value):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Record that a page was dispatched to a subagent.")
+    parser = argparse.ArgumentParser(description="Record that a page was dispatched to a worker or claimed for local reconstruction.")
     parser.add_argument("run", help="Run directory or deck_manifest.json")
     parser.add_argument("--page", required=True, help="page_001 or 1")
     parser.add_argument("--agent-id", required=True)
     parser.add_argument("--agent-nickname")
     parser.add_argument("--prompt-file", required=True)
+    parser.add_argument("--local", action="store_true", help="Claim a single-page run for main-agent local reconstruction.")
     args = parser.parse_args()
 
     run_dir = run_dir_from_target(args.run)
@@ -50,6 +51,8 @@ def main():
 
     if page.get("status") != "pending":
         raise SystemExit(f"{page['page_id']} must be pending before dispatch; got {page.get('status')}")
+    if args.local and len(jobs.get("pages", [])) != 1:
+        raise SystemExit("--local dispatch is only allowed when the run has exactly one page")
 
     page_request = (run_dir / page["page_request"]).resolve()
     if not page_request.exists():
@@ -62,6 +65,7 @@ def main():
         "prompt_sha256": sha256_file(prompt_path),
         "page_request_sha256": sha256_file(page_request),
         "dispatched_at": now_iso(),
+        "execution_mode": "local" if args.local else "worker",
     }
     page["status"] = "dispatched"
     update_jobs_run_status(jobs)
