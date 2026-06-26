@@ -1,9 +1,12 @@
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+from urllib import error
 import zipfile
 from pathlib import Path
 
@@ -23,6 +26,9 @@ CLI_ENV["PYTHONPATH"] = (
     else str(CLI_DIR) + os.pathsep + CLI_ENV["PYTHONPATH"]
 )
 os.environ["PYTHONPATH"] = CLI_ENV["PYTHONPATH"]
+
+from editppt.runtime import image_gen
+
 
 def write_json(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -420,7 +426,8 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertEqual([str(source)], payload["input_images"])
             self.assertEqual("auto", payload["size"])
             self.assertEqual("auto", payload["quality"])
-            for removed in ("background", "moderation", "output_format", "output_compression", "n"):
+            self.assertEqual("auto", payload["background"])
+            for removed in ("moderation", "output_format", "output_compression", "n"):
                 self.assertNotIn(removed, payload)
 
     def test_image_generate_dry_run_prefers_codex_images_endpoint_when_auth_exists(self):
@@ -456,8 +463,82 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertEqual([], payload["input_images"])
             self.assertEqual("auto", payload["size"])
             self.assertEqual("auto", payload["quality"])
-            for removed in ("background", "moderation", "output_format", "output_compression", "n"):
+            self.assertEqual("auto", payload["background"])
+            for removed in ("moderation", "output_format", "output_compression", "n"):
                 self.assertNotIn(removed, payload)
+
+    def test_codex_oauth_retries_transport_and_5xx_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            auth = Path(tmp) / "auth.json"
+            write_json(auth, {"tokens": {"access_token": "test-token"}})
+
+            class FakeResponse:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, exc_type, exc, tb):
+                    return False
+
+                def read(self, _limit):
+                    return b'{"data":[{"b64_json":"aW1hZ2U="}]}'
+
+            http_500 = error.HTTPError(
+                "https://example.test",
+                500,
+                "server error",
+                hdrs=None,
+                fp=io.BytesIO(b"temporary"),
+            )
+            env = os.environ.copy()
+            env["CODEX_AUTH_FILE"] = str(auth)
+            with mock.patch.dict(os.environ, env, clear=False), mock.patch(
+                "editppt.runtime.image_gen.request.urlopen",
+                side_effect=[http_500, FakeResponse()],
+            ) as urlopen, mock.patch("editppt.runtime.image_gen.time.sleep") as sleep:
+                response = image_gen._post_codex_image_json(
+                    "https://example.test/images/generations",
+                    {"model": "gpt-image-2", "prompt": "test"},
+                    10,
+                )
+
+            self.assertEqual(["aW1hZ2U="], [item["b64_json"] for item in response["data"]])
+            self.assertEqual(2, urlopen.call_count)
+            sleep.assert_called_once()
+
+            with mock.patch.dict(os.environ, env, clear=False), mock.patch(
+                "editppt.runtime.image_gen.request.urlopen",
+                side_effect=[error.URLError("temporary network failure"), FakeResponse()],
+            ) as urlopen, mock.patch("editppt.runtime.image_gen.time.sleep") as sleep:
+                response = image_gen._post_codex_image_json(
+                    "https://example.test/images/generations",
+                    {"model": "gpt-image-2", "prompt": "test"},
+                    10,
+                )
+
+            self.assertEqual(["aW1hZ2U="], [item["b64_json"] for item in response["data"]])
+            self.assertEqual(2, urlopen.call_count)
+            sleep.assert_called_once()
+
+            http_429 = error.HTTPError(
+                "https://example.test",
+                429,
+                "rate limited",
+                hdrs=None,
+                fp=io.BytesIO(b"rate limit"),
+            )
+            with mock.patch.dict(os.environ, env, clear=False), mock.patch(
+                "editppt.runtime.image_gen.request.urlopen",
+                side_effect=http_429,
+            ) as urlopen, mock.patch("editppt.runtime.image_gen.time.sleep") as sleep:
+                with self.assertRaisesRegex(RuntimeError, r"HTTP 429"):
+                    image_gen._post_codex_image_json(
+                        "https://example.test/images/generations",
+                        {"model": "gpt-image-2", "prompt": "test"},
+                        10,
+                    )
+
+            self.assertEqual(1, urlopen.call_count)
+            sleep.assert_not_called()
 
     def test_runtime_config_writes_owner_only_yaml(self):
         with tempfile.TemporaryDirectory() as tmp:

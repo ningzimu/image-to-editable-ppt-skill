@@ -14,7 +14,9 @@ import json
 import mimetypes
 import os
 from pathlib import Path
+import random
 import re
+import socket
 import sys
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -23,9 +25,12 @@ from urllib import error, request
 DEFAULT_MODEL = "gpt-image-2"
 DEFAULT_SIZE = "auto"
 DEFAULT_QUALITY = "auto"
+DEFAULT_BACKGROUND = "auto"
 DEFAULT_OUTPUT_EXTENSION = "png"
 DEFAULT_OUTPUT_PATH = "output/imagegen/output.png"
 DEFAULT_TIMEOUT = 600
+DEFAULT_CODEX_MAX_RETRIES = 4
+DEFAULT_CODEX_RETRY_BASE_DELAY_SECONDS = 0.2
 GPT_IMAGE_MODEL_PREFIX = "gpt-image-"
 
 ALLOWED_LEGACY_SIZES = {"1024x1024", "1536x1024", "1024x1536", "auto"}
@@ -63,9 +68,10 @@ Input image rules:
   edit passes each --image as an edit target, visual reference, or supporting input.
 
 Parameter surface:
-  Backend requests pass only model, prompt, size, and quality. Edit requests
-  also pass the input images and optional mask. Local controls such as --out,
-  --force, --dry-run, and --timeout are not image API parameters.
+  Public image parameters are model, prompt, size, and quality. Codex OAuth
+  requests also set background=auto to match Codex built-in image generation.
+  Edit requests also pass the input images and optional mask. Local controls
+  such as --out, --force, --dry-run, and --timeout are not image API parameters.
 
 Slide reconstruction patterns:
   Clean base: use edit --image <source.png>; preserve source composition,
@@ -288,12 +294,29 @@ def _codex_image_body(
         "model": model,
         "size": size,
         "quality": quality,
+        "background": DEFAULT_BACKGROUND,
     }
     if image_paths:
         body["images"] = [_codex_image_reference(path) for path in image_paths]
     if mask_path:
         body["mask"] = _codex_image_reference(mask_path)
     return body
+
+
+def _codex_retry_delay(attempt: int) -> float:
+    exp = 2 ** max(attempt - 1, 0)
+    jitter = random.uniform(0.9, 1.1)
+    return DEFAULT_CODEX_RETRY_BASE_DELAY_SECONDS * exp * jitter
+
+
+def _should_retry_codex_http(status: int) -> bool:
+    return 500 <= status <= 599
+
+
+def _format_attempts(attempts: int) -> str:
+    if attempts <= 1:
+        return ""
+    return f" after {attempts} attempts"
 
 
 def _post_codex_image_json(url: str, body: Dict[str, Any], timeout: int) -> Dict[str, Any]:
@@ -310,20 +333,41 @@ def _post_codex_image_json(url: str, body: Dict[str, Any], timeout: int) -> Dict
     }
     if account_id:
         headers["ChatGPT-Account-ID"] = account_id
-    req = request.Request(
-        url,
-        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-        method="POST",
-        headers=headers,
-    )
-    try:
-        with request.urlopen(req, timeout=timeout) as resp:
-            text = resp.read(MAX_CODEX_RESPONSE_BYTES).decode("utf-8", errors="replace")
-    except error.HTTPError as exc:
-        detail = exc.read(4096).decode("utf-8", errors="replace")
-        raise RuntimeError(f"Codex Images request failed (HTTP {exc.code}): {detail}") from exc
-    except error.URLError as exc:
-        raise RuntimeError(f"Codex Images request failed: {exc.reason}") from exc
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+
+    for attempt in range(DEFAULT_CODEX_MAX_RETRIES + 1):
+        req = request.Request(
+            url,
+            data=data,
+            method="POST",
+            headers=headers,
+        )
+        try:
+            with request.urlopen(req, timeout=timeout) as resp:
+                text = resp.read(MAX_CODEX_RESPONSE_BYTES).decode("utf-8", errors="replace")
+            break
+        except error.HTTPError as exc:
+            detail = exc.read(4096).decode("utf-8", errors="replace")
+            if attempt < DEFAULT_CODEX_MAX_RETRIES and _should_retry_codex_http(exc.code):
+                time.sleep(_codex_retry_delay(attempt + 1))
+                continue
+            attempts = attempt + 1
+            raise RuntimeError(
+                f"Codex Images request failed{_format_attempts(attempts)} "
+                f"(HTTP {exc.code}): {detail}"
+            ) from exc
+        except (error.URLError, TimeoutError, socket.timeout) as exc:
+            if attempt < DEFAULT_CODEX_MAX_RETRIES:
+                time.sleep(_codex_retry_delay(attempt + 1))
+                continue
+            attempts = attempt + 1
+            reason = getattr(exc, "reason", exc)
+            raise RuntimeError(
+                f"Codex Images request failed{_format_attempts(attempts)}: {reason}"
+            ) from exc
+    else:
+        raise RuntimeError("Codex Images request failed after retry limit.")
+
     try:
         response = json.loads(text)
     except json.JSONDecodeError as exc:
@@ -547,6 +591,7 @@ def _run_codex_image(
                 "mask": str(mask_path) if mask_path else None,
                 "size": args.size,
                 "quality": args.quality,
+                "background": body["background"],
             }
         )
         return True

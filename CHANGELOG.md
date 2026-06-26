@@ -4,9 +4,15 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+## 0.3.1
+
+### Improvements
+
+- Align Codex OAuth image requests with Codex built-in image generation by setting `background=auto` and retrying transport or 5xx failures with Codex-style backoff while leaving rate limits non-retried. (#15)
+
 ### Documentation
 
-- Fix README rendering for the Codex Full Access recommendation callout.
+- Fix README rendering for the Codex Full Access recommendation callout. (#15)
 
 ## 0.3.0
 
