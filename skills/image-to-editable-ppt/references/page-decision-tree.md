@@ -223,6 +223,8 @@ A readable character stroke belongs only to its native text box — never draw t
 
 Preserve grouping relationships (icon + circular base, badge + number, speech bubble + text, hand-drawn arrow + annotation, card background + title + chart + labels).
 
+For native text centered inside a badge or circular base, reuse the base shape's exact `box_px` for the text box and use the centered horizontal and vertical alignment defined in `manifest-schema.md` under "Text alignment." A separate tight ink box drifts as font metrics change and is not a stable grouping relationship.
+
 Recommended z-index:
 
 - clean background/base: 0
@@ -267,6 +269,7 @@ Shapes and layers:
 - Corners follow 3.4; large container corners, table borders, and card borders align with the source. Corner misclassification is a current-page fix, not a low-risk warning.
 - No text stroke is redrawn as a decorative shape (3.5).
 - Dashboards, tables, cards, and charts are decomposed per 1.4, never screenshotted wholesale.
+- Badge and circular-number groups follow the shared-box centering rule in 3.6.
 - z-index follows 3.6; no text or key object is covered.
 
 ## Fix versus Warning

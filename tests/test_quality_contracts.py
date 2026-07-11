@@ -144,6 +144,23 @@ class QualityContractTest(unittest.TestCase):
         )
         self.assertEqual(["市场概览", "4280 万", "扩张", "续约"], required)
 
+    def test_invalid_text_alignment_is_a_contract_violation(self):
+        manifest = base_manifest()
+        manifest["text_boxes"] = [
+            {
+                "text": "1",
+                "box_px": [0, 0, 40, 40],
+                "align": "sideways",
+                "valign": "floating",
+            }
+        ]
+
+        violations = quality_contract_violations(manifest)
+        fields = {item["field"] for item in violations}
+
+        self.assertIn("text_boxes[0].align", fields)
+        self.assertIn("text_boxes[0].valign", fields)
+
 
 if __name__ == "__main__":
     unittest.main()

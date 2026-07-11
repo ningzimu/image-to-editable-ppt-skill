@@ -19,6 +19,23 @@ ASPECT_TOLERANCE = 0.03
 DEFAULT_TEXT_FIT_SAFETY = 0.9
 DEFAULT_TEXT_LINE_HEIGHT = 1.22
 DEFAULT_MIN_FONT_SIZE = 4.0
+TEXT_ALIGNMENTS = {
+    "left": ("l", "left"),
+    "center": ("ctr", "center"),
+    "right": ("r", "right"),
+    "l": ("l", "left"),
+    "ctr": ("ctr", "center"),
+    "r": ("r", "right"),
+}
+TEXT_VERTICAL_ALIGNMENTS = {
+    "top": ("t", "top"),
+    "middle": ("ctr", "middle"),
+    "center": ("ctr", "middle"),
+    "bottom": ("b", "bottom"),
+    "t": ("t", "top"),
+    "ctr": ("ctr", "middle"),
+    "b": ("b", "bottom"),
+}
 
 
 def emu(value):
@@ -51,6 +68,20 @@ def image_ext(path):
 
 def xml_text(value):
     return html.escape(str(value), quote=True)
+
+
+def text_alignment(value="left"):
+    key = str(value or "left").strip().lower()
+    if key not in TEXT_ALIGNMENTS:
+        raise ValueError(f"Unsupported text align value: {value}")
+    return TEXT_ALIGNMENTS[key]
+
+
+def text_vertical_alignment(value="top"):
+    key = str(value or "top").strip().lower()
+    if key not in TEXT_VERTICAL_ALIGNMENTS:
+        raise ValueError(f"Unsupported text valign value: {value}")
+    return TEXT_VERTICAL_ALIGNMENTS[key]
 
 
 def source_size_px(manifest):
@@ -318,8 +349,8 @@ def text_box_xml(idx, item):
     rotation_attr = f' rot="{int(float(rotation) * 60000)}"' if rotation not in (None, "") else ""
     font_size = int(float(item.get("font_size", 18)) * 100)
     font = xml_text(item.get("font", "PingFang SC"))
-    align = item.get("align", "left")
-    anchor = item.get("valign", "top")
+    align = text_alignment(item.get("align", "left"))[0]
+    anchor = text_vertical_alignment(item.get("valign", "top"))[0]
     wrap = item.get("wrap", "none")
     autofit = item.get("autofit", "none")
     autofit_xml = "<a:spAutoFit/>" if autofit == "shape" else "<a:noAutofit/>"
@@ -823,12 +854,34 @@ def render_preview(manifest, manifest_path, out_path):
         else:
             preview_text = item.get("text", "")
         fill = preview_color(item.get("color", "#111111"))
-        align = item.get("align", "left") if item.get("align", "left") in ("left", "center", "right") else "left"
-        x = int(item.get("left", 0) * scale)
-        y = int(item.get("top", 0) * scale)
+        align = text_alignment(item.get("align", "left"))[1]
+        valign = text_vertical_alignment(item.get("valign", "top"))[1]
+        box_x = int(item.get("left", 0) * scale)
+        box_y = int(item.get("top", 0) * scale)
+        box_width = max(1, int(item.get("width", 1) * scale))
+        box_height = max(1, int(item.get("height", 0.4) * scale))
         rotation = float(item.get("rotation", 0) or 0)
-        if item.get("runs") and not rotation:
-            cursor_x = x
+
+        def aligned_origin(bounds, origin_x, origin_y):
+            text_width = bounds[2] - bounds[0]
+            text_height = bounds[3] - bounds[1]
+            if align == "center":
+                text_x = origin_x + (box_width - text_width) // 2 - bounds[0]
+            elif align == "right":
+                text_x = origin_x + box_width - text_width - bounds[0]
+            else:
+                text_x = origin_x
+            if valign == "middle":
+                text_y = origin_y + (box_height - text_height) // 2 - bounds[1]
+            elif valign == "bottom":
+                text_y = origin_y + box_height - text_height - bounds[1]
+            else:
+                text_y = origin_y
+            return text_x, text_y
+
+        run_specs = []
+        if item.get("runs"):
+            cursor_x = 0
             base_size = size
             for run in item["runs"]:
                 run_size = max(1, int(float(run.get("font_size", item.get("font_size", 18))) * scale / 72 * preview_font_scale))
@@ -839,21 +892,36 @@ def render_preview(manifest, manifest_path, out_path):
                     run_font = font
                 run_fill = preview_color(run.get("color", item.get("color", "#111111")))
                 baseline = float(run.get("baseline", 0) or 0)
-                run_y = y + int(-baseline / 100000 * base_size)
+                run_y = int(-baseline / 100000 * base_size)
                 run_text = str(run.get("text", ""))
-                draw.text((cursor_x, run_y), run_text, fill=run_fill, font=run_font)
-                cursor_x += int(draw.textlength(run_text, font=run_font))
-            return
+                run_specs.append((cursor_x, run_y, run_text, run_fill, run_font, run_font.getbbox(run_text)))
+                cursor_x += int(round(draw.textlength(run_text, font=run_font)))
+
+        def draw_content(target_draw, origin_x, origin_y):
+            if run_specs:
+                bounds = (
+                    min(spec[0] + spec[5][0] for spec in run_specs),
+                    min(spec[1] + spec[5][1] for spec in run_specs),
+                    max(spec[0] + spec[5][2] for spec in run_specs),
+                    max(spec[1] + spec[5][3] for spec in run_specs),
+                )
+                text_x, text_y = aligned_origin(bounds, origin_x, origin_y)
+                for run_x, run_y, run_text, run_fill, run_font, _run_bounds in run_specs:
+                    target_draw.text((text_x + run_x, text_y + run_y), run_text, fill=run_fill, font=run_font)
+                return
+            bounds = target_draw.multiline_textbbox((0, 0), preview_text, font=font, spacing=4, align=align)
+            text_x, text_y = aligned_origin(bounds, origin_x, origin_y)
+            target_draw.multiline_text((text_x, text_y), preview_text, fill=fill, font=font, spacing=4, align=align)
+
         if rotation:
-            layer_w = max(1, int(item.get("width", 1) * scale))
-            layer_h = max(1, int(item.get("height", 0.4) * scale))
-            layer = Image.new("RGBA", (layer_w, layer_h), (0, 0, 0, 0))
-            layer_draw = ImageDraw.Draw(layer)
-            layer_draw.multiline_text((0, 0), preview_text, fill=fill, font=font, spacing=4, align=align)
+            layer = Image.new("RGBA", (box_width, box_height), (0, 0, 0, 0))
+            draw_content(ImageDraw.Draw(layer), 0, 0)
             rotated = layer.rotate(-rotation, expand=True)
-            canvas.paste(rotated, (x, y), rotated)
+            paste_x = box_x + (box_width - rotated.width) // 2
+            paste_y = box_y + (box_height - rotated.height) // 2
+            canvas.paste(rotated, (paste_x, paste_y), rotated)
             return
-        draw.multiline_text((x, y), preview_text, fill=fill, font=font, spacing=4, align=align)
+        draw_content(draw, box_x, box_y)
 
     layered = []
     for index, item in enumerate(manifest.get("shapes", [])):
