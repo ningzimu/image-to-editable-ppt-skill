@@ -1,14 +1,53 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+
+from PIL import Image
 
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_DIR = ROOT / "skills/image-to-editable-ppt/cli/editppt/runtime"
 sys.path.insert(0, str(RUNTIME_DIR))
 
-from build_pptx_from_manifest import content_box_for_manifest, emu, normalize_manifest, px_to_inches, slide_size_type  # noqa: E402
+from build_pptx_from_manifest import (  # noqa: E402
+    content_box_for_manifest,
+    emu,
+    normalize_manifest,
+    px_to_inches,
+    render_preview,
+    slide_size_type,
+    text_box_xml,
+)
 from prepare_deck_run import fit_content_box, slide_for_source  # noqa: E402
+
+
+def scalable_test_font():
+    candidates = (
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+    )
+    return next((path for path in candidates if Path(path).exists()), None)
+
+
+def preview_ink_center(manifest):
+    with tempfile.TemporaryDirectory() as tmp:
+        preview_path = Path(tmp) / "preview.png"
+        render_preview(manifest, Path(tmp) / "manifest.json", preview_path)
+        image = Image.open(preview_path).convert("RGB")
+
+    dark_pixels = [
+        (x, y)
+        for y in range(image.height)
+        for x in range(image.width)
+        if max(image.getpixel((x, y))) < 128
+    ]
+    if not dark_pixels:
+        return None
+    xs = [point[0] for point in dark_pixels]
+    ys = [point[1] for point in dark_pixels]
+    return (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
 
 
 class SlideLayoutTest(unittest.TestCase):
@@ -117,6 +156,110 @@ class SlideLayoutTest(unittest.TestCase):
 
         self.assertGreater(normalized["text_boxes"][0]["font_size"], 10)
         self.assertLessEqual(normalized["text_boxes"][0]["font_size"], 18)
+
+    def test_text_box_alignment_uses_drawingml_enum_values(self):
+        xml = text_box_xml(
+            2,
+            {
+                "text": "1",
+                "left": 0,
+                "top": 0,
+                "width": 1,
+                "height": 1,
+                "align": "center",
+                "valign": "middle",
+            },
+        )
+
+        self.assertIn('algn="ctr"', xml)
+        self.assertIn('anchor="ctr"', xml)
+        self.assertNotIn('algn="center"', xml)
+        self.assertNotIn('anchor="middle"', xml)
+
+    def test_preview_centers_text_inside_its_box(self):
+        manifest = {
+            "source": {"width_px": 200, "height_px": 200},
+            "slide": {"width": 2, "height": 2, "background": "#ffffff"},
+            "content_box": {"left": 0, "top": 0, "width": 2, "height": 2},
+            "preview_scale": 100,
+            "text_boxes": [
+                {
+                    "text": "1",
+                    "box_px": [50, 50, 100, 100],
+                    "font_size": 48,
+                    "fit_text": False,
+                    "color": "#000000",
+                    "align": "center",
+                    "valign": "middle",
+                }
+            ],
+        }
+
+        ink_center = preview_ink_center(manifest)
+        self.assertIsNotNone(ink_center)
+        ink_center_x, ink_center_y = ink_center
+
+        self.assertAlmostEqual(100, ink_center_x, delta=5)
+        self.assertAlmostEqual(100, ink_center_y, delta=5)
+
+    def test_preview_centers_mixed_size_runs_inside_their_box(self):
+        preview_font = scalable_test_font()
+        self.assertIsNotNone(preview_font)
+        manifest = {
+            "source": {"width_px": 200, "height_px": 200},
+            "slide": {"width": 2, "height": 2, "background": "#ffffff"},
+            "content_box": {"left": 0, "top": 0, "width": 2, "height": 2},
+            "preview_scale": 100,
+            "text_boxes": [
+                {
+                    "runs": [
+                        {"text": "1", "font_size": 72},
+                        {"text": "A", "font_size": 12},
+                    ],
+                    "box_px": [50, 50, 100, 100],
+                    "font_size": 18,
+                    "fit_text": False,
+                    "preview_font": preview_font,
+                    "color": "#000000",
+                    "align": "center",
+                    "valign": "middle",
+                }
+            ],
+        }
+
+        ink_center = preview_ink_center(manifest)
+        self.assertIsNotNone(ink_center)
+        ink_center_x, ink_center_y = ink_center
+
+        self.assertAlmostEqual(100, ink_center_x, delta=8)
+        self.assertAlmostEqual(100, ink_center_y, delta=8)
+
+    def test_preview_rotates_centered_text_around_the_box_center(self):
+        manifest = {
+            "source": {"width_px": 200, "height_px": 200},
+            "slide": {"width": 2, "height": 2, "background": "#ffffff"},
+            "content_box": {"left": 0, "top": 0, "width": 2, "height": 2},
+            "preview_scale": 100,
+            "text_boxes": [
+                {
+                    "text": "1",
+                    "box_px": [50, 50, 100, 100],
+                    "font_size": 48,
+                    "fit_text": False,
+                    "color": "#000000",
+                    "align": "center",
+                    "valign": "middle",
+                    "rotation": 45,
+                }
+            ],
+        }
+
+        ink_center = preview_ink_center(manifest)
+        self.assertIsNotNone(ink_center)
+        ink_center_x, ink_center_y = ink_center
+
+        self.assertAlmostEqual(100, ink_center_x, delta=8)
+        self.assertAlmostEqual(100, ink_center_y, delta=8)
 
 
 if __name__ == "__main__":

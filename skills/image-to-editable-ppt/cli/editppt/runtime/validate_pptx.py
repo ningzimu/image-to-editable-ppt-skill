@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from build_pptx_from_manifest import normalize_manifest
+from build_pptx_from_manifest import TEXT_ALIGNMENTS, TEXT_VERTICAL_ALIGNMENTS, normalize_manifest
 
 
 NS = {
@@ -321,6 +321,24 @@ def quality_contract_violations(manifest):
                         "reason": "roundRect source radius cannot exceed half of the smaller shape dimension",
                     }
                 )
+
+    for index, text_box in enumerate(manifest.get("text_boxes", [])):
+        align = str(text_box.get("align", "left") or "left").strip().lower()
+        if align not in TEXT_ALIGNMENTS:
+            violations.append(
+                {
+                    "field": f"text_boxes[{index}].align",
+                    "reason": "text align must be left, center, right, or the equivalent DrawingML token l, ctr, r",
+                }
+            )
+        valign = str(text_box.get("valign", "top") or "top").strip().lower()
+        if valign not in TEXT_VERTICAL_ALIGNMENTS:
+            violations.append(
+                {
+                    "field": f"text_boxes[{index}].valign",
+                    "reason": "text valign must be top, middle, bottom, or the equivalent DrawingML token t, ctr, b",
+                }
+            )
 
     violations.extend(foreground_asset_contract_violations(manifest))
     return violations
