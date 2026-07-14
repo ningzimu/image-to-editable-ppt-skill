@@ -1,6 +1,6 @@
 # Image to Editable PPT Skill
 
-[![English](https://img.shields.io/badge/docs-English-blue)](README_en.md) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
+[![English](https://img.shields.io/badge/docs-English-blue)](README_en.md) [![文档站](https://img.shields.io/badge/%E6%96%87%E6%A1%A3%E7%AB%99-online-brightgreen)](https://ningzimu.github.io/image-to-editable-ppt-skill/) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
 
 ![Image to Editable PPT 项目概览](assets/image-to-editable-ppt-overview.png)
 
