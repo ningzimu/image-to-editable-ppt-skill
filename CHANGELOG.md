@@ -4,6 +4,10 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Documentation
+
+- Add a docsify-based documentation site under `docs/` (home, quickstart, design, installation, workflow, FAQ, prompts) served via GitHub Pages, and link it from both READMEs.
+
 ### Fixes
 
 - Translate manifest text alignment values to valid DrawingML enums, center preview text within its box, and reject unsupported alignment values during page validation. (#17)
