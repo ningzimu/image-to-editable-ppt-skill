@@ -14,7 +14,7 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Documentation
 
-- Add an investment-platform before-and-after example to both READMEs.
+- Add an investment-platform before-and-after example to both READMEs. (#23)
 - Add a docsify-based documentation site under `docs/` (home, quickstart, design, installation, workflow, FAQ, prompts) served via GitHub Pages, and link it from both READMEs. (#18)
 
 ### Fixes
