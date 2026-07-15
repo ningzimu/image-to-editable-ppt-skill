@@ -366,6 +366,92 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertTrue((page_dir / "copied-sheet.png").exists())
 
+    def test_process_sheet_scopes_default_outputs_by_job_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            page_dir = Path(tmp) / "pages/page_001"
+            assets_dir = page_dir / "assets"
+            assets_dir.mkdir(parents=True)
+
+            for job_id, color in (("photo-sheet", "black"), ("icon-sheet", "blue")):
+                source = assets_dir / f"{job_id}.png"
+                image = Image.new("RGB", (120, 120), "#ff00ff")
+                image.paste(color, (24, 24, 96, 96))
+                image.save(source)
+
+                result = run_cli(
+                    "image",
+                    "process-sheet",
+                    page_dir,
+                    "--job-id",
+                    job_id,
+                    "--asset-sheet-source",
+                    source.relative_to(page_dir),
+                    "--asset-names",
+                    job_id,
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertTrue((assets_dir / f"{job_id}.asset-sheet-chroma.png").exists())
+                self.assertTrue((assets_dir / f"{job_id}.asset-sheet-alpha.png").exists())
+                self.assertTrue((assets_dir / f"{job_id}.split-report.json").exists())
+
+            jobs = read_json(page_dir / "imagegen-jobs.json")["jobs"]
+            self.assertEqual(["photo-sheet", "icon-sheet"], [job["job_id"] for job in jobs])
+            self.assertEqual(["processed", "processed"], [job["status"] for job in jobs])
+            self.assertFalse((page_dir / "imagegen_asset_sheet_chroma.png").exists())
+            self.assertFalse((page_dir / "imagegen_asset_sheet_alpha.png").exists())
+            self.assertFalse((page_dir / "split_assets.json").exists())
+
+    def test_process_sheet_checks_existing_alpha_before_copying_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            page_dir = Path(tmp) / "pages/page_001"
+            assets_dir = page_dir / "assets"
+            assets_dir.mkdir(parents=True)
+            source = assets_dir / "icon-sheet.png"
+            chroma = assets_dir / "icon-sheet.asset-sheet-chroma.png"
+            alpha = assets_dir / "icon-sheet.asset-sheet-alpha.png"
+            Image.new("RGB", (32, 32), "blue").save(source)
+            Image.new("RGB", (32, 32), "black").save(chroma)
+            Image.new("RGBA", (32, 32), (0, 0, 0, 0)).save(alpha)
+            chroma_before = chroma.read_bytes()
+
+            result = run_cli(
+                "image",
+                "process-sheet",
+                page_dir,
+                "--job-id",
+                "icon-sheet",
+                "--asset-sheet-source",
+                source.relative_to(page_dir),
+                "--skip-split",
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("Output already exists", result.stderr)
+            self.assertEqual(chroma_before, chroma.read_bytes())
+
+    def test_process_sheet_rejects_unsafe_job_id_for_default_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            page_dir = Path(tmp) / "pages/page_001"
+            assets_dir = page_dir / "assets"
+            assets_dir.mkdir(parents=True)
+            source = assets_dir / "sheet.png"
+            Image.new("RGB", (32, 32), "#ff00ff").save(source)
+
+            result = run_cli(
+                "image",
+                "process-sheet",
+                page_dir,
+                "--job-id",
+                "../outside",
+                "--asset-sheet-source",
+                source.relative_to(page_dir),
+                "--skip-split",
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("safe filename component", result.stderr)
+            self.assertFalse((page_dir.parent / "outside.asset-sheet-chroma.png").exists())
+
     def test_image_edit_passthrough_preserves_image_argument(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.png"

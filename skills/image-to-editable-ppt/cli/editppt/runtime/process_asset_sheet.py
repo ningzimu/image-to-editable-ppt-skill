@@ -6,6 +6,28 @@ from deck_run_state import now_iso, read_json, write_json
 from _page_artifacts import process_asset_sheet as process_sheet
 
 
+def configure_default_paths(args):
+    if args.job_id:
+        job_id = args.job_id
+        if any(value is None for value in (args.chroma, args.alpha, args.split_manifest)):
+            if (
+                "\x00" in job_id
+                or "/" in job_id
+                or "\\" in job_id
+                or job_id in {".", ".."}
+                or Path(job_id).is_absolute()
+                or Path(job_id).name != job_id
+            ):
+                raise SystemExit("--job-id must be a safe filename component when default output paths are used")
+        args.chroma = args.chroma or f"assets/{job_id}.asset-sheet-chroma.png"
+        args.alpha = args.alpha or f"assets/{job_id}.asset-sheet-alpha.png"
+        args.split_manifest = args.split_manifest or f"assets/{job_id}.split-report.json"
+    else:
+        args.chroma = args.chroma or "imagegen_asset_sheet_chroma.png"
+        args.alpha = args.alpha or "imagegen_asset_sheet_alpha.png"
+        args.split_manifest = args.split_manifest or "split_assets.json"
+
+
 def mark_processed(page_dir, args):
     if not args.job_id:
         return
@@ -51,8 +73,8 @@ def main():
     parser.add_argument("page_dir", help="Page directory that owns imagegen-jobs.json, manifest.json, and the assets folder.")
     parser.add_argument("--job-id", help="Image generation job id to mark as processed after splitting.")
     parser.add_argument("--asset-sheet-source", help="Generated sheet image to process. Relative paths are resolved under page_dir unless absolute. Defaults to the imported asset sheet recorded for --job-id when available.")
-    parser.add_argument("--chroma", default="imagegen_asset_sheet_chroma.png", help="Intermediate chroma-key output path relative to page_dir.")
-    parser.add_argument("--alpha", default="imagegen_asset_sheet_alpha.png", help="Transparent sheet output path relative to page_dir.")
+    parser.add_argument("--chroma", help="Intermediate chroma-key output path relative to page_dir. Defaults to a job-scoped path when --job-id is set.")
+    parser.add_argument("--alpha", help="Transparent sheet output path relative to page_dir. Defaults to a job-scoped path when --job-id is set.")
     parser.add_argument("--skip-chroma", action="store_true", help="Skip chroma-key removal when processing an already-transparent sheet.")
     parser.add_argument("--force-chroma", action="store_true", help="Run chroma-key removal even if the alpha output already exists.")
     parser.add_argument("--despill", action="store_true", help="Reduce remaining chroma color around extracted asset edges.")
@@ -66,8 +88,9 @@ def main():
     parser.add_argument("--split-merge-gap", default="18", help="Merge nearby components separated by at most this many pixels.")
     parser.add_argument("--split-merge-union-growth", default="2.4", help="Maximum bounding-box growth ratio allowed when merging nearby components.")
     parser.add_argument("--square-assets", action="store_true", help="Pad split assets to square canvases.")
-    parser.add_argument("--split-manifest", default="split_assets.json", help="JSON file that records split asset paths and bounding boxes.")
+    parser.add_argument("--split-manifest", help="JSON file that records split asset paths and bounding boxes. Defaults to a job-scoped path when --job-id is set.")
     args = parser.parse_args()
+    configure_default_paths(args)
 
     page_dir = Path(args.page_dir).resolve()
     if not page_dir.exists():
