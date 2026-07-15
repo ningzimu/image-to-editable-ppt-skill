@@ -170,6 +170,15 @@ def full_slide_picture_target(zip_file, slide_part, slide_cx, slide_cy):
     slide_root = ET.fromstring(zip_file.read(slide_part))
     if collect_paragraph_text(slide_root):
         raise ValueError(f"{slide_part} contains native text and is not an image-based slide.")
+    shape_tree = slide_root.find(".//p:spTree", NS)
+    native_tags = {
+        f"{{{NS['p']}}}sp",
+        f"{{{NS['p']}}}grpSp",
+        f"{{{NS['p']}}}graphicFrame",
+        f"{{{NS['p']}}}cxnSp",
+    }
+    if shape_tree is not None and any(child.tag in native_tags for child in shape_tree):
+        raise ValueError(f"{slide_part} contains native objects and is not an image-only slide.")
     pictures = slide_root.findall(".//p:pic", NS)
     if len(pictures) != 1:
         raise ValueError(f"{slide_part} must contain exactly one full-slide picture; found {len(pictures)}.")
@@ -194,6 +203,94 @@ def full_slide_picture_target(zip_file, slide_part, slide_cx, slide_cy):
         raise ValueError(f"{slide_part} picture is not full-slide.")
 
     return resolve_target(f"{posixpath.dirname(slide_part)}/_rels/{posixpath.basename(slide_part)}.rels", rel.attrib["Target"])
+
+
+def embedded_picture_target(zip_file, slide_part):
+    """Return the slide's single picture and its replacement metadata.
+
+    Hybrid reconstruction deliberately starts with one picture per slide.  A
+    single picture gives the finalizer an unambiguous OOXML node to replace
+    while every other native object remains untouched, including group peers.
+    """
+    slide_root = ET.fromstring(zip_file.read(slide_part))
+    shape_tree = slide_root.find(".//p:spTree", NS)
+    if shape_tree is None:
+        raise ValueError(f"{slide_part} has no shape tree.")
+    pictures = shape_tree.findall(".//p:pic", NS)
+    if len(pictures) != 1:
+        raise ValueError(f"{slide_part} must contain exactly one picture; found {len(pictures)}.")
+    picture = pictures[0]
+
+    def find_parent(node, wanted):
+        for child in list(node):
+            if child is wanted:
+                return node
+            parent = find_parent(child, wanted)
+            if parent is not None:
+                return parent
+        return None
+
+    picture_parent = find_parent(shape_tree, picture)
+    if picture_parent is None or picture_parent.tag not in {f"{{{NS['p']}}}spTree", f"{{{NS['p']}}}grpSp"}:
+        raise ValueError(f"{slide_part} picture has an unsupported parent container.")
+    blip = picture.find(".//a:blip", NS)
+    if blip is None:
+        raise ValueError(f"{slide_part} picture has no embedded image.")
+    rel_id = blip.attrib.get(f"{{{NS['r']}}}embed")
+    relationships = slide_relationships(zip_file, slide_part)
+    rel = relationships.get(rel_id)
+    if rel is None or not rel.attrib.get("Type", "").endswith("/image") or rel.attrib.get("TargetMode") == "External":
+        raise ValueError(f"{slide_part} picture relationship is not an embedded image.")
+
+    xfrm = picture.find("p:spPr/a:xfrm", NS)
+    off = xfrm.find("a:off", NS) if xfrm is not None else None
+    ext = xfrm.find("a:ext", NS) if xfrm is not None else None
+    if off is None or ext is None:
+        raise ValueError(f"{slide_part} picture has no placement transform.")
+    if xfrm.attrib.get("rot") not in (None, "0") or xfrm.attrib.get("flipH") == "1" or xfrm.attrib.get("flipV") == "1":
+        raise ValueError(f"{slide_part} picture uses rotation or flipping, which hybrid replacement does not yet support.")
+    crop = picture.find("p:blipFill/a:srcRect", NS)
+    if crop is not None and any(int(crop.attrib.get(side, 0)) for side in ("l", "t", "r", "b")):
+        raise ValueError(f"{slide_part} picture uses cropping, which hybrid replacement does not yet support.")
+
+    c_nv_pr = picture.find("p:nvPicPr/p:cNvPr", NS)
+    if c_nv_pr is None or not c_nv_pr.attrib.get("id"):
+        raise ValueError(f"{slide_part} picture has no stable shape id.")
+    rels_name = f"{posixpath.dirname(slide_part)}/_rels/{posixpath.basename(slide_part)}.rels"
+    image_part = resolve_target(rels_name, rel.attrib["Target"])
+    return image_part, {
+        "slide_part": slide_part,
+        "picture_shape_id": int(c_nv_pr.attrib["id"]),
+        "picture_name": c_nv_pr.attrib.get("name", ""),
+        "relationship_id": rel_id,
+        "z_index": list(picture_parent).index(picture),
+        "frame_emu": {
+            "x": int(off.attrib.get("x", 0)),
+            "y": int(off.attrib.get("y", 0)),
+            "cx": int(ext.attrib.get("cx", 0)),
+            "cy": int(ext.attrib.get("cy", 0)),
+        },
+    }
+
+
+def extract_hybrid_pptx_pages(pptx_path, pages_dir):
+    outputs = []
+    targets = []
+    with zipfile.ZipFile(pptx_path) as z:
+        names = set(z.namelist())
+        slide_cx, slide_cy = slide_size_from_pptx(z)
+        for index, slide_part in enumerate(slide_parts_from_pptx(z), start=1):
+            image_part, target = embedded_picture_target(z, slide_part)
+            if image_part not in names:
+                raise ValueError(f"{slide_part} references missing image part: {image_part}")
+            page_dir = pages_dir / f"page_{index:03d}"
+            page_dir.mkdir(parents=True, exist_ok=True)
+            out = page_dir / "source.png"
+            with Image.open(io.BytesIO(z.read(image_part))) as image:
+                image.convert("RGB").save(out)
+            outputs.append(out)
+            targets.append(target)
+    return outputs, targets, {"width_emu": slide_cx, "height_emu": slide_cy}
 
 
 def extract_image_based_pptx_pages(pptx_path, pages_dir):
@@ -256,10 +353,10 @@ def convert_ppt_to_pptx(input_path, out_dir):
     return pptxs[0]
 
 
-def page_record(job_dir, page_index, source, input_path, source_page):
+def page_record(job_dir, page_index, source, input_path, source_page, replacement_target=None):
     page_dir = source.parent
     rel_page_dir = page_dir.relative_to(job_dir).as_posix()
-    return {
+    record = {
         "page_index": page_index,
         "source_page": source_page,
         "source_image": source.relative_to(job_dir).as_posix(),
@@ -269,6 +366,9 @@ def page_record(job_dir, page_index, source, input_path, source_page):
         "input": Path(input_path).name,
         "agent_status": "pending",
     }
+    if replacement_target:
+        record["replacement_target"] = replacement_target
+    return record
 
 
 def default_job_dir(out_root, input_paths):
@@ -295,6 +395,7 @@ def normalize_inputs(inputs, out_root="output/image-to-editable-ppt", job_dir=No
     pages = []
     notes = []
     input_type = "images"
+    source_slide = None
 
     if len(copied) == 1 and copied[0].suffix.lower() == ".pdf":
         input_type = "pdf"
@@ -307,11 +408,15 @@ def normalize_inputs(inputs, out_root="output/image-to-editable-ppt", job_dir=No
             try:
                 sources = extract_image_based_pptx_pages(copied[0], pages_dir)
             except ValueError as exc:
-                raise SystemExit(
-                    "Unsupported PPTX for the lightweight path: "
-                    f"{exc} This skill accepts image-based PPTX files through lightweight extraction. "
-                    "Convert native/complex PPTX slides to PDF or page images first."
-                ) from exc
+                try:
+                    sources, targets, source_slide = extract_hybrid_pptx_pages(copied[0], pages_dir)
+                    input_type = "hybrid-pptx"
+                except ValueError as hybrid_exc:
+                    raise SystemExit(
+                        "Unsupported PPTX: lightweight extraction failed because "
+                        f"{exc} Hybrid extraction also failed because {hybrid_exc} "
+                        "Hybrid mode currently supports exactly one embedded, uncropped, unrotated picture per slide."
+                    ) from hybrid_exc
         else:
             input_type = "ppt"
             with tempfile.TemporaryDirectory() as tmp:
@@ -322,7 +427,17 @@ def normalize_inputs(inputs, out_root="output/image-to-editable-ppt", job_dir=No
                     shutil.copy2(source_pptx, input_dir / source_pptx.name)
                 rendered_pdf = convert_office_to_pdf(copied[0], tmp_dir)
                 sources = render_pdf_pages(rendered_pdf, pages_dir, args.dpi)
-        pages = [page_record(job_dir, i, source, copied[0], i) for i, source in enumerate(sources, start=1)]
+        pages = [
+            page_record(
+                job_dir,
+                i,
+                source,
+                copied[0],
+                i,
+                targets[i - 1] if input_type == "hybrid-pptx" else None,
+            )
+            for i, source in enumerate(sources, start=1)
+        ]
     elif suffixes <= IMG_EXTS:
         input_type = "image" if len(copied) == 1 else "images"
         for i, src in enumerate(copied, start=1):
@@ -350,6 +465,8 @@ def normalize_inputs(inputs, out_root="output/image-to-editable-ppt", job_dir=No
         "output": default_output_name(copied),
         "validation": "validation.json",
     }
+    if source_slide:
+        deck_manifest["source_slide"] = source_slide
     deck_manifest_path = job_dir / "deck_manifest.json"
     deck_manifest_path.write_text(json.dumps(deck_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return deck_manifest_path

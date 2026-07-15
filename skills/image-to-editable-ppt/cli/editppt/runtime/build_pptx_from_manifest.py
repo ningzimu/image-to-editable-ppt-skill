@@ -3,6 +3,7 @@ import argparse
 import html
 import json
 import math
+import posixpath
 import re
 import subprocess
 import sys
@@ -10,6 +11,7 @@ import tempfile
 import zipfile
 from copy import deepcopy
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 
 EMU_PER_INCH = 914400
@@ -664,6 +666,9 @@ def deck_slide_size(deck, page_entries):
 def write_deck(deck, page_entries, out_path, notes_entries):
     if not page_entries:
         raise ValueError("Deck has no pages")
+    if deck.get("input_type") == "hybrid-pptx":
+        write_hybrid_deck(deck, page_entries, out_path)
+        return
     width, height = deck_slide_size(deck, page_entries)
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -697,6 +702,180 @@ def write_deck(deck, page_entries, out_path, notes_entries):
                 z.writestr(f"ppt/notesSlides/_rels/notesSlide{notes_index}.xml.rels", notes_rels_xml(slide_index))
 
 
+def _fragment_element(xml):
+    wrapper = (
+        f'<root xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+        f'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
+        f'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">{xml}</root>'
+    )
+    return list(ET.fromstring(wrapper))[0]
+
+
+def _next_relationship_id(root):
+    used = {rel.attrib.get("Id", "") for rel in root}
+    number = 1
+    while f"rId{number}" in used:
+        number += 1
+    return f"rId{number}"
+
+
+def _find_parent(root, wanted):
+    for child in list(root):
+        if child is wanted:
+            return root
+        parent = _find_parent(child, wanted)
+        if parent is not None:
+            return parent
+    return None
+
+
+def _hybrid_manifest(deck, entry):
+    manifest = deepcopy(entry["manifest"])
+    target = entry["page"]["replacement_target"]
+    frame = target["frame_emu"]
+    manifest["slide"] = dict(deck["slide"])
+    manifest["content_box"] = {
+        "left": frame["x"] / EMU_PER_INCH,
+        "top": frame["y"] / EMU_PER_INCH,
+        "width": frame["cx"] / EMU_PER_INCH,
+        "height": frame["cy"] / EMU_PER_INCH,
+    }
+    return normalize_manifest(manifest)
+
+
+def _add_content_type_default(content_types, extension, content_type):
+    namespace = "http://schemas.openxmlformats.org/package/2006/content-types"
+    for node in content_types.findall(f"{{{namespace}}}Default"):
+        if node.attrib.get("Extension", "").lower() == extension.lower():
+            return
+    ET.SubElement(content_types, f"{{{namespace}}}Default", Extension=extension, ContentType=content_type)
+
+
+def _resolve_relationship_target(rels_part, target):
+    rels_dir = posixpath.dirname(rels_part)
+    source_dir = posixpath.dirname(rels_dir) if posixpath.basename(rels_dir) == "_rels" else rels_dir
+    return posixpath.normpath(posixpath.join(source_dir, target))
+
+
+def write_hybrid_deck(deck, page_entries, out_path):
+    """Replace one picture per source slide while preserving the source PPTX package."""
+    root = Path(deck.get("job_dir", ".")).resolve()
+    source = Path(deck.get("inputs", [""])[0])
+    if not source.is_absolute():
+        source = root / source
+    if not source.exists():
+        raise ValueError(f"Hybrid source PPTX does not exist: {source}")
+
+    ET.register_namespace("a", "http://schemas.openxmlformats.org/drawingml/2006/main")
+    ET.register_namespace("p", "http://schemas.openxmlformats.org/presentationml/2006/main")
+    ET.register_namespace("r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships")
+    ET.register_namespace("", REL_NS)
+    p_ns = "http://schemas.openxmlformats.org/presentationml/2006/main"
+
+    with zipfile.ZipFile(source) as original:
+        parts = {name: original.read(name) for name in original.namelist()}
+    additions = {}
+    removed_media = set()
+    content_types = ET.fromstring(parts["[Content_Types].xml"])
+
+    for page_index, entry in enumerate(page_entries, start=1):
+        target = entry["page"].get("replacement_target")
+        if not target:
+            raise ValueError(f"Hybrid page {page_index} has no replacement_target")
+        slide_part = target["slide_part"]
+        rels_part = f"{posixpath.dirname(slide_part)}/_rels/{posixpath.basename(slide_part)}.rels"
+        slide_root = ET.fromstring(parts[slide_part])
+        shape_tree = slide_root.find(f".//{{{p_ns}}}spTree")
+        if shape_tree is None:
+            raise ValueError(f"{slide_part} has no shape tree")
+
+        picture = None
+        for candidate in shape_tree.findall(f".//{{{p_ns}}}pic"):
+            c_nv_pr = candidate.find(f"{{{p_ns}}}nvPicPr/{{{p_ns}}}cNvPr")
+            if c_nv_pr is not None and int(c_nv_pr.attrib.get("id", -1)) == int(target["picture_shape_id"]):
+                picture = candidate
+                break
+        if picture is None:
+            raise ValueError(f"{slide_part} no longer contains picture shape id {target['picture_shape_id']}")
+        picture_parent = _find_parent(shape_tree, picture)
+        if picture_parent is None:
+            raise ValueError(f"{slide_part} picture shape id {target['picture_shape_id']} has no parent")
+        insert_at = list(picture_parent).index(picture)
+        picture_parent.remove(picture)
+
+        rel_root = ET.fromstring(parts[rels_part])
+        target_rel_id = target.get("relationship_id")
+        relationship_still_used = any(target_rel_id in node.attrib.values() for node in slide_root.iter())
+        if not relationship_still_used:
+            for relationship in list(rel_root):
+                if relationship.attrib.get("Id") == target_rel_id:
+                    if relationship.attrib.get("TargetMode") != "External" and relationship.attrib.get("Target"):
+                        removed_media.add(_resolve_relationship_target(rels_part, relationship.attrib["Target"]))
+                    rel_root.remove(relationship)
+
+        manifest = _hybrid_manifest(deck, entry)
+        layered = []
+        for index, item in enumerate(manifest.get("shapes", [])):
+            layered.append((float(item.get("z_index", 100)), index, "shape", item))
+        for index, item in enumerate(manifest.get("images", [])):
+            layered.append((float(item.get("z_index", 200)), index, "image", item))
+        for index, item in enumerate(manifest.get("text_boxes", [])):
+            layered.append((float(item.get("z_index", 300)), index, "text", item))
+
+        existing_ids = [int(node.attrib["id"]) for node in slide_root.findall(f".//{{{p_ns}}}cNvPr") if node.attrib.get("id", "").isdigit()]
+        next_shape_id = max(existing_ids, default=1) + 1
+        manifest_base = Path(entry["manifest_path"]).resolve().parent
+        generated = []
+        for _z, _order, kind, item in sorted(layered, key=lambda value: (value[0], value[1])):
+            if kind == "shape":
+                generated.append(_fragment_element(shape_xml(next_shape_id, item)))
+            elif kind == "text":
+                generated.append(_fragment_element(text_box_xml(next_shape_id, item)))
+            else:
+                rel_id = _next_relationship_id(rel_root)
+                src = Path(item["path"])
+                if not src.is_absolute():
+                    src = manifest_base / src
+                extension = image_ext(src)
+                media_part = f"ppt/media/editppt_hybrid_{page_index:03d}_{_order + 1:03d}{extension}"
+                additions[media_part] = src.read_bytes()
+                target_path = posixpath.relpath(media_part, posixpath.dirname(slide_part))
+                ET.SubElement(
+                    rel_root,
+                    f"{{{REL_NS}}}Relationship",
+                    Id=rel_id,
+                    Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
+                    Target=target_path,
+                )
+                _add_content_type_default(content_types, extension.lstrip("."), content_type_for(src))
+                generated.append(_fragment_element(image_xml(next_shape_id, rel_id, item)))
+            next_shape_id += 1
+
+        for offset, element in enumerate(generated):
+            picture_parent.insert(insert_at + offset, element)
+        parts[slide_part] = ET.tostring(slide_root, encoding="utf-8", xml_declaration=True)
+        parts[rels_part] = ET.tostring(rel_root, encoding="utf-8", xml_declaration=True)
+
+    parts["[Content_Types].xml"] = ET.tostring(content_types, encoding="utf-8", xml_declaration=True)
+    referenced_parts = set()
+    for rels_part, data in parts.items():
+        if not rels_part.endswith(".rels"):
+            continue
+        for relationship in ET.fromstring(data):
+            target = relationship.attrib.get("Target")
+            if target and relationship.attrib.get("TargetMode") != "External":
+                referenced_parts.add(_resolve_relationship_target(rels_part, target))
+    for media_part in removed_media - referenced_parts:
+        parts.pop(media_part, None)
+    out = Path(out_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as result:
+        for name, data in parts.items():
+            result.writestr(name, data)
+        for name, data in additions.items():
+            result.writestr(name, data)
+
+
 def page_entries_from_deck_manifest(deck_manifest_path):
     deck_path = Path(deck_manifest_path).resolve()
     deck = json.loads(deck_path.read_text(encoding="utf-8"))
@@ -707,7 +886,7 @@ def page_entries_from_deck_manifest(deck_manifest_path):
         if not manifest_path.is_absolute():
             manifest_path = root / manifest_path
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        entries.append({"manifest": manifest, "manifest_path": manifest_path})
+        entries.append({"manifest": manifest, "manifest_path": manifest_path, "page": page})
     notes_path = deck.get("notes_manifest")
     notes_entries = []
     if notes_path:

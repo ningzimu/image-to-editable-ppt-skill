@@ -4,7 +4,7 @@
 
 ![Image to Editable PPT project overview](assets/image-to-editable-ppt-overview.png)
 
-A skill for converting images, PDFs, and image-based PPT files into editable PowerPoint `.pptx` output. It normalizes inputs into per-page jobs, then rebuilds editable text, simple shapes, and positioned visual assets.
+A skill for converting images, PDFs, and image-based or mixed-content PPT files into editable PowerPoint `.pptx` output. Existing native PowerPoint objects are preserved when possible, while only flattened picture regions are reconstructed into editable text, simple shapes, and positioned visual assets.
 
 It is useful when screenshot-like or image-based slides need to become easier to edit again, with text, simple shapes, and visual assets separated where practical.
 
@@ -67,6 +67,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 - Text sizes and positions are measurement-driven: prepare generates per-page text annotations (box coordinates + font sizes + size groups), and same-level text keeps one consistent size automatically.
 - Keep multiple images in the provided order; preserve PDF and `.pptx` page order.
 - Preserve `.pptx` speaker notes on matching output slides without modifying note text.
+- For mixed slides with native PowerPoint objects plus one embedded picture region, preserve native objects, masters, and package structure while rebuilding only that picture region in place.
 - Decides page by page whether to use the confirmed image backend for visual-layer extraction; when needed, sparse asset sheets group foreground assets, prefer placing icons on one sheet, and keep generous gaps for later splitting.
 - Supports hybrid reconstruction: editable text, simple native shapes, and independent image assets.
 
@@ -75,6 +76,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 - Rebuild one or more slide images into a PowerPoint deck whose text and element positions can be adjusted.
 - Convert multiple images or a multi-page PDF into a multi-slide `.pptx`.
 - Convert image-based PPT slides into a more editable `.pptx` while preserving source speaker notes.
+- Rebuild only flattened picture regions while retaining text, shapes, and groups that are already editable.
 - Recreate a single-slide visual design while keeping text editable.
 - Compare source pages against output slides to find missing text, alignment drift, or missing assets.
 
@@ -117,6 +119,7 @@ The skill still runs without a token: it falls back to the built-in offline dete
 - This skill has relatively complex flow control and high token usage. The cost of converting an image-based PPT into an editable PPT **may be 2-3x the cost of generating an image-based PPT**.
 - Results are limited by the model's baseline visual understanding and its ability to follow the skill workflow; usage quality is **not guaranteed for models below gpt-5.5**.
 - Some image elements and text positions may shift slightly, so output is **not guaranteed to be a 100% replica of the original page**.
+- The first hybrid-PPTX version requires exactly one embedded picture per slide. Multiple pictures, linked images, and cropped, rotated, or flipped target pictures are not yet supported.
 
 ## Install
 
@@ -145,12 +148,12 @@ $image-to-editable-ppt convert <path-to-image-based.pptx> into an editable Power
 
 The normal workflow is:
 
-1. Create an isolated job folder, normalize inputs into `pages/page_NNN/source.png`, and write the default `editppt image` backend.
+1. Create an isolated job folder, normalize full-page images or the picture region selected from each hybrid PPTX slide into `pages/page_NNN/source.png`, and write the default `editppt image` backend.
 2. If there is exactly 1 page, the main agent first claims it with `editppt run dispatch --local`, then rebuilds it locally from the same page prompt; if there are multiple pages, dispatch them to page workers in `max_concurrent_pages` batches.
 3. The page reconstructor — main-agent local mode or page worker — owns one page directory and completes reconstruction, self-check, and page-local correction there.
 4. Build one page manifest per page with editable text, simple shapes, and positioned image assets.
 5. Use `editppt` commands to record dispatches, page results, and accepted status.
-6. Use `editppt run finalize` to rebuild the final `.pptx` from recorded `manifest.json` files in page order, copy `.pptx` speaker notes when present, and run deck validation.
+6. Use `editppt run finalize` to build the final `.pptx` from recorded `manifest.json` files in page order. For hybrid PPTX input, replace the original picture with rebuilt objects while preserving other native objects, then run deck validation.
 
 ## Output Layout
 
@@ -162,6 +165,7 @@ Output is always a PowerPoint `.pptx` file:
 | Multiple images | Multi-slide `.pptx`, one slide per image, in the provided order |
 | Multi-page PDF | Multi-slide `.pptx`; PDF page N maps to output slide N |
 | Image-based PPT | `.pptx` with the same slide count; source slide N maps to output slide N |
+| Mixed-content PPTX | Preserve native objects and replace only each slide's flattened picture region |
 
 Speaker notes are handled only for `.pptx` input. The parent agent copies notes to matching output slides unchanged: no translation, summarization, rewriting, or page-subagent processing.
 
