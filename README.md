@@ -45,6 +45,10 @@
     <th>转换后可编辑效果</th>
   </tr>
   <tr>
+    <td><img src="assets/showcase-origin-investment-platform.png" alt="投资平台信息图原图" width="420"></td>
+    <td><img src="assets/showcase-editable-ppt-result-investment-platform.png" alt="投资平台信息图转换后可编辑效果" width="420"></td>
+  </tr>
+  <tr>
     <td><img src="assets/showcase-origin-market-snapshot.png" alt="市场概览原图" width="420"></td>
     <td><img src="assets/showcase-editable-ppt-result-market-snapshot.png" alt="市场概览转换后可编辑效果" width="420"></td>
   </tr>

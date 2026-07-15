@@ -45,6 +45,10 @@ It is useful when screenshot-like or image-based slides need to become easier to
     <th>Editable Result</th>
   </tr>
   <tr>
+    <td><img src="assets/showcase-origin-investment-platform.png" alt="Investment platform infographic original" width="420"></td>
+    <td><img src="assets/showcase-editable-ppt-result-investment-platform.png" alt="Investment platform infographic editable result" width="420"></td>
+  </tr>
+  <tr>
     <td><img src="assets/showcase-origin-market-snapshot.png" alt="Market snapshot original" width="420"></td>
     <td><img src="assets/showcase-editable-ppt-result-market-snapshot.png" alt="Market snapshot editable result" width="420"></td>
   </tr>
