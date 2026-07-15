@@ -4,6 +4,10 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Features
+
+- Preserve existing native PowerPoint objects for supported mixed-content PPTX input and rebuild only one embedded picture region per slide before merging the editable objects back into the original package. (#21)
+
 ### Documentation
 
 - Fix README rendering for the Codex Full Access recommendation callout.

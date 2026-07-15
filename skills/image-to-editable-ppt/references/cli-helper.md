@@ -112,7 +112,7 @@ editppt prepare input.png
 editppt prepare input.pdf
 ```
 
-Purpose: normalize a single image, multiple images, a PDF, or an image-based PPTX into a run directory and generate `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, plus per-page `pages/page_NNN/source.png`, `page_request.json`, and text hints.
+Purpose: normalize a single image, multiple images, a PDF, an image-based PPTX, or a supported mixed-content PPTX into a run directory and generate `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, plus per-page `pages/page_NNN/source.png`, `page_request.json`, and text hints. Mixed-content PPTX input is marked `hybrid-pptx`; its page source is the one embedded picture selected for in-place replacement.
 
 When a PaddleOCR token is configured, `prepare` may submit the input pages to PaddleOCR for content-aware text hints. In a sandboxed or approval-gated environment, request network approval up front for this command instead of accepting a DNS/sandbox failure followed by lower-quality `builtin-ink` fallback; see `SKILL.md` Phase 1 for the approval-rejection policy.
 
@@ -156,7 +156,7 @@ Purpose: return a dispatched or recorded page to `pending`, clearing its dispatc
 editppt run finalize <run>
 ```
 
-Purpose: after all pages are recorded, rebuild, validate, and output the final PPTX. Final assembly reads each recorded `pages/page_NNN/manifest.json` in page order; `page.pptx` is a page-local deliverability artifact, not the final assembly input.
+Purpose: after all pages are recorded, rebuild, validate, and output the final PPTX. Final assembly reads each recorded `pages/page_NNN/manifest.json` in page order; for `hybrid-pptx`, it replaces each recorded target picture inside the original package and preserves other native objects. `page.pptx` is a page-local deliverability artifact, not the final assembly input.
 
 ## Page Build Commands
 

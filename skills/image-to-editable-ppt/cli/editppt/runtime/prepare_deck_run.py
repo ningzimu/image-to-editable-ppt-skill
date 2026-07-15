@@ -66,6 +66,13 @@ def page_source_size(run_dir, page):
 
 
 def deck_slide_layout(run_dir, deck):
+    source_slide = deck.get("source_slide")
+    if deck.get("input_type") == "hybrid-pptx" and source_slide:
+        return {
+            "width": float(source_slide["width_emu"]) / 914400,
+            "height": float(source_slide["height_emu"]) / 914400,
+            "size_mode": "source-pptx",
+        }
     first_page = deck.get("pages", [{}])[0]
     _source, width_px, height_px = page_source_size(run_dir, first_page)
     return slide_for_source(width_px, height_px)
@@ -74,9 +81,11 @@ def deck_slide_layout(run_dir, deck):
 def page_request(run_dir, deck, page):
     page_dir = (run_dir / page["page_dir"]).resolve()
     source, width_px, height_px = page_source_size(run_dir, page)
-    slide = dict(deck["slide"])
+    # A hybrid worker rebuilds the extracted picture on its own local canvas.
+    # The finalizer maps that canvas back into the original picture frame.
+    slide = slide_for_source(width_px, height_px) if page.get("replacement_target") else dict(deck["slide"])
     page_id = page["page_id"]
-    return {
+    request = {
         "schema_version": 1,
         "run_id": deck["run_id"],
         "page_id": page_id,
@@ -105,6 +114,9 @@ def page_request(run_dir, deck, page):
             "page_result": str(page_dir / "page_result.json"),
         },
     }
+    if page.get("replacement_target"):
+        request["replacement_target"] = page["replacement_target"]
+    return request
 
 
 def write_page_jobs(run_dir, deck):

@@ -2,6 +2,17 @@
 
 This document describes the responsibilities, owners, and current field contracts for `editppt` run/page JSON files. All key state is advanced by `editppt` commands; page reconstructors write only page-local files.
 
+## Contents
+
+- [`deck_manifest.json`](#deck_manifestjson)
+- [`page_jobs.json`](#page_jobsjson)
+- [`page_request.json`](#page_requestjson)
+- [`page_result.json`](#page_resultjson)
+- [`pages/page_NNN/validation.json`](#pagespage_nnnvalidationjson)
+- [`pages/page_NNN/manifest.json`](#pagespage_nnnmanifestjson)
+- [`pages/page_NNN/imagegen-jobs.json`](#pagespage_nnnimagegen-jobsjson)
+- [`notes_manifest.json`](#notes_manifestjson)
+
 ## `deck_manifest.json`
 
 Owner: created by `editppt prepare`; `editppt run backend` may update the image backend; `editppt run finalize` reads it and writes completion time.
@@ -22,7 +33,7 @@ Key fields:
 {
   "schema_version": 1,
   "run_id": "job-id",
-  "input_type": "image|images|pdf|pptx",
+  "input_type": "image|images|pdf|pptx|hybrid-pptx",
   "max_concurrent_pages": 6,
   "image_backend": {},
   "pages": [],
@@ -30,6 +41,21 @@ Key fields:
   "output": "final/origin_edited.pptx"
 }
 ```
+
+For `hybrid-pptx`, `source_slide` stores the original `width_emu` and `height_emu`. Every page entry also contains a runtime-owned `replacement_target`:
+
+```json
+{
+  "slide_part": "ppt/slides/slide1.xml",
+  "picture_shape_id": 7,
+  "picture_name": "Picture 6",
+  "relationship_id": "rId3",
+  "z_index": 4,
+  "frame_emu": {"x": 0, "y": 1504977, "cx": 12192000, "cy": 3848046}
+}
+```
+
+The target identifies exactly one embedded, uncropped, unrotated, unflipped picture on the source slide. `frame_emu` is expressed in the picture's immediate shape-tree coordinate system so grouped pictures can be replaced without flattening or moving their native siblings. The runtime writes and consumes these fields; page reconstructors must not edit them.
 
 `image_backend` is written with defaults by `editppt prepare` and may be overwritten by `editppt run backend` when needed.
 
@@ -84,6 +110,7 @@ Includes:
 - required outputs
 - user constraints
 - image backend contract
+- hybrid picture replacement target, when present
 
 Must not include:
 
@@ -93,7 +120,7 @@ Must not include:
 
 If the run uses an image backend, `page_request.json` must contain the same `image_backend`.
 
-`slide` and `content_box` are computed automatically by `editppt prepare`. Inputs close to 16:9 use the standard widescreen canvas; other inputs use a custom canvas converted from the source image pixel dimensions. The agent must copy these two fields into the page `manifest.json` and must not compress, stretch, or recalculate the canvas.
+`slide` and `content_box` are computed automatically by `editppt prepare`. Inputs close to 16:9 use the standard widescreen canvas; other inputs use a custom canvas converted from the source image pixel dimensions. For a hybrid page this is the extracted picture's local reconstruction canvas; `replacement_target` separately records where finalization maps it into the source slide. The agent must copy `slide` and `content_box` into the page `manifest.json` and must not compress, stretch, or recalculate the canvas.
 
 ## `page_result.json`
 

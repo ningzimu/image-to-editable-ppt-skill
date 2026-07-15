@@ -4,7 +4,7 @@
 
 ![Image to Editable PPT 项目概览](assets/image-to-editable-ppt-overview.png)
 
-一个用于把图片、PDF、图片版PPT 转成可编辑 PowerPoint 的 skill。它先把输入归一化为逐页任务，再重建为 `.pptx`：可读文字尽量恢复为原生文本框，简单几何尽量恢复为 PowerPoint 形状，复杂视觉元素保留为带来源记录的独立图片资产。
+一个用于把图片、PDF、图片版或混合元素 PPT 转成可编辑 PowerPoint 的 skill。它先把输入归一化为逐页任务，再重建为 `.pptx`：已有的原生 PPT 元素会尽量原样保留，只重建扁平图片区域；可读文字尽量恢复为原生文本框，简单几何尽量恢复为 PowerPoint 形状，复杂视觉元素保留为带来源记录的独立图片资产。
 
 它适合把截图式或图片式幻灯片变成更容易二次编辑的 PPT，让文字、简单形状和视觉素材尽量分开调整。
 
@@ -67,6 +67,7 @@
 - 文字大小与位置由测量驱动：prepare 阶段为每页生成文字标注（框坐标 + 字号 + 字号分组），模型按测量值还原文字，同级文字字号自动保持一致。
 - 多张图片按提供顺序生成页面；PDF 和 `.pptx` 保留原页码顺序。
 - `.pptx` 输入的页面备注会复制到输出对应页，备注内容不改动。
+- 对“原生 PPT 元素 + 单个嵌入图片区域”的混合页面，保留原生对象、母版和包结构，只把图片区域交给页面重建流程并回填到原层级。
 - 根据具体页面情况决定是否通过已确认 image backend 做图片分层抽取；需要时用稀疏 asset sheet 合并前景素材，优先把图标放在一个素材板上，并保留充足间隙便于后续分离。
 - 支持复杂视觉页的混合策略：可编辑文字 + 简单形状 + 独立图片资产。
 
@@ -75,6 +76,7 @@
 - 把一张或多张 slide 图片重建成可调整文字和元素位置的 PPT。
 - 把多张图片或多页 PDF 转成一个多页 `.pptx`。
 - 把图片版PPT页面转换为更容易二次编辑的 `.pptx`，并保留原页面备注。
+- 只重建 PPT 中已经扁平化的图片区域，同时保留本来就可编辑的文字、形状和分组。
 - 复刻单页视觉设计，同时保留文本可编辑性。
 - 对比源图与输出页面，定位缺字、错位或资产缺失。
 
@@ -117,6 +119,7 @@
 - 本 skill有着相对复杂的流程控制，Token花费比较高。将一个图片PPT转换成可编辑PPT的成本，**可能是生成图片PPT成本的2-3倍**。
 - 受限于模型基础理解能力和对 skill 的遵循能力，**不保证 gpt-5.5 以下模型的使用效果**。
 - 部分图片元素和文字位置可能会有轻微偏移，**不能保证 100% 复刻原始页面**。
+- 混合 PPTX 首版要求每页恰好有一个嵌入图片；暂不支持同页多图、链接图片，以及裁剪、旋转或翻转过的目标图片。
 
 ## 安装
 
@@ -145,12 +148,12 @@ $image-to-editable-ppt 把 <path-to-image-based.pptx> 转成可编辑 PPT。
 
 skill 通常会完成这些步骤：
 
-1. 创建独立任务目录，把输入归一化为 `pages/page_NNN/source.png`，并写入默认 `editppt image` backend。
+1. 创建独立任务目录，把整页图片或混合 PPTX 中待重建的图片区域归一化为 `pages/page_NNN/source.png`，并写入默认 `editppt image` backend。
 2. 如果只有 1 页，主 agent 先用 `editppt run dispatch --local` 认领页面，再按同一页面 prompt 本地重建；如果有多页，则按 `max_concurrent_pages` 分批分派给 page worker 重建。
 3. 页面重建者（主 agent 本地模式或 page worker）负责自己的页面目录，完成页面重建、自检和 page-local 修正。
 4. 每页创建 manifest，重建可编辑文本、简单形状和图片资产。
 5. 用 `editppt` 命令记录 dispatch、page result 和 accepted 状态。
-6. 主 agent 用 `editppt run finalize` 按页顺序读取已记录的 `manifest.json` 重建最终 `.pptx`，复制 `.pptx` 页面备注，并运行 deck validation。
+6. 主 agent 用 `editppt run finalize` 按页顺序读取已记录的 `manifest.json` 生成最终 `.pptx`；混合 PPTX 会把重建对象替换回原图片位置并保留其他原生对象，随后运行 deck validation。
 
 ## 输出结构
 
@@ -162,6 +165,7 @@ skill 通常会完成这些步骤：
 | 多张图片  | 多页 `.pptx`，每张图片 1 页，按提供顺序排列  |
 | 多页 PDF  | 多页 `.pptx`，PDF 第 N 页对应输出第 N 页     |
 | 图片版PPT | 页数一致的 `.pptx`，原第 N 页对应输出第 N 页 |
+| 混合元素 PPTX | 保留原生对象，只替换每页的扁平图片区域 |
 
 只有 `.pptx` 输入会处理页面备注。备注由主 agent 按页原样复制到输出 PPTX：不翻译、不摘要、不改写，也不交给 page worker 处理。
 

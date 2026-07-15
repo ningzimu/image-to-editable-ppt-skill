@@ -8,7 +8,7 @@ description: Rebuild slide images, image-based or scanned PPT/PPTX files, and PD
 
 This skill rebuilds visual slide inputs into object-level editable PowerPoint `.pptx` files.
 
-Inputs can be a single image, multiple images, a PDF, or an image-based PPT/PPTX. The output is always `.pptx`. The goal is not to wrap a full-slide screenshot inside PowerPoint; the goal is to use the `editppt` runtime and page-level prompts to decompose, reconstruct, validate, and assemble editable slides.
+Inputs can be a single image, multiple images, a PDF, an image-based PPT/PPTX, or a supported mixed-content PPTX. The output is always `.pptx`. The goal is not to wrap a full-slide screenshot inside PowerPoint; the goal is to use the `editppt` runtime and page-level prompts to decompose, reconstruct, validate, and assemble editable slides. For supported mixed-content PPTX input, native objects stay in the source package and only the selected flattened picture region is reconstructed.
 
 ## References
 
@@ -26,6 +26,7 @@ These parent-level rules are stated once here; page-level rules live in the refe
 
 - The `editppt` CLI is a required runtime surface. If `editppt --help` fails, install it first by following the Pre-Run Check in `references/cli-helper.md` before doing anything else.
 - First run `editppt prepare <input...>` to create a run directory. After that, all key state transitions are advanced only through `editppt` commands; never hand-write run/page state JSON. This keeps run state deterministic and resumable.
+- For PPTX input, accept `prepare`'s detected mode. Image-only slides use the normal page reconstruction path; `hybrid-pptx` pages preserve the source package and carry one runtime-selected picture replacement target per slide. Do not flatten the PPTX to PDF first, because doing so discards native objects that hybrid finalization is designed to preserve.
 - Multi-page inputs are rebuilt by dispatched page workers. A run with exactly one page is rebuilt by the parent agent in local page-reconstructor mode after `editppt run dispatch --local` claims that page. If no subagent capability is available for a multi-page run, stop and report this to the user; do not degrade into parent-agent reconstruction for multi-page input.
 - The parent agent must not write any page reconstruction artifact — `manifest.json`, `page.pptx`, `preview.png`, `split_assets_contact.png`, `validation.json`, or `page_result.json` — except in single-page local page-reconstructor mode after `editppt run dispatch --local` has recorded the claim. Local mode follows the same page prompt, references, output files, and `run record` validation path as a page worker.
 - All image generation, image editing, background repair, transparent bitmap assets, and asset sheets go through serial `editppt image generate/edit` calls.
@@ -59,6 +60,8 @@ editppt prepare <input...>
 ```
 
 After this completes, there must be a run directory, `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, and each page must have `source.png` plus `page_request.json`.
+
+For `hybrid-pptx`, each `source.png` is the embedded picture selected for replacement rather than a render of the whole slide. Its replacement metadata is runtime-owned and defined in `references/manifest-schema.md`; page reconstructors still work only on the local page canvas.
 
 Prepare also writes per-page text hints. Whenever `editppt doctor` or prepare reports that no PaddleOCR token is configured (offline fallback), ask the user once before dispatching any page: a free token from https://aistudio.baidu.com/account/accessToken stored via `editppt config --paddle-ocr-token <token>` makes the hints content-aware and noticeably improves text fidelity, and `editppt run hints <run>` regenerates the current run's hints in place. Tell the user the free personal quota is currently more than enough for this skill — applying is risk-free with no extra cost. Wait for their choice; if they decline or want to proceed, continue with the offline hints and do not ask again.
 
@@ -120,7 +123,7 @@ When `editppt run next <run>` returns the finalize stage:
 editppt run finalize <run>
 ```
 
-`finalize` treats each recorded `pages/page_NNN/manifest.json` as the authoritative source: it rebuilds the final deck from page manifests in page order, then validates the resulting PPTX. `page.pptx` remains a page-level deliverability artifact for record-time checks.
+`finalize` treats each recorded `pages/page_NNN/manifest.json` as the authoritative reconstruction source. Normal runs rebuild the final deck from those manifests in page order. A `hybrid-pptx` run instead replaces each recorded target picture inside the original PPTX package with the manifest objects, preserving all other native slide objects and package parts. It then validates the resulting PPTX. `page.pptx` remains a page-level deliverability artifact for record-time checks.
 
 Deck-level structural QA at this stage:
 
