@@ -183,8 +183,8 @@ def collect_status(check_api=False):
     api_key = values.get("OPENAI_API_KEY", "")
     api_ready = bool(api_key)
     codex_ready = codex_oauth_ready()
-    image_backend_ready = codex_ready or api_ready
-    ok = all(dependencies.values()) and (image_backend_ready if check_api else True)
+    cli_fallback_ready = codex_ready or api_ready
+    ok = all(dependencies.values()) and (cli_fallback_ready if check_api else True)
     return {
         "ok": ok,
         "config_home": str(home),
@@ -207,8 +207,15 @@ def collect_status(check_api=False):
             "ready": codex_ready,
             "auth_file": str(codex_auth_file()),
         },
+        "agent_builtin_imagegen": {
+            "checked": False,
+            "ready": None,
+            "tool_name": "image_gen.imagegen",
+            "reason": "CLI doctor cannot detect Agent tool availability",
+        },
         "image_backend": {
-            "ready": image_backend_ready,
+            "scope": "cli-fallback-only",
+            "ready": cli_fallback_ready,
             "selection": "codex-oauth" if codex_ready else ("openai-compatible-api" if api_ready else "missing"),
         },
         "text_hints": {
@@ -233,7 +240,8 @@ def collect_status(check_api=False):
             ),
         },
         "next": "no action needed" if ok else (
-            "run `codex login` or `editppt config --api-key <key>`" if check_api and not image_backend_ready
+            "configure CLI fallback with `codex login` or `editppt config --api-key <key>`"
+            if check_api and not cli_fallback_ready
             else cli_reinstall_hint().strip("`")
         ),
     }
@@ -247,6 +255,7 @@ def doctor(args):
 
     api = status["api_fallback"]
     codex = status["codex_oauth"]
+    builtin = status["agent_builtin_imagegen"]
     image_backend = status["image_backend"]
     print(f"config home: {status['config_home']}")
     print(f"cli python: {status['cli_python']}")
@@ -255,7 +264,8 @@ def doctor(args):
     print(f"OPENAI_BASE_URL={api['OPENAI_BASE_URL']}")
     print(f"IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL={api['IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL']}")
     print(f"Codex OAuth={'ready' if codex['ready'] else 'missing'} ({codex['auth_file']})")
-    print(f"image backend={image_backend['selection']}")
+    print(f"built-in image backend=not checked ({builtin['tool_name']} is an Agent tool unavailable to CLI doctor)")
+    print(f"CLI fallback image backend={image_backend['selection']}")
     hints = status["text_hints"]
     print(f"text hints={hints['selection']} (PADDLE_OCR_TOKEN {hints['paddle_token']})")
     print(
@@ -284,9 +294,9 @@ def doctor(args):
         print(f"dependency install hint: run {cli_reinstall_hint()}.")
     if args.check_api:
         if image_backend["ready"]:
-            print("image backend check: configured (network probe not performed by doctor)")
+            print("CLI fallback image backend check: configured (network probe not performed by doctor)")
         else:
-            print("image backend check: Codex OAuth and OPENAI_API_KEY are both missing")
+            print("CLI fallback image backend check: Codex OAuth and OPENAI_API_KEY are both missing")
     print(f"next: {status['next']}")
     return 0 if status["ok"] else 1
 
@@ -298,7 +308,11 @@ def main():
     )
     sub = parser.add_subparsers(required=True)
     doc = sub.add_parser("doctor", help="Check Python dependencies and fallback config")
-    doc.add_argument("--check-api", action="store_true", help="Require API credentials to be configured.")
+    doc.add_argument(
+        "--check-api",
+        action="store_true",
+        help="Require Codex OAuth or OpenAI-compatible API credentials for the CLI fallback.",
+    )
     doc.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     doc.add_argument("--timeout", type=int, default=30, help="Reserved timeout value for future network probes.")
     doc.set_defaults(func=doctor)

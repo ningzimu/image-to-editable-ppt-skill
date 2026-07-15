@@ -8,7 +8,7 @@ Every `source.png` is judged in three steps, in this order:
 2. Foreground asset separation.
 3. PPT native element reconstruction.
 
-The order exists because steps 1-2 decide object sources and step 3 consumes those decisions. Nativizing text and layout first locks in wrong choices: text that belongs to a logo, a UI screenshot, or a to-be-separated asset must not become a native text box, and which text needs clean-base removal depends on the background decision. Define the boundaries between background, foreground, and native structure first; then write the manifest. Submit image jobs serially with `editppt image generate` or `editppt image edit`; do not parallelize page-local image jobs through a batch interface because concurrent asset-sheet calls make rate limits, retries, and reconciliation failures harder to diagnose.
+The order exists because steps 1-2 decide object sources and step 3 consumes those decisions. Nativizing text and layout first locks in wrong choices: text that belongs to a logo, a UI screenshot, or a to-be-separated asset must not become a native text box, and which text needs clean-base removal depends on the background decision. Define the boundaries between background, foreground, and native structure first; then write the manifest. Submit image jobs serially through `page_request.json.image_backend`; its field contract lives in `manifest-schema.md`, and fallback CLI syntax lives in `cli-helper.md`. Do not parallelize page-local image jobs through a batch interface because concurrent asset-sheet calls make rate limits, retries, and reconciliation failures harder to diagnose.
 
 Contents:
 
@@ -68,7 +68,7 @@ An existing background region may be reused as-is only when all of these hold:
 
 ### 1.3 Backgrounds That Need Image Tool Repair
 
-Use `editppt image edit --image <source.png>` for background repair or clean bases when:
+Use the image-edit path selected by `page_request.json.image_backend` for background repair or clean bases when:
 
 - Complex photos, spaces, real product images, complex dashboards, or complex illustrated backgrounds are occluded by foreground text or icons.
 - Occluded areas need completion after removing text, labels, icons, stickers, or hand-drawn marks.
@@ -101,7 +101,7 @@ Step 2 decides only the source of non-text foreground visual objects. Every fore
 
 ### 2.1 Foreground Assets Must Use Image Edit Separation
 
-Every non-text foreground visual object must be separated through the `editppt image edit --image <source.png>` asset-sheet workflow, including:
+Every non-text foreground visual object must be separated through the image-edit asset-sheet workflow selected by `page_request.json.image_backend`, including:
 
 - Foreground photos, foreground screenshots, video covers, foreground image blocks, map fragments, chart-image fragments, and rectangular illustrations.
 - Icons, pictograms, symbols, logo-like marks.

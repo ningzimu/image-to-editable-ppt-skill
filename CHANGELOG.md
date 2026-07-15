@@ -4,6 +4,10 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Features
+
+- Prefer the agent built-in `image_gen.imagegen` tool for image generation and editing, with explicit fallback to Codex OAuth and then an OpenAI-compatible API only for defined failure conditions, while recording the actual producing backend.
+
 ### Documentation
 
 - Add a docsify-based documentation site under `docs/` (home, quickstart, design, installation, workflow, FAQ, prompts) served via GitHub Pages, and link it from both READMEs. (#18)
