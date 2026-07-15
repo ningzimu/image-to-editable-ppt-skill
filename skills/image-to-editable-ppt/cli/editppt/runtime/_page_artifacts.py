@@ -35,6 +35,9 @@ def process_asset_sheet(args, page_dir):
     if not args.asset_sheet_source and args.skip_chroma and args.skip_split:
         return
 
+    if not args.skip_chroma and alpha.exists() and not args.force_chroma:
+        raise SystemExit(f"Output already exists: {alpha} (use --force-chroma to overwrite)")
+
     if args.asset_sheet_source:
         source = resolve_under_page(page_dir, args.asset_sheet_source)
         if not source.exists():

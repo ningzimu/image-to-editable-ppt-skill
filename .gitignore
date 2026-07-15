@@ -48,6 +48,7 @@ temp/
 !assets/**
 
 # Tool caches
+/.claude/
 .pytest_cache/
 .mypy_cache/
 .coverage

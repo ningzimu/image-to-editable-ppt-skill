@@ -5,8 +5,8 @@ This is the `editppt` command manual: install check, command tree, and syntax ex
 Usage principles:
 
 - If a deterministic action can be completed with `editppt`, call the CLI directly instead of rewriting it as a temporary Python script.
-- When full parameters are needed, read `editppt <command> --help` or `editppt image <command> --help` first.
-- In network-restricted agents, `editppt prepare`/`editppt run hints` with a PaddleOCR token and `editppt image generate/edit` need network approval. The approval and user-interaction policy lives in `SKILL.md` Entry Contract and Phase 1.
+- When full CLI parameters are needed, read `editppt <command> --help` or `editppt image <command> --help` first.
+- In network-restricted agents, `editppt prepare`/`editppt run hints` with a PaddleOCR token and CLI fallback `editppt image generate/edit` calls need network approval. The approval and user-interaction policy lives in `SKILL.md` Entry Contract and Phase 1.
 
 ## Command Tree
 
@@ -50,9 +50,9 @@ editppt image edit --help
 editppt formula render-latex --help
 ```
 
-`editppt image` automatically chooses the image backend: Codex OAuth first, then OpenAI-compatible API credentials from `~/.editppt/config.yaml` or environment variables if OAuth is unavailable.
+`editppt image` is the CLI fallback layer. Within that layer it automatically chooses Codex OAuth first, then OpenAI-compatible API credentials from `~/.editppt/config.yaml` or environment variables if OAuth is unavailable. See `manifest-schema.md` for the run/page backend field contract. `editppt doctor` checks CLI backend readiness; it cannot discover whether an agent runtime exposes the built-in tool.
 
-Public `editppt image generate/edit` parameters are intentionally narrow. Required request inputs are `--prompt` or `--prompt-file`, plus at least one `--image` for `edit`. Page runs should pass an explicit `--out`. Retained useful controls are `--model` (default `gpt-image-2`), `--size` (default `auto`), `--quality` (default `auto`), `--force`, `--dry-run`, `--timeout`, and edit-only `--mask`. The CLI does not pass any other image API options.
+Public `editppt image generate/edit` parameters are intentionally narrow. Required request inputs are `--prompt` or `--prompt-file`, plus at least one `--image` for `edit`. CLI fallback calls should pass an explicit `--out`. Retained useful controls are `--model` (default `gpt-image-2`), `--size` (default `auto`), `--quality` (default `auto`), `--force`, `--dry-run`, `--timeout`, and edit-only `--mask`. The CLI does not pass any other image API options.
 
 ## Skill Script Commands
 
@@ -110,9 +110,10 @@ editppt config --paddle-ocr-token "<token>"
 ```bash
 editppt prepare input.png
 editppt prepare input.pdf
+editppt prepare input.png --image-backend builtin-imagegen
 ```
 
-Purpose: normalize a single image, multiple images, a PDF, or an image-based PPTX into a run directory and generate `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, plus per-page `pages/page_NNN/source.png`, `page_request.json`, and text hints.
+Purpose: normalize a single image, multiple images, a PDF, or an image-based PPTX into a run directory and generate `deck_manifest.json`, `page_jobs.json`, `notes_manifest.json`, plus per-page `pages/page_NNN/source.png`, `page_request.json`, and text hints. `--image-backend` records the requested run/page contract; selection policy lives in `SKILL.md` subsection "Image Backend Selection".
 
 When a PaddleOCR token is configured, `prepare` may submit the input pages to PaddleOCR for content-aware text hints. In a sandboxed or approval-gated environment, request network approval up front for this command instead of accepting a DNS/sandbox failure followed by lower-quality `builtin-ink` fallback; see `SKILL.md` Phase 1 for the approval-rejection policy.
 
@@ -198,6 +199,8 @@ Purpose: detect the text lines on one page's `source.png` and write `text_hints.
 
 ## Image Backend Commands
 
+The commands below are the CLI image-generation surface; `image_gen.imagegen` is an agent tool and has no `editppt` subcommand. See `manifest-schema.md` for the backend field contract.
+
 Generate a new image:
 
 ```bash
@@ -220,9 +223,9 @@ editppt image edit \
   --out pages/page_001/assets/asset-sheet.png
 ```
 
-When multiple image outputs are required, run `editppt image generate` or `editppt image edit` calls serially. For foreground icons and small visual objects, prefer one sparse asset sheet with generous spacing; create a second sheet only when one sheet cannot fit the required objects cleanly.
+When multiple fallback image outputs are required, run `editppt image generate` or `editppt image edit` calls serially. For foreground icons and small visual objects, prefer one sparse asset sheet with generous spacing; create a second sheet only when one sheet cannot fit the required objects cleanly.
 
-These commands call the selected image backend: Codex OAuth first, then a configured OpenAI-compatible API fallback. In a network-restricted runtime, request approval before the call and state that only task-local prompts plus required page images/masks/references are uploaded for the current conversion.
+These commands select Codex OAuth first, then a configured OpenAI-compatible API fallback. In a network-restricted runtime, request approval before the call and state that only task-local prompts plus required page images/masks/references are uploaded for the current conversion.
 
 ## Asset Processing Commands
 
@@ -233,8 +236,11 @@ editppt image import pages/page_001 \
   --job-id icon-sheet \
   --source-image /tmp/generated.png \
   --dest assets/icon-sheet.png \
-  --role asset_sheet
+  --role asset_sheet \
+  --backend builtin-imagegen
 ```
+
+`--source-image` must be an existing, readable local image. `--backend` records the actual producer and is required; `--fallback-reason` is accepted only when it is consistent with the page's backend contract. Field values and provenance rules live in `manifest-schema.md`.
 
 Process a chroma-key asset sheet:
 
@@ -244,6 +250,8 @@ editppt image process-sheet pages/page_001 \
   --asset-sheet-source assets/icon-sheet.png \
   --assets-dir assets/icons
 ```
+
+When `--job-id` is present, the default chroma image, alpha image, and split report are written under `assets/` with that job id in the filename. This keeps multiple asset-sheet jobs on one page isolated. Explicit `--chroma`, `--alpha`, and `--split-manifest` values still override those defaults; calls without `--job-id` retain the legacy page-level filenames.
 
 The asset sheet key color is determined by the generation prompt; `process-sheet` samples the key color from the image edge. Key-color selection and when to regenerate a sheet with a different key color are defined in `page-decision-tree.md` section 2.2.
 

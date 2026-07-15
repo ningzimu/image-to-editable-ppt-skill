@@ -143,7 +143,7 @@ def cmd_prepare(args: argparse.Namespace) -> int:
     return cmd_backend(
         argparse.Namespace(
             run=str(deck_path.parent),
-            mode="editppt-image-cli",
+            mode=args.image_backend,
             tool_name=None,
             tool_call=None,
             model=None,
@@ -391,10 +391,10 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=HELP_FORMATTER,
         epilog="""Command groups:
   - setup/doctor/config manage the local editppt environment and API fallback config.
-  - prepare creates a run directory and writes the unified editppt image backend.
+  - prepare creates a run directory and writes the selected image backend contract.
   - run manages deterministic workflow state, dispatch records, result records, and finalization.
   - page measures text geometry: hints reports text line boxes and font sizes from source ink.
-  - image generates/edits through Codex OAuth first, then API fallback, and processes image files.
+  - image is the Codex OAuth/OpenAI-compatible CLI fallback and processes image files.
   - formula renders LaTeX formulas into PPT image assets and manifest fragments.
 
 Examples:
@@ -429,7 +429,7 @@ unless --check-api is passed.
   editppt setup --check-api
 """,
     )
-    setup.add_argument("--check-api", action="store_true", help="Require API fallback credentials in doctor.")
+    setup.add_argument("--check-api", action="store_true", help="Require CLI fallback credentials in doctor.")
     setup.set_defaults(func=cmd_setup)
 
     doctor = sub.add_parser(
@@ -438,8 +438,8 @@ unless --check-api is passed.
         description="""Check the local editppt environment.
 
 Doctor reports the CLI Python path, importable dependencies, config home/file,
-and API fallback readiness when --check-api is passed. It does not
-perform a network API probe by default.
+and CLI fallback readiness when --check-api is passed. It cannot detect the
+Agent-only image_gen.imagegen tool and does not perform a network API probe.
 """,
         formatter_class=HELP_FORMATTER,
         epilog="""Examples:
@@ -448,7 +448,7 @@ perform a network API probe by default.
   editppt doctor --check-api
 """,
     )
-    doctor.add_argument("--check-api", action="store_true", help="Require API fallback credentials to be configured.")
+    doctor.add_argument("--check-api", action="store_true", help="Require Codex OAuth or OpenAI-compatible API credentials for the CLI fallback.")
     doctor.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     doctor.add_argument("--timeout", type=int, help="Reserved timeout value for future network probes.")
     doctor.set_defaults(func=cmd_doctor)
@@ -482,12 +482,13 @@ runtime. API keys are masked in command output.
         description="""Normalize input into an editable-PPT reconstruction run.
 
 This command creates the run directory, copies inputs, writes deck/page manifests,
-extracts note metadata when applicable, and records the default editppt image
-CLI backend. The normal path does not require a separate backend command.
+extracts note metadata when applicable, and records the selected image backend
+contract. The standalone CLI default is editppt-image-cli.
 """,
         formatter_class=HELP_FORMATTER,
         epilog="""Examples:
   editppt prepare slide.png
+  editppt prepare slide.png --image-backend builtin-imagegen
   editppt prepare deck.pdf --max-concurrent-pages 3
   editppt prepare a.png b.png --out-root output/image-to-editable-ppt
 """,
@@ -497,6 +498,12 @@ CLI backend. The normal path does not require a separate backend command.
     prepare.add_argument("--job-dir", metavar="DIR", help="Use an explicit run directory instead of auto-generating one.")
     prepare.add_argument("--dpi", type=int, metavar="N", help="Rasterization DPI for PDF/PPT inputs.")
     prepare.add_argument("--max-concurrent-pages", type=int, metavar="N", help="Maximum concurrent page dispatch slots. Default: 6.")
+    prepare.add_argument(
+        "--image-backend",
+        choices=["builtin-imagegen", "editppt-image-cli"],
+        default="editppt-image-cli",
+        help="Run-level image backend contract. Defaults to editppt-image-cli; parent agents can select builtin-imagegen.",
+    )
     prepare.add_argument("--no-text-hints", action="store_true", help="Skip per-page text hint generation after preparing pages.")
     prepare.set_defaults(func=cmd_prepare)
 
@@ -538,22 +545,28 @@ record dispatch/result events, and assemble the final deck.
         description="""Configure deck_manifest.json.image_backend and copy it into page requests.
 
 Normally editppt prepare records the unified editppt image CLI backend automatically.
-Use this only when forcing OpenAI-compatible API metadata or a custom image backend.
+Use this when a parent Agent selects image_gen.imagegen or when forcing other backend metadata.
 """,
         formatter_class=HELP_FORMATTER,
         epilog="""Examples:
   editppt run backend <run>
+  editppt run backend <run> --mode builtin-imagegen
   editppt run backend <run> --mode openai-compatible-api --model openai/gpt-image-2
 """,
     )
     backend.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
-    backend.add_argument("--mode", choices=["editppt-image-cli", "openai-compatible-api"], default="editppt-image-cli", help="Image backend mode. Defaults to the unified editppt image CLI contract.")
-    backend.add_argument("--tool-name", metavar="NAME", help="Override backend tool name recorded in the contract.")
-    backend.add_argument("--tool-call", metavar="CALL", help="Override backend tool call recorded in the contract.")
+    backend.add_argument(
+        "--mode",
+        choices=["builtin-imagegen", "editppt-image-cli", "openai-compatible-api"],
+        default="editppt-image-cli",
+        help="Image backend mode. Defaults to the unified editppt image CLI contract.",
+    )
+    backend.add_argument("--tool-name", metavar="NAME", help="Override the tool name for non-builtin contracts.")
+    backend.add_argument("--tool-call", metavar="CALL", help="Override the tool call for non-builtin contracts.")
     backend.add_argument("--model", metavar="MODEL", help="Image model label for API/CLI fallback.")
-    backend.add_argument("--fallback-command", metavar="CMD", help="Command shown to workers for API/CLI fallback.")
+    backend.add_argument("--fallback-command", metavar="CMD", help="Override the fallback command for non-builtin contracts.")
     backend.add_argument("--runtime-home", metavar="DIR", help="Shared config home. Defaults to ~/.editppt.")
-    backend.add_argument("--input-context-policy", metavar="TEXT", help="Policy note for how image inputs must be inspected or passed.")
+    backend.add_argument("--input-context-policy", metavar="TEXT", help="Override the input policy for non-builtin contracts.")
     backend.set_defaults(func=cmd_backend)
 
     dispatch = run_sub.add_parser(
