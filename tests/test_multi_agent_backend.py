@@ -39,6 +39,15 @@ def read_json(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def run_cli(*args):
+    return subprocess.run(
+        [sys.executable, "-m", "editppt.cli", *[str(arg) for arg in args]],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+    )
+
+
 def make_minimal_run(tmpdir):
     run_dir = Path(tmpdir)
     page_1 = run_dir / "pages/page_001"
@@ -357,6 +366,92 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertTrue((page_dir / "copied-sheet.png").exists())
 
+    def test_process_sheet_scopes_default_outputs_by_job_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            page_dir = Path(tmp) / "pages/page_001"
+            assets_dir = page_dir / "assets"
+            assets_dir.mkdir(parents=True)
+
+            for job_id, color in (("photo-sheet", "black"), ("icon-sheet", "blue")):
+                source = assets_dir / f"{job_id}.png"
+                image = Image.new("RGB", (120, 120), "#ff00ff")
+                image.paste(color, (24, 24, 96, 96))
+                image.save(source)
+
+                result = run_cli(
+                    "image",
+                    "process-sheet",
+                    page_dir,
+                    "--job-id",
+                    job_id,
+                    "--asset-sheet-source",
+                    source.relative_to(page_dir),
+                    "--asset-names",
+                    job_id,
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertTrue((assets_dir / f"{job_id}.asset-sheet-chroma.png").exists())
+                self.assertTrue((assets_dir / f"{job_id}.asset-sheet-alpha.png").exists())
+                self.assertTrue((assets_dir / f"{job_id}.split-report.json").exists())
+
+            jobs = read_json(page_dir / "imagegen-jobs.json")["jobs"]
+            self.assertEqual(["photo-sheet", "icon-sheet"], [job["job_id"] for job in jobs])
+            self.assertEqual(["processed", "processed"], [job["status"] for job in jobs])
+            self.assertFalse((page_dir / "imagegen_asset_sheet_chroma.png").exists())
+            self.assertFalse((page_dir / "imagegen_asset_sheet_alpha.png").exists())
+            self.assertFalse((page_dir / "split_assets.json").exists())
+
+    def test_process_sheet_checks_existing_alpha_before_copying_source(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            page_dir = Path(tmp) / "pages/page_001"
+            assets_dir = page_dir / "assets"
+            assets_dir.mkdir(parents=True)
+            source = assets_dir / "icon-sheet.png"
+            chroma = assets_dir / "icon-sheet.asset-sheet-chroma.png"
+            alpha = assets_dir / "icon-sheet.asset-sheet-alpha.png"
+            Image.new("RGB", (32, 32), "blue").save(source)
+            Image.new("RGB", (32, 32), "black").save(chroma)
+            Image.new("RGBA", (32, 32), (0, 0, 0, 0)).save(alpha)
+            chroma_before = chroma.read_bytes()
+
+            result = run_cli(
+                "image",
+                "process-sheet",
+                page_dir,
+                "--job-id",
+                "icon-sheet",
+                "--asset-sheet-source",
+                source.relative_to(page_dir),
+                "--skip-split",
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("Output already exists", result.stderr)
+            self.assertEqual(chroma_before, chroma.read_bytes())
+
+    def test_process_sheet_rejects_unsafe_job_id_for_default_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            page_dir = Path(tmp) / "pages/page_001"
+            assets_dir = page_dir / "assets"
+            assets_dir.mkdir(parents=True)
+            source = assets_dir / "sheet.png"
+            Image.new("RGB", (32, 32), "#ff00ff").save(source)
+
+            result = run_cli(
+                "image",
+                "process-sheet",
+                page_dir,
+                "--job-id",
+                "../outside",
+                "--asset-sheet-source",
+                source.relative_to(page_dir),
+                "--skip-split",
+            )
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("safe filename component", result.stderr)
+            self.assertFalse((page_dir.parent / "outside.asset-sheet-chroma.png").exists())
+
     def test_image_edit_passthrough_preserves_image_argument(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.png"
@@ -591,6 +686,9 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertEqual(0, result.returncode, result.stderr)
             payload = json.loads(result.stdout)
             self.assertEqual({"fitz", "PIL", "openai", "yaml", "numpy", "requests"}, set(payload["dependencies"]))
+            self.assertEqual("cli-fallback-only", payload["image_backend"]["scope"])
+            self.assertFalse(payload["agent_builtin_imagegen"]["checked"])
+            self.assertIsNone(payload["agent_builtin_imagegen"]["ready"])
             self.assertNotIn("skill_root", payload)
             self.assertNotIn("LibreOffice", result.stdout)
             self.assertNotIn("ImageMagick", result.stdout)
@@ -706,6 +804,42 @@ class MultiAgentBackendTest(unittest.TestCase):
             request = read_json(deck_path.parent / "pages/page_001/page_request.json")
             self.assertEqual(deck["image_backend"], request["image_backend"])
 
+    def test_prepare_writes_builtin_imagegen_contract_when_selected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "slide.png"
+            Image.new("RGB", (320, 180), "white").save(source)
+            out_root = Path(tmp) / "runs"
+            result = run_cli(
+                "prepare",
+                source,
+                "--out-root",
+                out_root,
+                "--image-backend",
+                "builtin-imagegen",
+                "--no-text-hints",
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            deck_line = next(line for line in result.stdout.splitlines() if line.endswith("deck_manifest.json"))
+            deck_path = Path(deck_line)
+            backend = read_json(deck_path)["image_backend"]
+            self.assertEqual("builtin-imagegen", backend["backend_id"])
+            self.assertEqual("image_gen.imagegen", backend["tool_name"])
+            self.assertIsNone(backend["model"])
+            self.assertEqual(
+                {"generate": ["prompt"], "edit": ["prompt", "referenced_image_paths"]},
+                backend["required_parameters"],
+            )
+            self.assertEqual(["codex-oauth", "openai-compatible-api"], backend["fallback_order"])
+            self.assertEqual(
+                ["tool-unavailable", "tool-error", "input-unreadable", "no-valid-local-output"],
+                backend["fallback_policy"]["on"],
+            )
+            self.assertFalse(backend["fallback_policy"]["missing_optional_parameters"])
+            self.assertIn("view_image", backend["input_context_policy"])
+            self.assertIn("never scan for the newest file", backend["save_path_policy"])
+            request = read_json(deck_path.parent / "pages/page_001/page_request.json")
+            self.assertEqual(backend, request["image_backend"])
+
     def test_skill_prompt_script_output_is_accepted_by_dispatch(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = make_minimal_run(tmp)
@@ -751,6 +885,10 @@ class MultiAgentBackendTest(unittest.TestCase):
             prompt_text = prompt_path.read_text(encoding="utf-8")
             self.assertIn(str(run_dir), prompt_text)
             self.assertIn(str(ROOT / "skills/image-to-editable-ppt/references/page-decision-tree.md"), prompt_text)
+            self.assertIn("image_gen.imagegen", prompt_text)
+            self.assertIn("referenced_image_paths", prompt_text)
+            self.assertIn("Missing `mask`, `model`, `size`, `quality`, or `out` never triggers fallback", prompt_text)
+            self.assertIn('never a scanned "newest" file', prompt_text)
 
             local_dispatch = subprocess.run(
                 [
@@ -936,6 +1074,21 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertEqual("editppt-image-cli", deck["image_backend"]["backend_id"])
             request = read_json(run_dir / "pages/page_002/page_request.json")
             self.assertEqual(deck["image_backend"], request["image_backend"])
+
+    def test_builtin_image_backend_rejects_fixed_contract_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = make_minimal_run(tmp)
+            result = run_cli(
+                "run",
+                "backend",
+                run_dir,
+                "--mode",
+                "builtin-imagegen",
+                "--input-context-policy",
+                "skip-view-image",
+            )
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("cannot override the fixed builtin-imagegen contract", result.stderr)
 
     def test_all_pending_pages_are_dispatchable(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1298,28 +1451,40 @@ class MultiAgentBackendTest(unittest.TestCase):
             page_dir = Path(tmp) / "page_001"
             page_dir.mkdir()
             write_json(page_dir / "imagegen-jobs.json", {"schema_version": 1, "jobs": []})
+            write_json(
+                page_dir / "page_request.json",
+                {
+                    "image_backend": {
+                        "backend_id": "builtin-imagegen",
+                        "fallback_policy": {
+                            "on": [
+                                "tool-unavailable",
+                                "tool-error",
+                                "input-unreadable",
+                                "no-valid-local-output",
+                            ]
+                        },
+                    }
+                },
+            )
             source = Path(tmp) / "generated.png"
             Image.new("RGBA", (12, 12), (255, 0, 0, 255)).save(source)
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "editppt.cli",
-                    "image",
-                    "import",
-                    str(page_dir),
-                    "--job-id",
-                    "job-1",
-                    "--source-image",
-                    str(source),
-                    "--dest",
-                    "assets/generated.png",
-                    "--role",
-                    "asset",
-                ],
-                cwd=ROOT,
-                text=True,
-                capture_output=True,
+            result = run_cli(
+                "image",
+                "import",
+                page_dir,
+                "--job-id",
+                "job-1",
+                "--source-image",
+                source,
+                "--dest",
+                "assets/generated.png",
+                "--role",
+                "asset",
+                "--backend",
+                "codex-oauth",
+                "--fallback-reason",
+                "tool-error",
             )
             self.assertEqual(0, result.returncode, result.stderr)
             copied = page_dir / "assets/generated.png"
@@ -1327,6 +1492,135 @@ class MultiAgentBackendTest(unittest.TestCase):
             jobs = read_json(page_dir / "imagegen-jobs.json")
             self.assertEqual("recorded", jobs["jobs"][0]["status"])
             self.assertEqual("assets/generated.png", jobs["jobs"][0]["output"])
+            self.assertEqual("codex-oauth", jobs["jobs"][0]["backend"])
+            self.assertEqual("tool-error", jobs["jobs"][0]["fallback_reason"])
+
+            builtin_result = run_cli(
+                "image",
+                "import",
+                page_dir,
+                "--job-id",
+                "job-2",
+                "--source-image",
+                source,
+                "--dest",
+                "assets/builtin.png",
+                "--backend",
+                "builtin-imagegen",
+            )
+            self.assertEqual(0, builtin_result.returncode, builtin_result.stderr)
+            jobs = read_json(page_dir / "imagegen-jobs.json")
+            self.assertEqual("builtin-imagegen", jobs["jobs"][1]["backend"])
+            self.assertIsNone(jobs["jobs"][1]["fallback_reason"])
+
+    def test_image_import_rejects_unreadable_output_and_invalid_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            page_dir = Path(tmp) / "page_001"
+            page_dir.mkdir()
+            write_json(page_dir / "imagegen-jobs.json", {"schema_version": 1, "jobs": []})
+            write_json(
+                page_dir / "page_request.json",
+                {
+                    "image_backend": {
+                        "backend_id": "builtin-imagegen",
+                        "fallback_policy": {"on": ["tool-error"]},
+                    }
+                },
+            )
+            unreadable = Path(tmp) / "not-an-image.png"
+            unreadable.write_text("not an image", encoding="utf-8")
+            unreadable_result = run_cli(
+                "image",
+                "import",
+                page_dir,
+                "--job-id",
+                "bad-image",
+                "--source-image",
+                unreadable,
+                "--dest",
+                "assets/bad.png",
+                "--backend",
+                "builtin-imagegen",
+            )
+            self.assertNotEqual(0, unreadable_result.returncode)
+            self.assertIn("Generated image is unreadable", unreadable_result.stderr)
+
+            source = Path(tmp) / "generated.png"
+            Image.new("RGB", (12, 12), "red").save(source)
+            inconsistent_result = run_cli(
+                "image",
+                "import",
+                page_dir,
+                "--job-id",
+                "bad-provenance",
+                "--source-image",
+                source,
+                "--dest",
+                "assets/generated.png",
+                "--backend",
+                "builtin-imagegen",
+                "--fallback-reason",
+                "tool-error",
+            )
+            self.assertNotEqual(0, inconsistent_result.returncode)
+            self.assertIn("--fallback-reason requires --backend", inconsistent_result.stderr)
+            self.assertFalse((page_dir / "assets/generated.png").exists())
+
+            invalid_pairs = [
+                ("builtin-imagegen", "unknown"),
+                ("editppt-image-cli", "builtin-imagegen"),
+                ("editppt-image-cli", "unknown"),
+                ("openai-compatible-api", "builtin-imagegen"),
+                ("openai-compatible-api", "codex-oauth"),
+                ("openai-compatible-api", "unknown"),
+                ("unsupported-backend", "unknown"),
+            ]
+            for index, (contract_backend, actual_backend) in enumerate(invalid_pairs):
+                with self.subTest(contract_backend=contract_backend, actual_backend=actual_backend):
+                    contract = {"backend_id": contract_backend}
+                    if contract_backend == "builtin-imagegen":
+                        contract["fallback_policy"] = {"on": ["tool-error"]}
+                    write_json(page_dir / "page_request.json", {"image_backend": contract})
+                    result = run_cli(
+                        "image",
+                        "import",
+                        page_dir,
+                        "--job-id",
+                        f"invalid-{index}",
+                        "--source-image",
+                        source,
+                        "--dest",
+                        f"assets/invalid-{index}.png",
+                        "--backend",
+                        actual_backend,
+                    )
+                    self.assertNotEqual(0, result.returncode)
+
+            allowed_pairs = [
+                ("editppt-image-cli", "codex-oauth"),
+                ("editppt-image-cli", "openai-compatible-api"),
+                ("openai-compatible-api", "openai-compatible-api"),
+            ]
+            for index, (contract_backend, actual_backend) in enumerate(allowed_pairs):
+                with self.subTest(contract_backend=contract_backend, actual_backend=actual_backend):
+                    write_json(
+                        page_dir / "page_request.json",
+                        {"image_backend": {"backend_id": contract_backend}},
+                    )
+                    result = run_cli(
+                        "image",
+                        "import",
+                        page_dir,
+                        "--job-id",
+                        f"allowed-{index}",
+                        "--source-image",
+                        source,
+                        "--dest",
+                        f"assets/allowed-{index}.png",
+                        "--backend",
+                        actual_backend,
+                    )
+                    self.assertEqual(0, result.returncode, result.stderr)
 
 
 if __name__ == "__main__":

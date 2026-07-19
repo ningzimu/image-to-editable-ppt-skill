@@ -4,13 +4,21 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
-### Documentation
+## 0.3.2
 
-- Add a docsify-based documentation site under `docs/` (home, quickstart, design, installation, workflow, FAQ, prompts) served via GitHub Pages, and link it from both READMEs. (#18)
+### Features
+
+- Prefer the agent built-in `image_gen.imagegen` tool for image generation and editing, with explicit fallback to Codex OAuth and then an OpenAI-compatible API only for defined failure conditions, while recording the actual producing backend. (#22)
 
 ### Fixes
 
+- Scope `editppt image process-sheet` intermediate images and split reports by job id, and reject an existing alpha output before copying a new source sheet. (#22)
 - Translate manifest text alignment values to valid DrawingML enums, center preview text within its box, and reject unsupported alignment values during page validation. (#17)
+
+### Documentation
+
+- Add an investment-platform before-and-after example to both READMEs. (#23)
+- Add a docsify-based documentation site under `docs/` (home, quickstart, design, installation, workflow, FAQ, prompts) served via GitHub Pages, and link it from both READMEs. (#18)
 
 ## 0.3.1
 

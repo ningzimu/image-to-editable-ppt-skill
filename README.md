@@ -15,7 +15,7 @@
 >
 > “替我审批”模式已知仍可能在 OCR 阶段、ChatGPT 图片生成/编辑阶段或第三方 API 调用阶段拦截请求，要求你手动审批；如果你不在电脑旁，转换流程会停住。
 >
-> 本 skill 会在转换过程中自动调用百度 PaddleOCR-VL 接口（如果已配置 Token）来校正页面文字框、字体大小和字号分组，也会调用 ChatGPT 的 gpt-image-2 图像生成/编辑接口来做前背景分离、图标/视觉素材抽取和局部图片修复。这些调用是把图片式页面重建成可编辑 PPT 的必要步骤。
+> 本 skill 会在转换过程中自动调用百度 PaddleOCR-VL 接口（如果已配置 Token）来校正页面文字框、字体大小和字号分组。图片生成/编辑会优先调用 Codex 内置 `image_gen.imagegen`；只有内置工具不可用、调用报错、编辑输入不可读或没有返回有效本地图片时，才降级到 `editppt image`（Codex OAuth → OpenAI-compatible API）。这些调用是把图片式页面重建成可编辑 PPT 的必要步骤。
 >
 > ![Codex 完全访问权限设置示意](assets/codex-full-access-permission.png)
 
@@ -45,6 +45,10 @@
     <th>转换后可编辑效果</th>
   </tr>
   <tr>
+    <td><img src="assets/showcase-origin-investment-platform.png" alt="投资平台信息图原图" width="420"></td>
+    <td><img src="assets/showcase-editable-ppt-result-investment-platform.png" alt="投资平台信息图转换后可编辑效果" width="420"></td>
+  </tr>
+  <tr>
     <td><img src="assets/showcase-origin-market-snapshot.png" alt="市场概览原图" width="420"></td>
     <td><img src="assets/showcase-editable-ppt-result-market-snapshot.png" alt="市场概览转换后可编辑效果" width="420"></td>
   </tr>
@@ -62,7 +66,7 @@
 
 - 适用场景广泛，支持多种输入：单张图片、多张图片、多页 PDF、图片版PPT 到可编辑 `.pptx`。
 - 单页/单图输入可由主 agent 本地执行同一页面重建流程；多页输入由主 agent 分派给 page worker/subagent，并按 `max_concurrent_pages` 并行处理。
-- 图片生成和编辑统一通过 `editppt image` CLI 完成；CLI 会优先使用本机 Codex OAuth，缺失时再使用 OpenAI-compatible API 配置。
+- 图片生成和编辑优先使用 Codex 内置 `image_gen.imagegen`；满足明确降级条件时才进入 `editppt image` CLI，由 CLI 依次选择本机 Codex OAuth 和 OpenAI-compatible API。
 - 第三方 API fallback 配置保存在 `~/.editppt/config.yaml`；Windows 下对应 `%USERPROFILE%\.editppt\config.yaml`。
 - 文字大小与位置由测量驱动：prepare 阶段为每页生成文字标注（框坐标 + 字号 + 字号分组），模型按测量值还原文字，同级文字字号自动保持一致。
 - 多张图片按提供顺序生成页面；PDF 和 `.pptx` 保留原页码顺序。
@@ -81,16 +85,18 @@
 ## 运行要求
 
 - 单页/单图输入不需要创建 page worker，但仍必须走同一页面 prompt、产物和 `editppt run record` 校验流程。多页输入需要 agent 能分派 page worker/subagent；如果不能创建 page worker，应换到支持 page worker 的环境执行。
-- 复杂背景补全、前景图标提取、透明 asset sheet 和局部图片编辑统一走串行 `editppt image edit/generate` 调用。
-- 如果本机有 Codex OAuth（`~/.codex/auth.json`），CLI 会直接使用；否则使用 API fallback。
+- 复杂背景补全、前景图标提取、透明 asset sheet 和局部图片编辑按页面串行执行，并优先使用内置 `image_gen.imagegen`。
+- 内置工具满足降级条件时才进入 CLI fallback；如果本机有 Codex OAuth（`~/.codex/auth.json`），CLI 会直接使用，否则使用 API fallback。
 - API fallback 配置保存在 `~/.editppt/config.yaml`；Windows 下对应 `%USERPROFILE%\.editppt\config.yaml`。
 - 文字大小与位置的校正需要一个第三方 OCR Token（百度 AI Studio，免费），详见下文「文字校正与 OCR Token」；未配置时退化为内置离线检测，文字还原质量会打折扣。
 
 ## 图片 Backend 与第三方 API 配置
 
-`editppt image` 会自动选择图片后端：优先使用本机 Codex OAuth；如果不可用，再读取 `~/.editppt/config.yaml` 或环境变量里的 OpenAI-compatible API 配置。
+完整后端优先级是：Codex 内置 `image_gen.imagegen` → Codex OAuth → OpenAI-compatible API。内置工具由 agent 直接调用，Python/`editppt` CLI 不能调用或探测它；只有内置工具不可用/不可调用、调用报错、编辑输入不可读或没有返回有效本地图片时，才进入 `editppt image` CLI fallback。CLI 内部优先使用本机 Codex OAuth；如果不可用，再读取 `~/.editppt/config.yaml` 或环境变量里的 OpenAI-compatible API 配置。
 
-`editppt image generate/edit` 的公开参数面保持精简：请求输入只需要 `--prompt` 或 `--prompt-file`，编辑图还需要 `--image`；页面重建时应显式传 `--out`。实用控制只保留 `--model`、`--size`、`--quality`、`--force`、`--dry-run`、`--timeout`，以及编辑图专用的 `--mask`。CLI 不会透传其它 image API 选项。
+内置生图只需要 `prompt`；内置编辑图只需要 `prompt` 和本地绝对路径 `referenced_image_paths`，并且编辑前必须先查看输入图。内置工具没有 `mask`、`model`、`size`、`quality`、`out` 等参数，缺少这些参数绝不触发 fallback。成功后只接收工具明确返回的本地路径（包括 `output_hint`），验证文件有效再导入；不会扫描目录猜测“最新文件”。
+
+CLI fallback 的 `editppt image generate/edit` 参数面保持精简：请求输入只需要 `--prompt` 或 `--prompt-file`，编辑图还需要 `--image`；页面重建时应显式传 `--out`。实用控制只保留 `--model`、`--size`、`--quality`、`--force`、`--dry-run`、`--timeout`，以及编辑图专用的 `--mask`。CLI 不会透传其它 image API 选项。
 
 通常不需要你自己配置。只有这些情况才需要让 AI 帮你配置 API fallback：
 
@@ -113,7 +119,7 @@
 ## 已知问题
 
 - 其他 agent 需要支持 skill 加载、文件读写和 CLI 执行；多页任务还需要 page worker/subagent 分派机制。
-- Codex OAuth 路径依赖本机 Codex auth 和订阅侧图片额度；API fallback 依赖所选 OpenAI-compatible 服务的图片生成/编辑能力。
+- 内置图片工具依赖当前 agent runtime 是否提供 `image_gen.imagegen`；Codex OAuth 路径依赖本机 Codex auth 和订阅侧图片额度；API fallback 依赖所选 OpenAI-compatible 服务的图片生成/编辑能力。
 - 本 skill有着相对复杂的流程控制，Token花费比较高。将一个图片PPT转换成可编辑PPT的成本，**可能是生成图片PPT成本的2-3倍**。
 - 受限于模型基础理解能力和对 skill 的遵循能力，**不保证 gpt-5.5 以下模型的使用效果**。
 - 部分图片元素和文字位置可能会有轻微偏移，**不能保证 100% 复刻原始页面**。
@@ -199,7 +205,7 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
 
 - 这个 skill 面向输入页面的可编辑重建，不是从零生成整套 PPT 内容。
 - 单页/单图输入可由主 agent 本地重建；多页输入通过 page worker/subagent 并行重建。
-- 复杂视觉资产需要可用 `editppt image` backend；如果缺少图片生成/编辑能力，仍应先交付当前可打开、结构有效的 PPT，并在验证结果里说明缺失资产。
+- 复杂视觉资产需要可用的内置图片工具或 CLI fallback；如果两者都无法生成合规资产，对应页面会校验失败，不会用近似图形替代。
 - 对照片、插画、纹理、手绘装饰等复杂视觉元素，通常只能作为独立图片资产移动，不能保证内部对象可编辑。
 - 对表格、图表、流程图等结构化区域，会优先保留可编辑语义，但低置信度时应保留为资产并在验证报告里说明。
 - 视觉相似不等于可编辑。最终判断应同时看 PPTX 结构、文本覆盖、资产来源和预览/diff。
