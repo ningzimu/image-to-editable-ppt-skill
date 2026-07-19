@@ -4,7 +4,7 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
-## 0.3.2-beta.1
+## 0.3.2
 
 ### Features
 
