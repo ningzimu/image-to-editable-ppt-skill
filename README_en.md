@@ -230,10 +230,6 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
 └── README_en.md                          # English documentation
 ```
 
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=ningzimu/image-to-editable-ppt-skill&type=Date)](https://www.star-history.com/#ningzimu/image-to-editable-ppt-skill&Date)
-
 ## Community
 
 Scan the QR code to join the Skill community group, share usage experience, report issues, and receive update notices.
