@@ -39,7 +39,7 @@ Image to Editable PPT 是一个把图片、PDF、图片版 PPT 转成**对象级
 - 对象级重建：文字恢复为原生文本框，简单几何恢复为 PowerPoint 形状，复杂视觉元素保留为独立图片资产，三类对象可以分开调整。
 - 测量驱动的文字还原：通过 OCR 为每页生成文字标注（框坐标 + 字号 + 字号分组），模型按测量值还原文字，同级文字字号自动保持一致，参见[安装与配置](installation.md)的 OCR Token 一节。
 - 多页并行重建：多页输入由主 agent 分派给 page worker/subagent 并行处理；单页输入由主 agent 本地执行同一重建流程。
-- 图片生成和编辑统一通过 `editppt image` CLI 完成：优先使用本机 Codex OAuth，缺失时使用 OpenAI-compatible API fallback。
+- 图片生成和编辑优先调用当前 agent 的内置 `image_gen.imagegen`；只有满足约定的降级条件时才调用 `editppt image`，由 CLI 在 Codex OAuth 和 OpenAI-compatible API 之间选择后端。
 - `.pptx` 输入的页面备注会原样复制到输出对应页，不翻译、不摘要、不改写。
 - 页面顺序稳定：多张图片按提供顺序生成页面，PDF 和 `.pptx` 保留原页码顺序。
 
