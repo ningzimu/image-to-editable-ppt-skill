@@ -6,8 +6,8 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Documentation
 
-- Add complete Korean README and English and Korean versions of the Docsify usage documentation, with synchronized language navigation, search, and pagination.
-- Align all usage guides with the built-in-first image backend policy and block delivery when compliant image assets cannot be produced.
+- Add complete Korean README and English and Korean versions of the Docsify usage documentation, with synchronized language navigation, search, and pagination. (#26)
+- Align all usage guides with the built-in-first image backend policy and block delivery when compliant image assets cannot be produced. (#26)
 
 ## 0.3.2-beta.1
 
