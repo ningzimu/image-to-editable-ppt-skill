@@ -40,7 +40,7 @@
 
 ## Q：图片生成用的是什么？需要配 API key 吗？
 
-图片生成和编辑统一通过 `editppt image` CLI 完成：优先使用本机 Codex OAuth（走订阅侧图片额度），不可用时才读取 `~/.editppt/config.yaml` 里的 OpenAI-compatible API 配置。Codex 会员通常不需要配置任何 API key。需要第三方 fallback 时，把服务的 base URL、模型名和 API key 告诉 AI，它会帮你写入用户级配置并遮蔽敏感值。
+图片生成和编辑优先调用当前 agent 的内置 `image_gen.imagegen`。只有内置工具不可用、调用失败、无法读取编辑输入或没有返回有效本地图片等约定情况，才降级到 `editppt image`；CLI 会先尝试本机 Codex OAuth（走订阅侧图片额度），再读取 `~/.editppt/config.yaml` 里的 OpenAI-compatible API 配置。Codex 会员通常不需要配置 API key。需要第三方 fallback 时，把服务的 base URL、模型名和 API key 告诉 AI，它会帮你写入用户级配置并遮蔽敏感值。
 
 ## Q：如何更新 skill 到最新版本？
 
