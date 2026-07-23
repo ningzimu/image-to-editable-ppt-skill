@@ -1,6 +1,8 @@
 # Image to Editable PPT Skill
 
-[![English](https://img.shields.io/badge/docs-English-blue)](README_en.md) [![文档站](https://img.shields.io/badge/%E6%96%87%E6%A1%A3%E7%AB%99-online-brightgreen)](https://ningzimu.github.io/image-to-editable-ppt-skill/) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
+**简体中文** · [English](README_en.md) · [한국어](README_ko.md)
+
+[![Docs](https://img.shields.io/badge/docs-%E4%BD%BF%E7%94%A8%E6%96%87%E6%A1%A3-111827)](https://ningzimu.github.io/image-to-editable-ppt-skill/#/) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
 
 ![Image to Editable PPT 项目概览](assets/image-to-editable-ppt-overview.png)
 
@@ -227,7 +229,8 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
 ├── CHANGELOG.md                          # 用户可见变更记录
 ├── LICENSE                               # 开源许可证
 ├── README.md                             # 中文说明文档
-└── README_en.md                          # 英文说明文档
+├── README_en.md                          # 英文说明文档
+└── README_ko.md                          # 韩文说明文档
 ```
 
 ## 交流群
