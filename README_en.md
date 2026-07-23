@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English** · [한국어](README_ko.md)
 
-[![Docs](https://img.shields.io/badge/Docs-Guide-111827)](https://ningzimu.github.io/image-to-editable-ppt-skill/#/en/) [![Support](https://img.shields.io/badge/Support-Get_Help-2CA5E0)](https://t.me/CodexPPT) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
+[![Docs](https://img.shields.io/badge/Docs-Guide-111827)](https://ningzimu.github.io/image-to-editable-ppt-skill/#/en/) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
 
 ![Image to Editable PPT project overview](assets/image-to-editable-ppt-overview.png)
 
