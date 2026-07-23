@@ -13,7 +13,7 @@ This repository packages the `image-to-editable-ppt` skill.
 
 - Do not edit files under `skills/image-to-editable-ppt/` unless the task explicitly asks to change the skill itself.
 - Keep public docs focused on user-facing facts: what the skill does, how to install it, how to use it, and its real limits.
-- Keep `README.md` and `README_en.md` synchronized. When changing one README, update the other in the same change so headings, examples, capabilities, limitations, install steps, and output structure stay equivalent across languages.
+- Documentation changes must update all existing language versions in sync, including repository README files and the usage documentation site. Keep headings, examples, capabilities, limitations, install steps, and output structure equivalent across languages.
 - Do not copy internal discussion notes, temporary decisions, or unpublished release plans into README files.
 
 ## Skill Documentation Architecture

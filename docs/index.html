@@ -122,25 +122,62 @@
 <body>
   <div id="app"></div>
   <script>
+    function updateDocumentLanguage(path) {
+      const locale = path.match(/^\/(en|ko)(?:\/|$)/);
+      const language = locale ? { en: 'en', ko: 'ko-KR' }[locale[1]] : 'zh-CN';
+      document.documentElement.setAttribute('lang', language);
+    }
+
+    updateDocumentLanguage(location.hash.replace(/^#/, '') || '/');
+  </script>
+  <script>
     window.$docsify = {
       name: 'Image to Editable PPT Skill',
+      nameLink: {
+        '/en/': '#/en/',
+        '/ko/': '#/ko/',
+        '/': '#/'
+      },
       repo: 'https://github.com/ningzimu/image-to-editable-ppt-skill',
       loadSidebar: true,
+      loadNavbar: true,
       auto2top: true,
       subMaxLevel: 2,
-      alias: {
-        '/.*/_sidebar.md': '/_sidebar.md'
-      },
       pagination: {
-        previousText: '上一章',
-        nextText: '下一章',
+        previousText: {
+          '/en/': 'Previous',
+          '/ko/': '이전 장',
+          '/': '上一章'
+        },
+        nextText: {
+          '/en/': 'Next',
+          '/ko/': '다음 장',
+          '/': '下一章'
+        },
         crossChapter: true,
         crossChapterText: true
       },
       search: {
-        placeholder: '搜索',
-        noData: '找不到结果'
-      }
+        paths: 'auto',
+        pathNamespaces: ['/en', '/ko'],
+        placeholder: {
+          '/en/': 'Search',
+          '/ko/': '검색',
+          '/': '搜索'
+        },
+        noData: {
+          '/en/': 'No results',
+          '/ko/': '검색 결과가 없습니다',
+          '/': '找不到结果'
+        }
+      },
+      plugins: [
+        function (hook, vm) {
+          hook.doneEach(function () {
+            updateDocumentLanguage(vm.route.path);
+          });
+        }
+      ]
     };
   </script>
   <script src="//cdn.jsdelivr.net/npm/docsify@latest/lib/docsify.min.js"></script>
