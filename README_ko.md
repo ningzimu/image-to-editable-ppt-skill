@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · [English](README_en.md) · **한국어**
 
-[![Docs](https://img.shields.io/badge/docs-%EC%82%AC%EC%9A%A9%20%EC%95%88%EB%82%B4-111827)](https://ningzimu.github.io/image-to-editable-ppt-skill/#/ko/) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
+[![문서](https://img.shields.io/badge/%EB%AC%B8%EC%84%9C-%EC%82%AC%EC%9A%A9%20%EC%95%88%EB%82%B4-111827)](https://ningzimu.github.io/image-to-editable-ppt-skill/#/ko/) [![지원](https://img.shields.io/badge/%EC%A7%80%EC%9B%90-%EB%8F%84%EC%9B%80%EB%B0%9B%EA%B8%B0-2CA5E0)](https://t.me/CodexPPT) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
 
 ![Image to Editable PPT 프로젝트 개요](assets/image-to-editable-ppt-overview.png)
 
@@ -233,11 +233,9 @@ output/image-to-editable-ppt/{job-id}/        # 단일 변환 작업 디렉터�
 └── README_ko.md                          # 한국어 설명 문서
 ```
 
-## 커뮤니티
+## 지원
 
-QR 코드를 스캔해 Skill 커뮤니티에 참여하고 사용 경험과 피드백을 공유하며 업데이트 알림을 받아 보세요.
-
-<img src="assets/image-to-editable-ppt-community-qr.png" alt="Image to Editable PPT Skill 커뮤니티 QR 코드" width="220">
+문제가 있나요? [사용 설명서](https://ningzimu.github.io/image-to-editable-ppt-skill/#/ko/)를 확인하고, [CodexPPT](https://t.me/CodexPPT)에 참여하거나, [Issue를 등록하세요](https://github.com/ningzimu/image-to-editable-ppt-skill/issues/new).
 
 ## 라이선스
 
