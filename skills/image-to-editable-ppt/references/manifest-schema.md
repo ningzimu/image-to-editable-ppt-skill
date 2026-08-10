@@ -10,6 +10,7 @@ This document describes the responsibilities, owners, and current field contract
 - `page_result.json`
 - `pages/page_NNN/validation.json`
 - `pages/page_NNN/manifest.json`
+- `pages/page_NNN/style_audit.json`
 - `pages/page_NNN/imagegen-jobs.json`
 - `notes_manifest.json`
 
@@ -185,6 +186,34 @@ Must contain at top level:
 
 `passed` must be a boolean. `editppt run record` only reads top-level `passed` to decide whether the page can enter final assembly. `status: "pass"`, `runtime_validation.passed`, or other nested fields may remain as supplemental information, but they cannot replace top-level `passed`.
 
+## `pages/page_NNN/style_audit.json`
+
+Owner: written by `editppt page style-audit`; the page reconstructor runs the audit and keeps the report in the page directory.
+
+Purpose: deterministic evidence that every positioned object carries an explicit, source-faithful style declaration. When to run it and how findings are triaged is owned by `page-decision-tree.md` section 3.7.
+
+Shape:
+
+```json
+{
+  "schema_version": 1,
+  "manifest": "manifest.json",
+  "canvas_px": {"width": 1280, "height": 720},
+  "summary": {"errors": 0, "warnings": 1, "info": 4},
+  "findings": [
+    {
+      "level": "error|warning|info",
+      "object": "text_boxes[3]",
+      "field": "color",
+      "issue": "text box has no explicit color",
+      "suggestion": "Sample the glyph color from the source."
+    }
+  ]
+}
+```
+
+`--strict` makes the command exit 1 when any error-level finding exists. `editppt run record` does not parse this file; the enforceable record gate is `quality_checks.style_audit_completed` in `manifest.json`.
+
 ## `pages/page_NNN/manifest.json`
 
 Owner: page reconstructor.
@@ -237,6 +266,26 @@ Text alignment:
 - `text_boxes[].valign` accepts `top`, `middle`, or `bottom` (default `top`); `center` is an alias for `middle`. The equivalent DrawingML tokens `t`, `ctr`, and `b` are also accepted.
 - The deterministic builder translates these manifest values to valid DrawingML enum tokens. Unsupported values are page-contract violations instead of silently falling back to an application default.
 
+Style fields:
+
+Every positioned object should declare its style explicitly (the audit rules are in `page-decision-tree.md` section 3.7). The builder supports:
+
+- `shapes[].fill`: a hex color string, the literal `"none"`, or a linear gradient object:
+  ```json
+  {"gradient": {"angle": 90, "stops": [{"pos": 0, "color": "#1D4ED8"}, {"pos": 100, "color": "#7C3AED"}]}}
+  ```
+  `angle` is in degrees, clockwise, `0` = left-to-right and `90` = top-to-bottom. `pos` accepts 0-100 (or 0-1) stop positions.
+- `shapes[].stroke` / `shapes[].stroke_width`: border color (hex or `"none"`) and border width in source pixels. `shapes[].dash` names a DrawingML dash preset such as `dash`. `shapes[].arrow_end: true` draws a triangle arrowhead at the line's end point.
+- `shadow` (shapes and text boxes) and `glow` (shapes and text boxes):
+  ```json
+  {"shadow": {"color": "#1A3A6B", "blur_px": 8, "offset_x_px": 3, "offset_y_px": 4, "alpha": 0.4}}
+  {"glow": {"color": "#38BDF8", "radius_px": 6, "alpha": 0.6}}
+  ```
+  All effect distances are source pixels; `alpha` is 0-1; `"enabled": false` disables a recorded effect without deleting it.
+- `z_index`: stacking order; defaults are 100 for shapes, 200 for images, 300 for text boxes when unset. The layering bands are defined in `page-decision-tree.md` section 3.6.
+- `text_boxes[]`: `font_size` (points), `color` (hex), `font` (family), `bold`, `italic`, plus the `font_size_source` calibration marker from section 3.1 of the decision tree.
+- Field aliases are normalized by the builder, with the canonical field winning when both are present: `line_color`/`border_color` → `stroke`, `line_width`/`border_width` → `stroke_width`, `font_color`/`text_color` → `color`, `font_family` → `font`.
+
 `text_inventory` may be a list of strings or a list of structured objects. In structured objects, the fields used for exact text validation are `text`, `required_text`, `items`, or `texts`; fields such as `id`, `decision`, `description`, and `note` are only records and are not used for exact text matching. Example:
 
 ```json
@@ -253,9 +302,12 @@ Text alignment:
   "font_size_calibrated": true,
   "visual_inventory_matched": true,
   "background_strategy_checked": true,
-  "shape_corner_geometry_checked": true
+  "shape_corner_geometry_checked": true,
+  "style_audit_completed": true
 }
 ```
+
+`style_audit_completed` may be set only after `editppt page style-audit` has run on the final manifest and every error-level finding is fixed; the audit procedure is owned by `page-decision-tree.md` section 3.7.
 
 `background_strategy` must explain at least:
 

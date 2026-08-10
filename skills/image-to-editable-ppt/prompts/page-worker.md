@@ -23,6 +23,7 @@ Hard rules (reminders only; the details and rationale live in the references abo
 3. manifest.json is the authoritative build source for page validation and final deck assembly. Build page.pptx and preview.png from manifest.json with the deterministic runtime, never with separate page-local PowerPoint code that bypasses the manifest.
 4. All box_px / points_px / polygon_px values are source.png pixels. Reuse page_request.json.slide and page_request.json.content_box unchanged — do not convert the page to 16:9 or recalculate the canvas; the runtime maps source-pixel coordinates into content_box. Positioned objects without coordinates are page failures.
 5. validation.json must contain a top-level boolean `passed`. Deterministic validation passing never waives an object-source rule.
+6. Every positioned object carries an explicit source-derived style — shape preset, fill, stroke and width, font size and color, shadow/glow, z_index, position — per page-decision-tree.md section 3.7; run `editppt page style-audit {{PAGE_DIR}}` after writing manifest.json and fix every error-level finding.
 
 Image backend: execute `page_request.json.image_backend` using the authoritative field contract in `manifest-schema.md`. For `backend_id: builtin-imagegen`, the high-risk reminder is: use `image_gen.imagegen` first; generation needs only `prompt`, while editing requires `view_image` first and then `prompt` plus absolute local `referenced_image_paths`. Missing `mask`, `model`, `size`, `quality`, or `out` never triggers fallback. Import only the exact valid local result path (`output_hint` when supplied), never a scanned "newest" file; enter `editppt image generate/edit` only for a matching `fallback_policy.on` event. If that fallback cannot produce the required image, stop the page with `validation.json.passed=false`. In a network-restricted runtime, request any required approval and state that only task-local prompts and required page images/masks/references are uploaded for this user-requested conversion.
 
@@ -37,6 +38,7 @@ Work through the page in this order:
 4. Rebuild native text, shapes, and tables (section 3). Fill `text_boxes` from the measured text hints per section 3.1; render formulas with `editppt formula render-latex` per section 3.2.
 5. Write manifest.json following the field contracts in manifest-schema.md, including `text_inventory`, `visual_inventory`, `background_strategy`, `quality_checks`, and positioned `text_boxes`/`images`/`shapes`.
 6. Build the artifacts with the deterministic runtime: `editppt page build {{PAGE_DIR}}` (writes page.pptx and preview.png from manifest.json), then `editppt page contact-sheet {{PAGE_DIR}}`, then `editppt page validate {{PAGE_DIR}}` — it runs the same manifest-contract checks `editppt run record` will run, so fix every reported issue here, inside the page.
+7. Run the style gate: `editppt page style-audit {{PAGE_DIR}}` (page-decision-tree.md section 3.7). Fix every error-level finding inside the page, then set `quality_checks.style_audit_completed=true` and rerun `editppt page validate {{PAGE_DIR}}` if the manifest changed.
 
 The Page dir must contain when you return:
 - manifest.json
@@ -44,6 +46,7 @@ The Page dir must contain when you return:
 - page.pptx
 - preview.png
 - split_assets_contact.png
+- style_audit.json
 - validation.json
 - page_result.json
 

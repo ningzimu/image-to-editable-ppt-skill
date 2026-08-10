@@ -29,6 +29,7 @@ REQUIRED_QUALITY_CHECKS = {
     "visual_inventory_matched",
     "background_strategy_checked",
     "shape_corner_geometry_checked",
+    "style_audit_completed",
 }
 FOREGROUND_TERMS = {
     "badge",

@@ -235,6 +235,21 @@ Recommended z-index:
 
 The background must not cover text, foreground assets must sit on the right layer, and the same text, icon, or decoration must never appear both in an image layer and as a native object.
 
+### 3.7 Element Style Fidelity
+
+A page can satisfy every object-source rule and still look wrong, because style silently fell back to builder defaults: a shape without a declared fill renders black-outlined white, text without a declared color renders near-black, an undecorated source card grows an invented look, a shadowed source panel goes flat. Style is not decoration on top of the rebuild; matching the source element by element is the rebuild. Every positioned object must carry its style explicitly, measured from the source:
+
+- Shape geometry: the preset must match the source silhouette — `chevron`, `pentagon`, and `homePlate` are not interchangeable, and a rounded stage bar must not become a plain rectangle. Custom outlines use `polygon_px`.
+- Fill: sample the actual fill from the source pixels (zoom in; do not guess from memory). Use a hex color for solid fills, a gradient dict with measured stop colors and angle when the source fill is a gradient (field contract in `manifest-schema.md`), and `"none"` only when the source truly has no fill.
+- Border: record the border color, its width in source pixels (`stroke_width`), and the dash pattern when dashed. `"none"` only when the source has no visible border. A border that exists in the source but not in the manifest (or vice versa) is a visible regression.
+- Icons: icons come from step-2 separation, never from native shapes, emoji, or text symbols. After placement, compare each icon's hue family, stroke weight, and size against the source.
+- Text: font size comes from the measured hints (`font_size_source: "measured"`, section 3.1); glyph color is sampled from the source; font family is recorded when it differs from the builder default; bold/italic follow the source. Same-level text keeps one size group.
+- Shadow and glow: when the source element has a visible drop shadow or glow, reproduce it with the `shadow`/`glow` fields — sampled color, blur radius, offset, and opacity. A missing shadow flattens a layered design; an invented shadow dirties a flat one. Do neither.
+- Layering: overlapping objects carry explicit `z_index` values following the bands in section 3.6; the source stacking order is preserved.
+- Position and size: every `box_px`/`points_px` is measured from `source.png`. Objects must sit inside the source canvas, and objects the source aligns (same row, same column, equal spacing) stay aligned with the same spacing ratios.
+
+After writing `manifest.json`, run `editppt page style-audit <page_dir>` (syntax in `cli-helper.md`). It deterministically flags missing style declarations, invalid colors or presets, out-of-canvas or degenerate boxes, font sizes deviating from the measured hints, duplicated text boxes, and text covered by higher-z objects, and writes `style_audit.json` into the page directory. Error-level findings are current-page fixes. Warnings are fixed too, unless they record a deliberate source-verified deviation (for example an intentionally unified size group). Then set `quality_checks.style_audit_completed=true` — the page cannot be recorded without it.
+
 ## Final Self-Check
 
 Whoever rebuilds the page checks it once against this list — deterministic validation is necessary but not sufficient, and the parent agent does not repeat this check. Record the evidence in structured manifest fields and `validation.json`. (Deck-level structural QA at finalize time is in `SKILL.md` Phase 4.)
@@ -272,6 +287,14 @@ Shapes and layers:
 - Badge and circular-number groups follow the shared-box centering rule in 3.6.
 - z-index follows 3.6; no text or key object is covered.
 
+Style fidelity (3.7):
+
+- `editppt page style-audit` was run after the manifest was written and reports zero error-level findings; `style_audit.json` sits in the page directory and `quality_checks.style_audit_completed=true`.
+- Every positioned object declares its style explicitly: fill, stroke and stroke width, font size and color — nothing silently inherits a builder default.
+- Fills and borders match the source: sampled colors, gradients keep their stop colors and direction, border widths and dash patterns match.
+- Source shadows and glows are reproduced through the `shadow`/`glow` fields; no effect was invented for a flat source element.
+- The stacking order matches the source, and grouped objects keep their source alignment and spacing ratios.
+
 ## Fix versus Warning
 
 Every failed self-check item above is a current-page fix, owned by the page author, before the page returns. These structural conditions are also hard failures, never warnings:
@@ -279,12 +302,14 @@ Every failed self-check item above is a current-page fix, owned by the page auth
 - The input cannot be normalized.
 - The page lacks a buildable `manifest.json`/`page.pptx`, or the PPTX cannot be opened.
 - Text font size or position visibly deviates from the source and causes crowding, overflow, or occlusion.
+- Any error-level `style-audit` finding: it means an object's fill, border, font size or color, geometry preset, or canvas position was not derived from the source (3.7).
 
 May ship as recorded warnings with the current PPT — but only after the required object-source workflow has succeeded:
 
 - Minor line-width, antialiasing, proportion, shadow, or detail differences in separated assets.
 - Minor visual drift in non-critical decorations.
 - Recorded low-risk font differences.
+- Warning-level style-audit findings that record a deliberate, source-verified deviation, such as a hint-measured font size intentionally overridden to unify a size group.
 - A formula whose LaTeX rendering is blocked by missing local TeX tooling, with the LaTeX source, error, and required repair recorded per 3.2.
 
 Warnings never hide a failure to follow the three-step decision process: an object-source violation is always a current-page fix.

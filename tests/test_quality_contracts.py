@@ -23,6 +23,7 @@ def base_manifest():
             "visual_inventory_matched": True,
             "background_strategy_checked": True,
             "shape_corner_geometry_checked": True,
+            "style_audit_completed": True,
         },
         "shapes": [],
     }

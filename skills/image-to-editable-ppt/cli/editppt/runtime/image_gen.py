@@ -21,6 +21,7 @@ import sys
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib import error, request
+from urllib.parse import urlparse
 
 DEFAULT_MODEL = "gpt-image-2"
 DEFAULT_SIZE = "auto"
@@ -179,6 +180,177 @@ def _api_target_label() -> str:
     if base_url:
         return f"OpenAI-compatible proxy (OPENAI_BASE_URL={base_url})"
     return "official OpenAI API (OPENAI_BASE_URL unset)"
+
+
+def _is_atlascloud_base_url(base_url: Optional[str]) -> bool:
+    if not base_url:
+        return False
+    hostname = urlparse(base_url).hostname or ""
+    return "atlascloud.ai" in hostname.lower()
+
+
+def _atlascloud_model_for_operation(model: str, operation: str) -> str:
+    suffix = "edit" if operation == "edit" else "text-to-image"
+    base = model.rstrip("/")
+    for existing_suffix in ("/text-to-image", "/edit"):
+        if base.endswith(existing_suffix):
+            base = base[: -len(existing_suffix)]
+            break
+    if "/" not in base:
+        base = f"openai/{base}"
+    return f"{base}/{suffix}"
+
+
+def _atlascloud_model_base_url() -> str:
+    base_url = _api_base_url()
+    if not base_url:
+        return "https://api.atlascloud.ai/api/v1/model"
+    parsed = urlparse(base_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
+    path = parsed.path.rstrip("/")
+    marker = "/api/v1/model"
+    if marker in path:
+        prefix = path[: path.index(marker) + len(marker)]
+        return f"{origin}{prefix}"
+    if origin:
+        return f"{origin}{marker}"
+    return base_url.rstrip("/")
+
+
+def _atlascloud_image_data_url(path: Path) -> str:
+    mime = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+def _atlascloud_request_json(
+    method: str,
+    url: str,
+    *,
+    payload: Optional[Dict[str, Any]],
+    timeout: int,
+) -> Dict[str, Any]:
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    headers = {
+        "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY', '')}",
+        "Accept": "application/json",
+        "User-Agent": "image-to-editable-ppt/0.1",
+    }
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+    req = request.Request(url, data=data, headers=headers, method=method)
+    with request.urlopen(req, timeout=timeout) as response:
+        parsed = json.loads(response.read().decode("utf-8"))
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"Unexpected AtlasCloud response: {parsed}")
+    code = parsed.get("code")
+    if code is not None and code not in (0, 200, "0", "200"):
+        raise RuntimeError(f"AtlasCloud API error: {parsed}")
+    result = parsed.get("data", parsed)
+    if not isinstance(result, dict):
+        raise RuntimeError(f"Unexpected AtlasCloud response data: {parsed}")
+    return result
+
+
+def _atlascloud_output_to_b64(value: str, *, timeout: int) -> str:
+    if value.startswith("data:") and "," in value:
+        return value.split(",", 1)[1]
+    parsed = urlparse(value)
+    if parsed.scheme in {"http", "https"}:
+        req = request.Request(value, headers={"User-Agent": "image-to-editable-ppt/0.1"})
+        with request.urlopen(req, timeout=timeout) as response:
+            return base64.b64encode(response.read()).decode("ascii")
+    return value
+
+
+def _run_atlascloud_image(
+    *,
+    prompt: str,
+    image_paths: List[Path],
+    mask_path: Optional[Path],
+    args: argparse.Namespace,
+    output_paths: List[Path],
+) -> bool:
+    base_url = _api_base_url()
+    if not _is_atlascloud_base_url(base_url):
+        return False
+    if mask_path is not None:
+        raise RuntimeError("AtlasCloud image backend does not support --mask.")
+
+    operation = "edit" if image_paths else "text-to-image"
+    body: Dict[str, Any] = {
+        "model": _atlascloud_model_for_operation(args.model, operation),
+        "prompt": prompt,
+        "enable_sync_mode": False,
+        "enable_base64_output": True,
+    }
+    for key in ("size", "quality"):
+        value = getattr(args, key)
+        if value != "auto":
+            body[key] = value
+    if image_paths:
+        body["images"] = [_atlascloud_image_data_url(path) for path in image_paths]
+
+    endpoint = f"{_atlascloud_model_base_url()}/generateImage"
+    if args.dry_run:
+        _print_request(
+            {
+                "backend": "atlascloud",
+                "endpoint": endpoint,
+                "operation": operation,
+                "outputs": [str(p) for p in output_paths],
+                "request": {
+                    **{k: v for k, v in body.items() if k != "images"},
+                    "images": [str(p) for p in image_paths] if image_paths else [],
+                },
+            }
+        )
+        return True
+
+    print(
+        f"Calling AtlasCloud image backend ({operation}).",
+        file=sys.stderr,
+    )
+    submitted = _atlascloud_request_json(
+        "POST",
+        endpoint,
+        payload=body,
+        timeout=max(60, int(getattr(args, "timeout", DEFAULT_TIMEOUT))),
+    )
+    prediction_id = submitted.get("id") or submitted.get("prediction_id")
+    if not prediction_id:
+        raise RuntimeError("AtlasCloud response did not include a prediction id.")
+    urls = submitted.get("urls")
+    result_url = urls.get("get") if isinstance(urls, dict) else None
+    if not result_url:
+        result_url = f"{_atlascloud_model_base_url()}/result/{prediction_id}"
+
+    last: Dict[str, Any] = {}
+    for _ in range(120):
+        last = _atlascloud_request_json(
+            "GET",
+            str(result_url),
+            payload=None,
+            timeout=max(60, int(getattr(args, "timeout", DEFAULT_TIMEOUT))),
+        )
+        status = str(last.get("status", "")).lower()
+        if status in {"completed", "succeeded"}:
+            break
+        if status in {"failed", "error", "cancelled"}:
+            raise RuntimeError(f"AtlasCloud prediction failed: {last}")
+        time.sleep(2.0)
+    else:
+        raise TimeoutError(f"AtlasCloud prediction timed out: {last}")
+
+    outputs = last.get("outputs")
+    if not isinstance(outputs, list) or not outputs:
+        raise RuntimeError("AtlasCloud prediction completed without outputs.")
+    _decode_and_write(
+        [_atlascloud_output_to_b64(str(output), timeout=max(60, int(getattr(args, "timeout", DEFAULT_TIMEOUT)))) for output in outputs],
+        output_paths,
+        force=args.force,
+    )
+    return True
 
 
 def _codex_auth_file() -> Path:
@@ -654,6 +826,14 @@ def _generate(args: argparse.Namespace) -> None:
             endpoint_label="generate",
         ):
             return
+        if _run_atlascloud_image(
+            prompt=prompt,
+            image_paths=[],
+            mask_path=None,
+            args=args,
+            output_paths=output_paths,
+        ):
+            return
         _print_request(
             {
                 "backend": "openai-compatible-api",
@@ -671,6 +851,15 @@ def _generate(args: argparse.Namespace) -> None:
         args=args,
         output_paths=output_paths,
         endpoint_label="generate",
+    ):
+        return
+
+    if _run_atlascloud_image(
+        prompt=prompt,
+        image_paths=[],
+        mask_path=None,
+        args=args,
+        output_paths=output_paths,
     ):
         return
 
@@ -712,6 +901,14 @@ def _edit(args: argparse.Namespace) -> None:
             endpoint_label="edit",
         ):
             return
+        if _run_atlascloud_image(
+            prompt=prompt,
+            image_paths=image_paths,
+            mask_path=mask_path,
+            args=args,
+            output_paths=output_paths,
+        ):
+            return
         payload_preview = dict(payload)
         payload_preview["image"] = [str(p) for p in image_paths]
         if mask_path:
@@ -733,6 +930,15 @@ def _edit(args: argparse.Namespace) -> None:
         args=args,
         output_paths=output_paths,
         endpoint_label="edit",
+    ):
+        return
+
+    if _run_atlascloud_image(
+        prompt=prompt,
+        image_paths=image_paths,
+        mask_path=mask_path,
+        args=args,
+        output_paths=output_paths,
     ):
         return
 

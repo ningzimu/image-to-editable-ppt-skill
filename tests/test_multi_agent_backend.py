@@ -128,6 +128,7 @@ def valid_page_manifest(text="Valid Page"):
             "visual_inventory_matched": True,
             "background_strategy_checked": True,
             "shape_corner_geometry_checked": True,
+            "style_audit_completed": True,
         },
     }
 
@@ -459,6 +460,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             Image.new("RGB", (24, 24), "white").save(source)
             env = os.environ.copy()
             env["CODEX_AUTH_FILE"] = str(Path(tmp) / "missing-auth.json")
+            env["EDITPPT_CONFIG_HOME"] = tmp
             result = subprocess.run(
                 [
                     sys.executable,
@@ -483,6 +485,80 @@ class MultiAgentBackendTest(unittest.TestCase):
             payload = json.loads(result.stdout)
             self.assertEqual([str(source)], payload["image"])
             self.assertEqual("test", payload["prompt"])
+
+    def test_image_edit_dry_run_uses_atlascloud_when_base_url_matches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source.png"
+            out = Path(tmp) / "out.png"
+            Image.new("RGB", (24, 24), "white").save(source)
+            env = os.environ.copy()
+            env["CODEX_AUTH_FILE"] = str(Path(tmp) / "missing-auth.json")
+            env["EDITPPT_CONFIG_HOME"] = tmp
+            env["OPENAI_API_KEY"] = "test-key"
+            env["OPENAI_BASE_URL"] = "https://api.atlascloud.ai/v1"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "editppt.cli",
+                    "image",
+                    "edit",
+                    "--image",
+                    str(source),
+                    "--prompt",
+                    "test",
+                    "--out",
+                    str(out),
+                    "--dry-run",
+                ],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual("atlascloud", payload["backend"])
+            self.assertEqual("edit", payload["operation"])
+            self.assertEqual("openai/gpt-image-2/edit", payload["request"]["model"])
+            self.assertTrue(payload["endpoint"].endswith("/api/v1/model/generateImage"))
+            self.assertEqual([str(source)], payload["request"]["images"])
+
+    def test_atlascloud_does_not_preempt_codex_oauth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source.png"
+            out = Path(tmp) / "out.png"
+            auth = Path(tmp) / "auth.json"
+            Image.new("RGB", (24, 24), "white").save(source)
+            write_json(auth, {"tokens": {"access_token": "test-token"}})
+            env = os.environ.copy()
+            env["CODEX_AUTH_FILE"] = str(auth)
+            env["EDITPPT_CONFIG_HOME"] = tmp
+            env["OPENAI_API_KEY"] = "test-key"
+            env["OPENAI_BASE_URL"] = "https://api.atlascloud.ai/v1"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "editppt.cli",
+                    "image",
+                    "edit",
+                    "--image",
+                    str(source),
+                    "--prompt",
+                    "test",
+                    "--out",
+                    str(out),
+                    "--dry-run",
+                ],
+                cwd=ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual("codex-oauth", payload["backend"])
 
     def test_image_edit_dry_run_prefers_codex_oauth_when_auth_exists(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1371,6 +1447,7 @@ class MultiAgentBackendTest(unittest.TestCase):
                             "visual_inventory_matched": True,
                             "background_strategy_checked": True,
                             "shape_corner_geometry_checked": True,
+                            "style_audit_completed": True,
                         },
                     },
                 )

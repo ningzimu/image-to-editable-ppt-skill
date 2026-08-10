@@ -13,7 +13,21 @@ from pathlib import Path
 
 
 EMU_PER_INCH = 914400
+EMU_PER_PX = 9525
 REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+# Style aliases accepted in manifests and normalized to the canonical fields.
+# Canonical fields always win when both are present.
+SHAPE_STYLE_ALIASES = {
+    "line_color": "stroke",
+    "border_color": "stroke",
+    "line_width": "stroke_width",
+    "border_width": "stroke_width",
+}
+TEXT_STYLE_ALIASES = {
+    "font_color": "color",
+    "text_color": "color",
+    "font_family": "font",
+}
 ASPECT_16_9 = 16 / 9
 ASPECT_TOLERANCE = 0.03
 DEFAULT_TEXT_FIT_SAFETY = 0.9
@@ -289,14 +303,30 @@ def fit_text_item(item, manifest):
     return item
 
 
+def normalize_style_aliases(item, aliases):
+    """Copy supported alias fields onto their canonical names when unset."""
+    item = dict(item)
+    for alias, canonical in aliases.items():
+        if alias in item and item.get(canonical) in (None, ""):
+            item[canonical] = item[alias]
+    return item
+
+
 def normalize_manifest(manifest):
     """Return a manifest copy with pixel authoring fields resolved to inches."""
     normalized = deepcopy(manifest)
     normalized["text_boxes"] = [
-        fit_text_item(normalize_position_item(normalized, item), normalized) for item in normalized.get("text_boxes", [])
+        fit_text_item(
+            normalize_position_item(normalized, normalize_style_aliases(item, TEXT_STYLE_ALIASES)),
+            normalized,
+        )
+        for item in normalized.get("text_boxes", [])
     ]
     for key in ("images", "shapes"):
-        normalized[key] = [normalize_position_item(normalized, item) for item in normalized.get(key, [])]
+        normalized[key] = [
+            normalize_position_item(normalized, normalize_style_aliases(item, SHAPE_STYLE_ALIASES))
+            for item in normalized.get(key, [])
+        ]
     return normalized
 
 
@@ -311,22 +341,87 @@ def preview_color(value):
     return value
 
 
+def gradient_stops(fill):
+    """Normalize a gradient fill dict into (angle_degrees, [(pos_0_100000, hex), ...])."""
+    spec = fill.get("gradient", fill) if isinstance(fill, dict) else None
+    if not isinstance(spec, dict):
+        return None
+    stops = spec.get("stops")
+    if not isinstance(stops, list) or len(stops) < 2:
+        return None
+    normalized = []
+    for stop in stops:
+        pos = float(stop.get("pos", 0))
+        if pos <= 1.0:
+            pos *= 100.0
+        pos = max(0.0, min(100.0, pos))
+        normalized.append((int(round(pos * 1000)), hex_color(stop.get("color"))))
+    normalized.sort(key=lambda entry: entry[0])
+    angle = float(spec.get("angle", 0)) % 360
+    return angle, normalized
+
+
 def shape_fill(fill):
     if not fill or fill == "none":
         return '<a:noFill/>'
+    if isinstance(fill, dict):
+        gradient = gradient_stops(fill)
+        if gradient:
+            angle, stops = gradient
+            stops_xml = "".join(
+                f'<a:gs pos="{pos}"><a:srgbClr val="{color}"/></a:gs>' for pos, color in stops
+            )
+            return (
+                f'<a:gradFill><a:gsLst>{stops_xml}</a:gsLst>'
+                f'<a:lin ang="{int(round(angle * 60000))}" scaled="1"/></a:gradFill>'
+            )
+        fill = fill.get("color")
+        if not fill or fill == "none":
+            return '<a:noFill/>'
     return f'<a:solidFill><a:srgbClr val="{hex_color(fill)}"/></a:solidFill>'
 
 
-def shape_line_xml(stroke, width, dash=None):
+def shape_line_xml(stroke, width, dash=None, arrow_end=False):
     if not stroke or stroke == "none":
         return '<a:ln><a:noFill/></a:ln>'
     dash_xml = f'<a:prstDash val="{xml_text(dash)}"/>' if dash else ""
+    arrow_xml = '<a:tailEnd type="triangle" w="med" len="med"/>' if arrow_end else ""
     return (
         f'<a:ln w="{int(float(width or 1) * 12700)}">'
         f'<a:solidFill><a:srgbClr val="{hex_color(stroke)}"/></a:solidFill>'
-        f"{dash_xml}"
+        f"{dash_xml}{arrow_xml}"
         "</a:ln>"
     )
+
+
+def effect_lst_xml(item):
+    """Render `shadow` and/or `glow` manifest fields as a DrawingML effect list."""
+    effects = []
+    shadow = item.get("shadow")
+    if isinstance(shadow, dict) and shadow.get("enabled", True):
+        color = hex_color(shadow.get("color", "#000000"))
+        alpha = max(0.0, min(1.0, float(shadow.get("alpha", 0.35))))
+        blur_rad = max(0, int(round(float(shadow.get("blur_px", 4)) * EMU_PER_PX)))
+        offset_x = float(shadow.get("offset_x_px", 0))
+        offset_y = float(shadow.get("offset_y_px", 0))
+        dist = int(round(math.hypot(offset_x, offset_y) * EMU_PER_PX))
+        direction = int(round(math.degrees(math.atan2(offset_y, offset_x)) * 60000)) % 21600000
+        effects.append(
+            f'<a:outerShdw blurRad="{blur_rad}" dist="{dist}" dir="{direction}" rotWithShape="0">'
+            f'<a:srgbClr val="{color}"><a:alpha val="{int(round(alpha * 100000))}"/></a:srgbClr>'
+            "</a:outerShdw>"
+        )
+    glow = item.get("glow")
+    if isinstance(glow, dict) and glow.get("enabled", True):
+        color = hex_color(glow.get("color", "#FFFFFF"))
+        alpha = max(0.0, min(1.0, float(glow.get("alpha", 0.5))))
+        radius = max(0, int(round(float(glow.get("radius_px", 5)) * EMU_PER_PX)))
+        effects.append(
+            f'<a:glow rad="{radius}">'
+            f'<a:srgbClr val="{color}"><a:alpha val="{int(round(alpha * 100000))}"/></a:srgbClr>'
+            "</a:glow>"
+        )
+    return f"<a:effectLst>{''.join(effects)}</a:effectLst>" if effects else ""
 
 
 def slide_background_xml(slide):
@@ -390,10 +485,11 @@ def text_box_xml(idx, item):
         text_body = paragraph_xml({"runs": runs})
     else:
         text_body = "".join(paragraph_xml(part) for part in str(item.get("text", "")).split("\n"))
+    effects = effect_lst_xml(item)
     return f"""
       <p:sp>
         <p:nvSpPr><p:cNvPr id="{idx}" name="TextBox {idx}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
-        <p:spPr><a:xfrm{rotation_attr}><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr>
+        <p:spPr><a:xfrm{rotation_attr}><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln>{effects}</p:spPr>
         <p:txBody>
           <a:bodyPr wrap="{xml_text(wrap)}" anchor="{anchor}" lIns="0" tIns="0" rIns="0" bIns="0">{autofit_xml}</a:bodyPr><a:lstStyle/>
           {text_body}
@@ -425,7 +521,13 @@ def shape_xml(idx, item):
     flip_h = ' flipH="1"' if item.get("flip_h") else ""
     flip_v = ' flipV="1"' if item.get("flip_v") else ""
     fill = shape_fill(item.get("fill"))
-    line = shape_line_xml(item.get("stroke", "#000000"), stroke_width, item.get("dash"))
+    line = shape_line_xml(
+        item.get("stroke", "#000000"),
+        stroke_width,
+        item.get("dash"),
+        bool(item.get("arrow_end")),
+    )
+    effects = effect_lst_xml(item)
     preset = item.get("preset")
     if item.get("polygon_px"):
         geometry = custom_polygon_geometry_xml(item)
@@ -436,7 +538,7 @@ def shape_xml(idx, item):
     return f"""
       <p:sp>
         <p:nvSpPr><p:cNvPr id="{idx}" name="{xml_text(kind.title())} {idx}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
-        <p:spPr><a:xfrm{flip_h}{flip_v}><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm>{geometry}{fill}{line}</p:spPr>
+        <p:spPr><a:xfrm{flip_h}{flip_v}><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm>{geometry}{fill}{line}{effects}</p:spPr>
         <p:txBody><a:bodyPr/><a:lstStyle/><a:p/></p:txBody>
       </p:sp>"""
 
@@ -768,7 +870,7 @@ def output_path_from_deck_manifest(deck_manifest_path):
 
 
 def render_preview(manifest, manifest_path, out_path):
-    from PIL import Image, ImageColor, ImageDraw, ImageFont
+    from PIL import Image, ImageColor, ImageDraw, ImageFilter, ImageFont
 
     manifest = normalize_manifest(manifest)
     slide = manifest.get("slide", {})
@@ -778,6 +880,9 @@ def render_preview(manifest, manifest_path, out_path):
     canvas = Image.new("RGB", (int(width_in * scale), int(height_in * scale)), ImageColor.getrgb(slide.get("background", "#ffffff")))
     base = Path(manifest_path).resolve().parent
     draw = ImageDraw.Draw(canvas)
+    source_size = source_size_px(manifest)
+    content_box = content_box_for_manifest(manifest)
+    px_factor = (content_box["width"] * scale / source_size[0]) if source_size else scale / 96.0
 
     def open_preview_image(src):
         if src.suffix.lower() != ".svg":
@@ -792,36 +897,142 @@ def render_preview(manifest, manifest_path, out_path):
             subprocess.run([convert, str(src), handle.name], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             return Image.open(handle.name).convert("RGBA")
 
+    def shape_geometry(item, box):
+        """Classify a non-line shape into a drawable silhouette description."""
+        if item.get("polygon"):
+            return ("polygon", [(point[0] * scale, point[1] * scale) for point in item["polygon"]])
+        preset = item.get("preset")
+        if item.get("type") == "ellipse" or preset == "ellipse":
+            return ("ellipse", box)
+        if item.get("type") == "roundRect" or preset == "roundRect":
+            return ("roundrect", (box, int(float(item.get("radius", 0.12)) * scale)))
+        if preset == "diamond":
+            left, top, right, bottom = box
+            center_x = (left + right) / 2
+            center_y = (top + bottom) / 2
+            return ("polygon", [(center_x, top), (right, center_y), (center_x, bottom), (left, center_y)])
+        if preset == "chevron":
+            left, top, right, bottom = box
+            mid_y = (top + bottom) / 2
+            tip = min(max(16, (right - left) * 0.08), 42)
+            return ("polygon", [
+                (left, top),
+                (right - tip, top),
+                (right, mid_y),
+                (right - tip, bottom),
+                (left, bottom),
+                (left + tip * 0.55, mid_y),
+            ])
+        return ("rect", box)
+
+    def draw_silhouette(target, geometry, color):
+        kind, data = geometry
+        if kind == "polygon":
+            target.polygon(data, fill=color)
+        elif kind == "ellipse":
+            target.ellipse(data, fill=color)
+        elif kind == "roundrect":
+            target.rounded_rectangle(data[0], radius=data[1], fill=color)
+        else:
+            target.rectangle(data, fill=color)
+
+    def draw_outline(target, geometry, outline, width):
+        if outline in (None, "none"):
+            return
+        kind, data = geometry
+        if kind == "polygon":
+            target.line(data + [data[0]], fill=outline, width=width, joint="curve")
+        elif kind == "ellipse":
+            target.ellipse(data, outline=outline, width=width)
+        elif kind == "roundrect":
+            target.rounded_rectangle(data[0], radius=data[1], outline=outline, width=width)
+        else:
+            target.rectangle(data, outline=outline, width=width)
+
+    def render_effect(item, geometry, spec, kind):
+        if not isinstance(spec, dict) or not spec.get("enabled", True):
+            return
+        color = ImageColor.getrgb(preview_color(spec.get("color", "#000000" if kind == "shadow" else "#FFFFFF")))
+        alpha = max(0.0, min(1.0, float(spec.get("alpha", 0.35 if kind == "shadow" else 0.5))))
+        blur = max(0.0, float(spec.get("blur_px" if kind == "shadow" else "radius_px", 4)) * px_factor)
+        offset_x = float(spec.get("offset_x_px", 0)) * px_factor if kind == "shadow" else 0
+        offset_y = float(spec.get("offset_y_px", 0)) * px_factor if kind == "shadow" else 0
+        layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        layer_draw = ImageDraw.Draw(layer)
+        if geometry[0] == "polygon":
+            shifted = [(x + offset_x, y + offset_y) for x, y in geometry[1]]
+            shifted_geometry = ("polygon", shifted)
+        elif geometry[0] == "roundrect":
+            (left, top, right, bottom), radius = geometry[1]
+            shifted_geometry = ("roundrect", ((left + offset_x, top + offset_y, right + offset_x, bottom + offset_y), radius))
+        else:
+            left, top, right, bottom = geometry[1]
+            shifted_geometry = (geometry[0], (left + offset_x, top + offset_y, right + offset_x, bottom + offset_y))
+        draw_silhouette(layer_draw, shifted_geometry, color + (int(round(alpha * 255)),))
+        if blur > 0:
+            layer = layer.filter(ImageFilter.GaussianBlur(radius=blur))
+        canvas.paste(layer, (0, 0), layer)
+
+    def linear_gradient_image(width_px, height_px, stops, angle):
+        stops_rgb = [(pos / 100000.0, ImageColor.getrgb(f"#{color}")) for pos, color in stops]
+        radians = math.radians(angle)
+        dx, dy = math.cos(radians), math.sin(radians)
+        projections = [corner_x * dx + corner_y * dy for corner_x, corner_y in ((0, 0), (width_px, 0), (0, height_px), (width_px, height_px))]
+        p_min, p_max = min(projections), max(projections)
+        span = max(p_max - p_min, 1e-6)
+
+        def color_at(t):
+            t = max(0.0, min(1.0, t))
+            for index in range(len(stops_rgb) - 1):
+                pos_a, color_a = stops_rgb[index]
+                pos_b, color_b = stops_rgb[index + 1]
+                if pos_a <= t <= pos_b:
+                    local = 0.0 if pos_b == pos_a else (t - pos_a) / (pos_b - pos_a)
+                    return tuple(int(round(color_a[ch] + (color_b[ch] - color_a[ch]) * local)) for ch in range(3))
+            return stops_rgb[-1][1]
+
+        image = Image.new("RGB", (max(1, width_px), max(1, height_px)))
+        pixels = image.load()
+        for y in range(height_px):
+            for x in range(width_px):
+                pixels[x, y] = color_at((x * dx + y * dy - p_min) / span)
+        return image
+
     def render_shape(item):
         box = [item.get("left", 0) * scale, item.get("top", 0) * scale, (item.get("left", 0) + item.get("width", 1)) * scale, (item.get("top", 0) + item.get("height", 1)) * scale]
-        fill = preview_color(item.get("fill"))
+        fill_spec = item.get("fill")
         outline = preview_color(item.get("stroke", "#000000"))
         width = max(1, int(float(item.get("stroke_width", 1))))
-        if item.get("polygon"):
-            points = [(point[0] * scale, point[1] * scale) for point in item["polygon"]]
-            draw.polygon(points, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline)
-        elif item.get("type") == "line":
+        if item.get("type") == "line" and not item.get("polygon"):
             if "points" in item:
                 points = [value * scale for value in item["points"]]
                 draw.line(points, fill=outline, width=width)
+                if item.get("arrow_end") and len(points) >= 4:
+                    draw_arrowhead(draw, points[-4:], outline, width)
                 return
             if item.get("dash"):
                 draw_dashed_line(draw, box, outline, width)
             else:
                 draw.line(box, fill=outline, width=width)
-        elif item.get("type") == "ellipse":
-            draw.ellipse(box, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline, width=width)
-        elif item.get("type") == "roundRect" or item.get("preset") == "roundRect":
-            radius = int(float(item.get("radius", 0.12)) * scale)
-            draw.rounded_rectangle(box, radius=radius, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline, width=width)
-        elif item.get("preset") == "diamond":
-            left, top, right, bottom = box
-            center_x = (left + right) / 2
-            center_y = (top + bottom) / 2
-            points = [(center_x, top), (right, center_y), (center_x, bottom), (left, center_y)]
-            draw.polygon(points, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline)
-        else:
-            draw.rectangle(box, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline, width=width)
+            if item.get("arrow_end"):
+                draw_arrowhead(draw, box, outline, width)
+            return
+        geometry = shape_geometry(item, box)
+        render_effect(item, geometry, item.get("glow"), "glow")
+        render_effect(item, geometry, item.get("shadow"), "shadow")
+        gradient = gradient_stops(fill_spec) if isinstance(fill_spec, dict) else None
+        if gradient:
+            angle, stops = gradient
+            paste_x, paste_y = int(box[0]), int(box[1])
+            width_px = max(1, int(box[2] - box[0]))
+            height_px = max(1, int(box[3] - box[1]))
+            gradient_image = linear_gradient_image(width_px, height_px, stops, angle)
+            mask = Image.new("L", canvas.size, 0)
+            draw_silhouette(ImageDraw.Draw(mask), geometry, 255)
+            canvas.paste(gradient_image, (paste_x, paste_y), mask.crop((paste_x, paste_y, paste_x + width_px, paste_y + height_px)))
+        elif fill_spec not in (None, "none"):
+            draw_silhouette(draw, geometry, preview_color(fill_spec))
+        draw_outline(draw, geometry, outline, width)
 
     def render_image(item):
         src = Path(item["path"])
@@ -921,6 +1132,22 @@ def render_preview(manifest, manifest_path, out_path):
             paste_y = box_y + (box_height - rotated.height) // 2
             canvas.paste(rotated, (paste_x, paste_y), rotated)
             return
+        for effect_kind, effect_spec in (("glow", item.get("glow")), ("shadow", item.get("shadow"))):
+            if not isinstance(effect_spec, dict) or not effect_spec.get("enabled", True):
+                continue
+            color = ImageColor.getrgb(preview_color(effect_spec.get("color", "#000000" if effect_kind == "shadow" else "#FFFFFF")))
+            alpha = max(0.0, min(1.0, float(effect_spec.get("alpha", 0.35 if effect_kind == "shadow" else 0.5))))
+            blur = max(0.0, float(effect_spec.get("blur_px" if effect_kind == "shadow" else "radius_px", 4)) * px_factor)
+            offset_x = float(effect_spec.get("offset_x_px", 0)) * px_factor if effect_kind == "shadow" else 0
+            offset_y = float(effect_spec.get("offset_y_px", 0)) * px_factor if effect_kind == "shadow" else 0
+            pad = int(math.ceil(blur * 2 + abs(offset_x) + abs(offset_y))) + 4
+            layer = Image.new("RGBA", (box_width + 2 * pad, box_height + 2 * pad), (0, 0, 0, 0))
+            draw_content(ImageDraw.Draw(layer), pad, pad)
+            silhouette = Image.new("RGBA", layer.size, color + (int(round(alpha * 255)),))
+            silhouette.putalpha(layer.split()[3].point(lambda value: int(value * alpha)))
+            if blur > 0:
+                silhouette = silhouette.filter(ImageFilter.GaussianBlur(radius=blur))
+            canvas.paste(silhouette, (int(box_x - pad + offset_x), int(box_y - pad + offset_y)), silhouette)
         draw_content(draw, box_x, box_y)
 
     layered = []
@@ -948,6 +1175,22 @@ def choose_preview_font(preferred):
         if candidate and Path(candidate).exists():
             return candidate
     return None
+
+
+def draw_arrowhead(draw, segment, fill, width):
+    x1, y1, x2, y2 = segment
+    angle = math.atan2(y2 - y1, x2 - x1)
+    length = max(5, width * 4)
+    wing = max(3, width * 2)
+    left = (
+        x2 - length * math.cos(angle) + wing * math.sin(angle),
+        y2 - length * math.sin(angle) - wing * math.cos(angle),
+    )
+    right = (
+        x2 - length * math.cos(angle) - wing * math.sin(angle),
+        y2 - length * math.sin(angle) + wing * math.cos(angle),
+    )
+    draw.polygon([(x2, y2), left, right], fill=fill)
 
 
 def draw_dashed_line(draw, box, fill, width):

@@ -332,6 +332,14 @@ def cmd_page_validate(args: argparse.Namespace) -> int:
     return run_script("validate_pptx.py", argv)
 
 
+def cmd_page_style_audit(args: argparse.Namespace) -> int:
+    page_dir = Path(args.page_dir).expanduser().resolve()
+    argv = [str(page_dir), "--manifest", args.manifest, "--report", args.report]
+    if args.strict:
+        argv.append("--strict")
+    return run_script("style_audit.py", argv)
+
+
 def cmd_finalize(args: argparse.Namespace) -> int:
     return run_script("finalize_deck_run.py", [args.run])
 
@@ -693,7 +701,9 @@ the reference for text_boxes positions and font sizes.
 build renders page.pptx and preview.png from manifest.json with the
 deterministic runtime. validate checks page.pptx against manifest.json
 exactly as `run record` will. contact-sheet writes the origin-versus-preview
-comparison image.
+comparison image. style-audit checks that every positioned object carries an
+explicit, source-faithful style declaration (shape, fill, stroke, font size
+and color, shadow/glow, layering, position) and writes style_audit.json.
 """,
         formatter_class=HELP_FORMATTER,
         epilog="""Examples:
@@ -701,6 +711,7 @@ comparison image.
   editppt page build pages/page_001
   editppt page contact-sheet pages/page_001
   editppt page validate pages/page_001
+  editppt page style-audit pages/page_001
 """,
     )
     page_sub = page.add_subparsers(dest="page_command", metavar="page-command", required=True)
@@ -737,6 +748,17 @@ comparison image.
     page_validate.add_argument("--manifest", default="manifest.json", metavar="FILE", help="Manifest file relative to the page directory.")
     page_validate.add_argument("--report", metavar="FILE", help="Optional JSON validation report relative to the page directory.")
     page_validate.set_defaults(func=cmd_page_validate)
+
+    page_style_audit = page_sub.add_parser(
+        "style-audit",
+        help="Audit per-object style completeness (shape, fill, stroke, font, effects, layering, position) and write style_audit.json.",
+        formatter_class=HELP_FORMATTER,
+    )
+    page_style_audit.add_argument("page_dir", metavar="PAGE_DIR", help="Page directory containing manifest.json.")
+    page_style_audit.add_argument("--manifest", default="manifest.json", metavar="FILE", help="Manifest file relative to the page directory.")
+    page_style_audit.add_argument("--report", default="style_audit.json", metavar="FILE", help="Report file relative to the page directory.")
+    page_style_audit.add_argument("--strict", action="store_true", help="Exit 1 when any error-level finding exists.")
+    page_style_audit.set_defaults(func=cmd_page_style_audit)
 
     image = sub.add_parser(
         "image",

@@ -29,7 +29,8 @@ editppt                         - top-level CLI for setup, run orchestration, im
 |   |-- hints                   - detect and measure text lines for one page directory
 |   |-- build                   - build page.pptx and preview.png from manifest.json
 |   |-- contact-sheet           - create the origin-versus-preview comparison image
-|   `-- validate                - validate page.pptx against manifest.json as run record will
+|   |-- validate                - validate page.pptx against manifest.json as run record will
+|   `-- style-audit             - audit per-object style completeness and write style_audit.json
 |-- image                       - generate, edit, import, and process bitmap assets
 |   |-- generate                - create a new image from a text prompt
 |   |-- edit                    - edit a source image for clean bases or source-faithful asset sheets
@@ -180,6 +181,12 @@ editppt page validate pages/page_001
 ```
 
 Purpose: validate `page.pptx` against `manifest.json` with the same manifest-contract checks `editppt run record` will run (record additionally verifies the full artifact set, hashes, and top-level `passed: true`). Run it before returning so manifest-contract failures are fixed inside the page instead of bouncing back from the parent's record step. Optional `--report <file>` writes a JSON report.
+
+```bash
+editppt page style-audit pages/page_001
+```
+
+Purpose: audit every positioned object in `manifest.json` for explicit, source-faithful style — shape geometry preset, fill (solid or gradient), border color/width, font size and color against the measured text hints, shadow/glow effect specs, layering (z_index and text occlusion), and position/size against the source canvas. Writes `style_audit.json` into the page directory and prints a summary. `--strict` exits 1 when any error-level finding exists. When to run it and how findings are triaged is defined in `page-decision-tree.md` section 3.7; the report shape is defined in `manifest-schema.md`.
 
 ## Text Measurement Commands
 

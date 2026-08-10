@@ -4,6 +4,12 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Features
+
+- Add `editppt page style-audit`, a deterministic per-object style gate that flags missing fill/stroke/font declarations, invalid colors or geometry presets, out-of-canvas positions, font sizes deviating from measured hints, duplicated text boxes, and text covered by higher-z objects, and require `quality_checks.style_audit_completed` for page recording.
+- Support gradient fills, arrow ends, drop shadows, and glow effects in the deterministic manifest builder and preview renderer, plus style field aliases (`line_color`/`line_width`/`border_color`/`border_width`, `font_color`/`text_color`/`font_family`).
+- Add an AtlasCloud (`api.atlascloud.ai`) image backend adapter to the `editppt image generate/edit` CLI fallback, using the `generateImage` prediction flow with model operation suffixes and base64 data-URL inputs; Codex OAuth keeps priority.
+
 ### Documentation
 
 - Add complete Korean README and English and Korean versions of the Docsify usage documentation, with synchronized language navigation, search, and pagination. (#26)
