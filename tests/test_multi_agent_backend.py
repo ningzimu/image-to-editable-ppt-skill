@@ -685,7 +685,7 @@ class MultiAgentBackendTest(unittest.TestCase):
             )
             self.assertEqual(0, result.returncode, result.stderr)
             payload = json.loads(result.stdout)
-            self.assertEqual({"fitz", "PIL", "openai", "yaml", "numpy", "requests"}, set(payload["dependencies"]))
+            self.assertEqual({"fitz", "PIL", "pptx", "openai", "yaml", "numpy", "requests"}, set(payload["dependencies"]))
             self.assertEqual("cli-fallback-only", payload["image_backend"]["scope"])
             self.assertFalse(payload["agent_builtin_imagegen"]["checked"])
             self.assertIsNone(payload["agent_builtin_imagegen"]["ready"])

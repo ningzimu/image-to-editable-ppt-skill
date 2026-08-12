@@ -131,6 +131,12 @@ class QualityContractTest(unittest.TestCase):
         self.assertIn('name="adj"', xml)
         self.assertIn('fmla="val 5000"', xml)
 
+    def test_line_supports_native_start_and_end_arrows(self):
+        xml = shape_xml(2, {"type": "line", "start_arrow": "triangle", "end_arrow": "triangle"})
+
+        self.assertIn('<a:headEnd type="triangle"/>', xml)
+        self.assertIn('<a:tailEnd type="triangle"/>', xml)
+
     def test_structured_text_inventory_flattens_to_required_strings(self):
         required = required_texts_from_manifest(
             {

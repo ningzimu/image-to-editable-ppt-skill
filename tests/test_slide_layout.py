@@ -1,9 +1,11 @@
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from PIL import Image
+from pptx import Presentation
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +20,8 @@ from build_pptx_from_manifest import (  # noqa: E402
     render_preview,
     slide_size_type,
     text_box_xml,
+    write_deck,
+    write_pptx,
 )
 from prepare_deck_run import fit_content_box, slide_for_source  # noqa: E402
 
@@ -51,6 +55,118 @@ def preview_ink_center(manifest):
 
 
 class SlideLayoutTest(unittest.TestCase):
+    def test_text_background_is_a_single_filled_text_box(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = {
+                "slide": {"width": 13.333, "height": 7.5},
+                "text_boxes": [
+                    {
+                        "text": "One editable layer",
+                        "box_px": [120, 90, 480, 120],
+                        "fill": "#DCEEFF",
+                        "color": "#123456",
+                        "font_size": 24,
+                    }
+                ],
+                "source": {"width_px": 1600, "height_px": 900},
+                "content_box": {"left": 0, "top": 0, "width": 13.333, "height": 7.5},
+            }
+            output = root / "filled-text-box.pptx"
+
+            write_pptx(manifest, output, root / "manifest.json")
+
+            slide = Presentation(output).slides[0]
+            self.assertEqual(1, len(slide.shapes))
+            text_box = slide.shapes[0]
+            self.assertEqual("One editable layer", text_box.text)
+            self.assertEqual("DCEEFF", str(text_box.fill.fore_color.rgb))
+
+    def test_export_uses_standard_powerpoint_ooxml_package(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            Image.new("RGB", (320, 180), "#2f6f9f").save(root / "asset.png")
+            manifest = {
+                "source": {"width_px": 1600, "height_px": 900},
+                "slide": {"width": 13.333, "height": 7.5, "background": "#ffffff"},
+                "content_box": {"left": 0, "top": 0, "width": 13.333, "height": 7.5},
+                "images": [{"path": "asset.png", "box_px": [100, 100, 400, 220]}],
+                "shapes": [
+                    {"type": "roundRect", "box_px": [600, 100, 400, 220], "source_corner_radius_px": 18, "fill": "#dbeafe"},
+                    {"type": "ellipse", "box_px": [1050, 100, 160, 160], "fill": "#dcfce7", "stroke": "none"},
+                    {"type": "line", "points_px": [600, 350, 1000, 350], "stroke": "#334155", "dash": "dash"},
+                    {"type": "polygon", "polygon_px": [[1100, 350], [1250, 450], [1050, 450]], "fill": "#fef3c7"},
+                ],
+                "text_boxes": [
+                    {
+                        "runs": [
+                            {"text": "Microsoft ", "bold": True},
+                            {"text": "PowerPoint", "color": "#1d4ed8"},
+                        ],
+                        "box_px": [100, 500, 900, 100],
+                        "font_size": 28,
+                    }
+                ],
+            }
+            manifest_path = root / "manifest.json"
+            manifest_path.write_text("{}", encoding="utf-8")
+            output = root / "standard.pptx"
+
+            write_pptx(manifest, output, manifest_path)
+
+            self.assertEqual(1, len(Presentation(output).slides))
+            with zipfile.ZipFile(output) as archive:
+                names = set(archive.namelist())
+                self.assertIn("ppt/presProps.xml", names)
+                self.assertIn("ppt/viewProps.xml", names)
+                self.assertIn("ppt/tableStyles.xml", names)
+                self.assertIn("Microsoft", archive.read("docProps/app.xml").decode("utf-8"))
+
+    def test_svg_assets_are_embedded_without_raster_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "formula.svg").write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="80"><text x="5" y="50">E=mc²</text></svg>',
+                encoding="utf-8",
+            )
+            manifest = {
+                "source": {"width_px": 1600, "height_px": 900},
+                "slide": {"width": 13.333, "height": 7.5},
+                "content_box": {"left": 0, "top": 0, "width": 13.333, "height": 7.5},
+                "images": [{"path": "formula.svg", "box_px": [100, 100, 600, 240]}],
+            }
+            output = root / "svg-native.pptx"
+
+            write_pptx(manifest, output, root / "manifest.json")
+
+            with zipfile.ZipFile(output) as archive:
+                media = [name for name in archive.namelist() if name.startswith("ppt/media/")]
+                self.assertEqual(1, len(media))
+                self.assertTrue(media[0].endswith(".svg"))
+                self.assertEqual((root / "formula.svg").read_bytes(), archive.read(media[0]))
+                slide_xml = archive.read("ppt/slides/slide1.xml").decode("utf-8")
+                self.assertIn("asvg:svgBlip", slide_xml)
+                self.assertNotIn(".png", "\n".join(archive.namelist()))
+
+    def test_standard_powerpoint_export_preserves_speaker_notes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = {
+                "slide": {"width": 13.333, "height": 7.5},
+                "text_boxes": [{"text": "Slide", "left": 1, "top": 1, "width": 2, "height": 1}],
+            }
+            output = root / "notes.pptx"
+
+            write_deck(
+                {"slide": {"width": 13.333, "height": 7.5}},
+                [{"manifest": manifest, "manifest_path": root / "manifest.json"}],
+                output,
+                [{"page_index": 1, "text": "Original speaker note"}],
+            )
+
+            deck = Presentation(output)
+            self.assertEqual("Original speaker note", deck.slides[0].notes_slide.notes_text_frame.text)
+
     def test_non_wide_source_uses_source_pixel_size(self):
         slide = slide_for_source(1536, 1024)
 

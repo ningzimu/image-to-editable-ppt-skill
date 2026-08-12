@@ -178,7 +178,7 @@ def collect_status(check_api=False):
 
     dependencies = {
         module: current_python_has_module(module)
-        for module in ("fitz", "PIL", "openai", "yaml", "numpy", "requests")
+        for module in ("fitz", "PIL", "pptx", "openai", "yaml", "numpy", "requests")
     }
     api_key = values.get("OPENAI_API_KEY", "")
     api_ready = bool(api_key)

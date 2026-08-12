@@ -148,6 +148,8 @@ Step 3 rebuilds everything carried by native PowerPoint structure, plus formula 
 
 All readable text defaults to native PPT text boxes. Never use generated images to carry editable text, and never use hidden text, transparent text, 1 pt text, or off-canvas text to satisfy the text inventory. (Formulas are not ordinary text — see 3.2.)
 
+When a label, tag, button, callout, or other text object has a rectangular solid background, set `fill` on its `text_boxes[]` item so PowerPoint receives one filled text box. Do not stack a separate rectangle behind it solely for the background; use a separate shape only for non-rectangular geometry, or when the container is structurally independent of the text or contains multiple child objects.
+
 Exceptions — text that is part of brand or background identity rather than editable content:
 
 - Logo wordmarks, brand symbols, and trademark text.
@@ -174,7 +176,7 @@ Record completed calibration with `quality_checks.font_size_calibrated=true`.
 
 ### 3.2 Formula Handling
 
-Transcribe each formula from the source into LaTeX, then render it with `editppt formula render-latex` into an image asset written inside the page directory (prefer SVG; use PNG when SVG preview/PowerPoint compatibility is unstable):
+Transcribe each formula from the source into LaTeX, then render it with `editppt formula render-latex` into an SVG image asset written inside the page directory. Keep the SVG native in PowerPoint; do not create a PNG compatibility fallback:
 
 ```bash
 editppt formula render-latex <page_dir> \
@@ -195,7 +197,7 @@ These may use native PPT shapes or structural objects:
 
 - Straight lines, dashed lines, polylines.
 - Rectangles, rounded rectangles, circles, ellipses.
-- Ordinary arrows and connectors.
+- Ordinary arrows and connectors. Use one line with `start_arrow`/`end_arrow`; never detached triangles, which will not follow line edits.
 - Solid-color cards, panels, dividers, borders.
 - Tables, table lines, axes, gridlines.
 - Simple bar charts, progress bars, status color blocks.

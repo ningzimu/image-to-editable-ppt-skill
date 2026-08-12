@@ -7,9 +7,14 @@ import re
 import subprocess
 import sys
 import tempfile
-import zipfile
 from copy import deepcopy
 from pathlib import Path
+
+from pptx import Presentation
+from pptx.opc.constants import RELATIONSHIP_TYPE as RT
+from pptx.opc.package import Part
+from pptx.oxml import parse_xml
+from pptx.util import Emu
 
 
 EMU_PER_INCH = 914400
@@ -36,8 +41,6 @@ TEXT_VERTICAL_ALIGNMENTS = {
     "ctr": ("ctr", "middle"),
     "b": ("b", "bottom"),
 }
-
-
 def emu(value):
     return int(round(float(value) * EMU_PER_INCH))
 
@@ -317,14 +320,16 @@ def shape_fill(fill):
     return f'<a:solidFill><a:srgbClr val="{hex_color(fill)}"/></a:solidFill>'
 
 
-def shape_line_xml(stroke, width, dash=None):
+def shape_line_xml(stroke, width, dash=None, start_arrow=None, end_arrow=None):
     if not stroke or stroke == "none":
         return '<a:ln><a:noFill/></a:ln>'
     dash_xml = f'<a:prstDash val="{xml_text(dash)}"/>' if dash else ""
+    start_xml = f'<a:headEnd type="{xml_text(start_arrow)}"/>' if start_arrow else ""
+    end_xml = f'<a:tailEnd type="{xml_text(end_arrow)}"/>' if end_arrow else ""
     return (
         f'<a:ln w="{int(float(width or 1) * 12700)}">'
         f'<a:solidFill><a:srgbClr val="{hex_color(stroke)}"/></a:solidFill>'
-        f"{dash_xml}"
+        f"{dash_xml}{start_xml}{end_xml}"
         "</a:ln>"
     )
 
@@ -354,6 +359,8 @@ def text_box_xml(idx, item):
     wrap = item.get("wrap", "none")
     autofit = item.get("autofit", "none")
     autofit_xml = "<a:spAutoFit/>" if autofit == "shape" else "<a:noAutofit/>"
+    fill = shape_fill(item.get("fill"))
+    line = shape_line_xml(item.get("stroke"), item.get("stroke_width", 1), item.get("dash"))
     paragraphs = item.get("paragraphs")
     runs = item.get("runs")
 
@@ -393,7 +400,7 @@ def text_box_xml(idx, item):
     return f"""
       <p:sp>
         <p:nvSpPr><p:cNvPr id="{idx}" name="TextBox {idx}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
-        <p:spPr><a:xfrm{rotation_attr}><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr>
+        <p:spPr><a:xfrm{rotation_attr}><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>{fill}{line}</p:spPr>
         <p:txBody>
           <a:bodyPr wrap="{xml_text(wrap)}" anchor="{anchor}" lIns="0" tIns="0" rIns="0" bIns="0">{autofit_xml}</a:bodyPr><a:lstStyle/>
           {text_body}
@@ -407,10 +414,17 @@ def image_xml(idx, rel_id, item):
     width = emu(item.get("width", 1))
     height = emu(item.get("height", 1))
     name = xml_text(item.get("alt") or Path(item.get("path", "")).stem or f"Image {idx}")
+    if Path(item.get("path", "")).suffix.lower() == ".svg":
+        blip = (
+            '<a:blip><a:extLst><a:ext uri="{96DAC541-7B7A-43D3-8B79-37D633B846F1}">'
+            f'<asvg:svgBlip r:embed="{rel_id}"/></a:ext></a:extLst></a:blip>'
+        )
+    else:
+        blip = f'<a:blip r:embed="{rel_id}"/>'
     return f"""
       <p:pic>
-        <p:nvPicPr><p:cNvPr id="{idx}" name="{name}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
-        <p:blipFill><a:blip r:embed="{rel_id}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>
+        <p:nvPicPr><p:cNvPr id="{idx}" name="{name}" descr="{name}"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+        <p:blipFill>{blip}<a:stretch><a:fillRect/></a:stretch></p:blipFill>
         <p:spPr><a:xfrm><a:off x="{left}" y="{top}"/><a:ext cx="{width}" cy="{height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>
       </p:pic>"""
 
@@ -425,7 +439,13 @@ def shape_xml(idx, item):
     flip_h = ' flipH="1"' if item.get("flip_h") else ""
     flip_v = ' flipV="1"' if item.get("flip_v") else ""
     fill = shape_fill(item.get("fill"))
-    line = shape_line_xml(item.get("stroke", "#000000"), stroke_width, item.get("dash"))
+    line = shape_line_xml(
+        item.get("stroke", "#000000"),
+        stroke_width,
+        item.get("dash"),
+        item.get("start_arrow"),
+        item.get("end_arrow"),
+    )
     preset = item.get("preset")
     if item.get("polygon_px"):
         geometry = custom_polygon_geometry_xml(item)
@@ -664,25 +684,79 @@ def write_common_parts(z, slide_count, width, height, notes_count):
         z.writestr("ppt/notesMasters/_rels/notesMaster1.xml.rels", notes_master_rels_xml())
 
 
+def _shape_element(fragment):
+    namespaces = (
+        'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+        'xmlns:asvg="http://schemas.microsoft.com/office/drawing/2016/SVG/main" '
+        'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+    )
+    return parse_xml(f"<root {namespaces}>{fragment}</root>")[0]
+
+
+def _image_relationship(slide, item, base):
+    path = Path(item["path"])
+    if not path.is_absolute():
+        path = base / path
+    package = slide.part.package
+    part = Part(
+        package.next_partname(f"/ppt/media/image%d{image_ext(path)}"),
+        content_type_for(path),
+        package,
+        path.read_bytes(),
+    )
+    return slide.part.relate_to(part, RT.IMAGE)
+
+
+def _add_slide(prs, manifest, manifest_path, notes_text=None):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    background = slide_background_xml(manifest.get("slide", {}))
+    if background:
+        slide._element.cSld.insert(0, _shape_element(background))
+
+    layered = []
+    for index, item in enumerate(manifest.get("shapes", [])):
+        layered.append((float(item.get("z_index", 100)), index, "shape", item))
+    for index, item in enumerate(manifest.get("images", [])):
+        layered.append((float(item.get("z_index", 200)), index, "image", item))
+    for index, item in enumerate(manifest.get("text_boxes", [])):
+        layered.append((float(item.get("z_index", 300)), index, "text", item))
+
+    base = Path(manifest_path).resolve().parent
+    for _z_index, _order, kind, item in sorted(layered, key=lambda entry: (entry[0], entry[1])):
+        shape_id = slide.shapes._next_shape_id
+        if kind == "shape":
+            fragment = shape_xml(shape_id, item)
+        elif kind == "image":
+            fragment = image_xml(shape_id, _image_relationship(slide, item, base), item)
+        else:
+            fragment = text_box_xml(shape_id, item)
+        slide.shapes._spTree.insert_element_before(_shape_element(fragment), "p:extLst")
+
+    if notes_text:
+        notes_frame = slide.notes_slide.notes_text_frame
+        if notes_frame is not None:
+            notes_frame.text = str(notes_text)
+    return slide
+
+
+def _new_presentation(width, height):
+    prs = Presentation()
+    prs.slide_width = Emu(width)
+    prs.slide_height = Emu(height)
+    prs.core_properties.title = "Image to editable PPT"
+    return prs
+
+
 def write_pptx(manifest, out_path, manifest_path):
     width = emu(manifest.get("slide", {}).get("width", 13.333))
     height = emu(manifest.get("slide", {}).get("height", 7.5))
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     normalized = normalize_manifest(manifest)
-    media_index = 1
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml", content_types_xml([normalized], []))
-        write_common_parts(z, 1, width, height, 0)
-        z.writestr("ppt/slides/slide1.xml", slide_xml(normalized))
-        z.writestr("ppt/slides/_rels/slide1.xml.rels", rels_xml(normalized, media_index, None))
-        base = Path(manifest_path).resolve().parent
-        for item in normalized.get("images", []):
-            src = Path(item["path"])
-            if not src.is_absolute():
-                src = base / src
-            z.write(src, f"ppt/media/image{media_index}{image_ext(src)}")
-            media_index += 1
+    prs = _new_presentation(width, height)
+    _add_slide(prs, normalized, manifest_path)
+    prs.save(out)
 
 
 def deck_slide_size(deck, page_entries):
@@ -699,33 +773,12 @@ def write_deck(deck, page_entries, out_path, notes_entries):
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     notes_by_page = {int(entry.get("page_index", 0)): entry for entry in notes_entries if entry.get("text")}
-    notes_indices = sorted(notes_by_page)
     normalized_entries = [{**entry, "manifest": normalize_manifest(entry["manifest"])} for entry in page_entries]
-    manifests = [entry["manifest"] for entry in normalized_entries]
-    media_index = 1
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("[Content_Types].xml", content_types_xml(manifests, notes_indices))
-        write_common_parts(z, len(page_entries), width, height, len(notes_by_page))
-        for slide_index, entry in enumerate(normalized_entries, start=1):
-            manifest = entry["manifest"]
-            notes_index = slide_index if slide_index in notes_by_page else None
-            z.writestr(f"ppt/slides/slide{slide_index}.xml", slide_xml(manifest))
-            z.writestr(f"ppt/slides/_rels/slide{slide_index}.xml.rels", rels_xml(manifest, media_index, notes_index))
-            base = Path(entry["manifest_path"]).resolve().parent
-            for item in manifest.get("images", []):
-                src = Path(item["path"])
-                if not src.is_absolute():
-                    src = base / src
-                z.write(src, f"ppt/media/image{media_index}{image_ext(src)}")
-                media_index += 1
-            if notes_index is not None:
-                note = notes_by_page[slide_index]
-                notes_xml = note.get("notes_xml")
-                if notes_xml and Path(notes_xml).exists():
-                    z.writestr(f"ppt/notesSlides/notesSlide{notes_index}.xml", Path(notes_xml).read_bytes())
-                else:
-                    z.writestr(f"ppt/notesSlides/notesSlide{notes_index}.xml", notes_slide_xml(note.get("text", "")))
-                z.writestr(f"ppt/notesSlides/_rels/notesSlide{notes_index}.xml.rels", notes_rels_xml(slide_index))
+    prs = _new_presentation(width, height)
+    for slide_index, entry in enumerate(normalized_entries, start=1):
+        note = notes_by_page.get(slide_index, {})
+        _add_slide(prs, entry["manifest"], entry["manifest_path"], note.get("text"))
+    prs.save(out)
 
 
 def page_entries_from_deck_manifest(deck_manifest_path):
@@ -804,6 +857,19 @@ def render_preview(manifest, manifest_path, out_path):
             if "points" in item:
                 points = [value * scale for value in item["points"]]
                 draw.line(points, fill=outline, width=width)
+                for key, reverse in (("start_arrow", True), ("end_arrow", False)):
+                    if item.get(key) != "triangle":
+                        continue
+                    x1, y1, x2, y2 = points
+                    if reverse:
+                        x1, y1, x2, y2 = x2, y2, x1, y1
+                    angle = math.atan2(y2 - y1, x2 - x1)
+                    size = max(6, width * 4)
+                    base = [
+                        (x2 - size * math.cos(angle + offset), y2 - size * math.sin(angle + offset))
+                        for offset in (-0.5, 0.5)
+                    ]
+                    draw.polygon([(x2, y2), *base], fill=outline)
                 return
             if item.get("dash"):
                 draw_dashed_line(draw, box, outline, width)
@@ -862,6 +928,18 @@ def render_preview(manifest, manifest_path, out_path):
         box_height = max(1, int(item.get("height", 0.4) * scale))
         rotation = float(item.get("rotation", 0) or 0)
 
+        def draw_background(target_draw, origin_x, origin_y):
+            background = preview_color(item.get("fill"))
+            stroke = preview_color(item.get("stroke"))
+            if background not in (None, "none") or stroke not in (None, "none"):
+                stroke_width = max(1, int(round(float(item.get("stroke_width", 1)) * scale / 72)))
+                target_draw.rectangle(
+                    (origin_x, origin_y, origin_x + box_width - 1, origin_y + box_height - 1),
+                    fill=None if background in (None, "none") else background,
+                    outline=None if stroke in (None, "none") else stroke,
+                    width=stroke_width,
+                )
+
         def aligned_origin(bounds, origin_x, origin_y):
             text_width = bounds[2] - bounds[0]
             text_height = bounds[3] - bounds[1]
@@ -915,12 +993,15 @@ def render_preview(manifest, manifest_path, out_path):
 
         if rotation:
             layer = Image.new("RGBA", (box_width, box_height), (0, 0, 0, 0))
-            draw_content(ImageDraw.Draw(layer), 0, 0)
+            layer_draw = ImageDraw.Draw(layer)
+            draw_background(layer_draw, 0, 0)
+            draw_content(layer_draw, 0, 0)
             rotated = layer.rotate(-rotation, expand=True)
             paste_x = box_x + (box_width - rotated.width) // 2
             paste_y = box_y + (box_height - rotated.height) // 2
             canvas.paste(rotated, (paste_x, paste_y), rotated)
             return
+        draw_background(draw, box_x, box_y)
         draw_content(draw, box_x, box_y)
 
     layered = []

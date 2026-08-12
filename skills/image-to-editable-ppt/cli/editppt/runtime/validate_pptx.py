@@ -16,6 +16,17 @@ NS = {
     "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
     "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
 }
+POWERPOINT_REQUIRED_PARTS = (
+    "[Content_Types].xml",
+    "_rels/.rels",
+    "ppt/presentation.xml",
+    "ppt/_rels/presentation.xml.rels",
+    "ppt/presProps.xml",
+    "ppt/viewProps.xml",
+    "ppt/tableStyles.xml",
+    "ppt/theme/theme1.xml",
+    "ppt/slideMasters/slideMaster1.xml",
+)
 
 ALLOWED_SOURCE_TYPES = {
     "asset-sheet-separated",
@@ -535,7 +546,7 @@ def validate_deck(args):
         with zipfile.ZipFile(args.pptx) as z:
             names = z.namelist()
             report["slides"] = len([n for n in names if re.match(r"ppt/slides/slide\d+\.xml$", n)])
-            for part in ("[Content_Types].xml", "_rels/.rels", "ppt/presentation.xml", "ppt/_rels/presentation.xml.rels"):
+            for part in POWERPOINT_REQUIRED_PARTS:
                 if part not in names:
                     report["missing_parts"].append(part)
             notes_texts = collect_notes_texts(z, names)
@@ -664,41 +675,33 @@ def main():
             if bad:
                 report["warnings"].append(f"Bad zip member: {bad}")
             names = z.namelist()
-            required_parts = [
-                "[Content_Types].xml",
-                "_rels/.rels",
-                "ppt/presentation.xml",
-                "ppt/_rels/presentation.xml.rels",
-            ]
-            for part in required_parts:
+            for part in POWERPOINT_REQUIRED_PARTS:
                 if part not in names:
                     report["missing_parts"].append(part)
             slide_names = sorted(n for n in names if re.match(r"ppt/slides/slide\d+\.xml$", n))
             report["slides"] = len(slide_names)
-            report["images"] = len([n for n in names if n.startswith("ppt/media/")])
+            picture_count = 0
+            for slide_name in slide_names:
+                slide_root = ET.fromstring(z.read(slide_name))
+                picture_count += len(slide_root.findall(".//p:pic", NS))
+            report["images"] = picture_count
             report["media_manifest_mismatch"] = report["images"] != report["manifest_image_count"]
-            for index, image in enumerate(manifest.get("images", []), start=1):
+            embedded_media_hashes = {
+                hashlib.sha256(z.read(name)).hexdigest()
+                for name in names
+                if name.startswith("ppt/media/")
+            }
+            for image in manifest.get("images", []):
                 image_path = image.get("path")
                 if not image_path:
                     continue
-                ext = Path(image_path).suffix.lower()
-                if ext == ".jpeg":
-                    ext = ".jpg"
-                media_name = f"ppt/media/image{index}{ext}"
                 source_path = Path(image_path)
                 if not source_path.is_absolute():
                     source_path = manifest_base / source_path
-                if media_name not in names:
-                    report["media_hash_mismatches"].append(
-                        {"path": image_path, "media": media_name, "reason": "missing media part"}
-                    )
-                    continue
                 if source_path.exists():
-                    manifest_hash = file_sha256(source_path)
-                    media_hash = hashlib.sha256(z.read(media_name)).hexdigest()
-                    if manifest_hash != media_hash:
+                    if file_sha256(source_path) not in embedded_media_hashes:
                         report["media_hash_mismatches"].append(
-                            {"path": image_path, "media": media_name, "reason": "hash mismatch"}
+                            {"path": image_path, "reason": "source bytes not found in embedded media"}
                         )
                 else:
                     report["missing_manifest_images"].append(str(image_path))
