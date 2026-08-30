@@ -1,0 +1,38 @@
+{
+  "name": "image-to-editable-ppt",
+  "version": "0.3.2",
+  "description": "Rebuild images, PDFs, and image-based presentations as editable PowerPoint decks with faithful layout and text reconstruction.",
+  "author": {
+    "name": "ningzimu",
+    "url": "https://github.com/ningzimu"
+  },
+  "homepage": "https://ningzimu.github.io/image-to-editable-ppt-skill/",
+  "repository": "https://github.com/ningzimu/image-to-editable-ppt-skill",
+  "license": "MIT",
+  "keywords": [
+    "powerpoint",
+    "presentation",
+    "image-to-ppt",
+    "editable-slides",
+    "ocr"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Image to Editable PowerPoint",
+    "shortDescription": "Rebuild visuals as editable PowerPoint",
+    "longDescription": "Convert images, PDFs, and image-based presentations into editable PowerPoint decks using page-level reconstruction, OCR-assisted text placement, and structural validation.",
+    "developerName": "ningzimu",
+    "category": "Productivity",
+    "capabilities": [
+      "Editable presentation reconstruction",
+      "OCR-assisted text placement",
+      "PowerPoint validation"
+    ],
+    "websiteURL": "https://ningzimu.github.io/image-to-editable-ppt-skill/",
+    "defaultPrompt": [
+      "Convert this image into an editable PowerPoint slide.",
+      "Rebuild this PDF as an editable PowerPoint deck.",
+      "Convert this image-based presentation into editable slides."
+    ]
+  }
+}
