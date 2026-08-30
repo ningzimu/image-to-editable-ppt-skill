@@ -6,7 +6,7 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Documentation
 
-- Add native Codex plugin metadata and a repository marketplace entry.
+- Add native Codex plugin metadata and a repository marketplace entry. (#34)
 - Add complete Korean README and English and Korean versions of the Docsify usage documentation, with synchronized language navigation, search, and pagination. (#26)
 - Align all usage guides with the built-in-first image backend policy and block delivery when compliant image assets cannot be produced. (#26)
 
