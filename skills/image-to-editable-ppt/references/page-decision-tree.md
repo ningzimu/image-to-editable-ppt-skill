@@ -193,7 +193,7 @@ If the machine lacks a TeX engine or converter, or compilation fails: still deli
 
 These may use native PPT shapes or structural objects:
 
-- Straight lines, dashed lines, polylines.
+- Straight lines, dashed lines, polylines, and structural curves.
 - Rectangles, rounded rectangles, circles, ellipses.
 - Ordinary arrows and connectors.
 - Solid-color cards, panels, dividers, borders.
@@ -203,6 +203,10 @@ These may use native PPT shapes or structural objects:
 - Basic flow boxes and containers without style-specific details.
 
 Native shapes carry only layout structure, never semantic icons or visual identity: a DNA mark, lock, network node, target, magnifier, or checkmark inside a circular icon is not a structural primitive — separate it in step 2.
+
+A continuous structural line or curve must be one native line or path object, so it can be selected, restyled, and reshaped as a whole. Use native dash styling for dotted/dashed strokes and endpoint properties for arrowheads; do not build individual dashes, sampled short-line objects, or separate arrowhead triangles. A genuine polyline may have straight segments within one path; a smooth curve uses Bézier segments with only the control points needed to preserve its shape. Dense sampling merely moves the editing burden into hundreds of nodes. Grouping fragments does not repair their object granularity. Path and stroke field contracts are in `manifest-schema.md`, "Native paths and stroke styles."
+
+A native curve provides shape editing, not a data-linked chart. If changing underlying values must update the plot, that requires a native chart with its data; do not claim that a path provides this capability or invent precise values from an ambiguous image.
 
 ### 3.4 Corner Geometry
 
@@ -266,6 +270,8 @@ Text:
 
 Shapes and layers:
 
+- Structural line/curve granularity and stroke styles follow 3.3; verify the PPT object structure as well as the rendered appearance.
+
 - Corners follow 3.4; large container corners, table borders, and card borders align with the source. Corner misclassification is a current-page fix, not a low-risk warning.
 - No text stroke is redrawn as a decorative shape (3.5).
 - Dashboards, tables, cards, and charts are decomposed per 1.4, never screenshotted wholesale.
@@ -276,6 +282,7 @@ Shapes and layers:
 
 Every failed self-check item above is a current-page fix, owned by the page author, before the page returns. These structural conditions are also hard failures, never warnings:
 
+- Line/curve object-granularity or stroke-style violations of 3.3, even when the rendered curve looks correct.
 - The input cannot be normalized.
 - The page lacks a buildable `manifest.json`/`page.pptx`, or the PPTX cannot be opened.
 - Text font size or position visibly deviates from the source and causes crowding, overflow, or occlusion.

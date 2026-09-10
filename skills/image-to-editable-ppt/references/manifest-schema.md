@@ -175,6 +175,8 @@ Owner: created by the page reconstructor, read by `editppt run record`.
 
 Purpose: page-level deliverability conclusion.
 
+`line_geometry_violations` records mismatches between declared paths/stroke styles and the actual PPTX objects. A non-empty list fails page validation; final deck validation reports these mismatches under `page_contract_violations`.
+
 Must contain at top level:
 
 ```json
@@ -208,7 +210,7 @@ Must contain:
 - `asset_provenance`
 - page strategy
 
-`slide`, `content_box`, and `source.width_px/source.height_px` must come from `page_request.json`. All `box_px`, `points_px`, and `polygon_px` values use `source.png` pixel coordinates; the runtime maps these coordinates into `content_box` instead of stretching them to the whole slide. Coordinate layouts:
+`slide`, `content_box`, and `source.width_px/source.height_px` must come from `page_request.json`. All `box_px`, `points_px`, `polygon_px`, and `path_px` point values use `source.png` pixel coordinates; the runtime maps these coordinates into `content_box` instead of stretching them to the whole slide. Coordinate layouts:
 
 - `box_px: [x, y, width, height]`
 - `points_px: [x1, y1, x2, y2]`
@@ -223,6 +225,36 @@ Positioned build object requirements:
 `text_inventory` and `visual_inventory` are only inventories; they do not substitute for positioned `text_boxes`, `images`, and `shapes`. The manifest must be sufficient to rebuild the page without reading any custom page script.
 
 Missing coordinates are page-contract violations. The runtime must reject them during `editppt run record` and deck validation because otherwise missing values fall back to default positions such as the top-left corner.
+
+**Native paths and stroke styles**
+
+The object-source and granularity rules live in `page-decision-tree.md` section 3.3, "Structural Primitives and Layout Objects."
+
+- `shapes[].type: "path"` requires `box_px` with positive width and height and a non-empty `path_px` command list. It cannot also specify `points_px`, `polygon_px`, `preset`, `flip_h`, or `flip_v`; express its direction in the path coordinates. All point pairs are absolute `source.png` pixel coordinates, not coordinates relative to the box; the runtime maps them into the declared box and slide content area.
+- Each command has `op` and `points`. Supported commands are `moveTo` (one `[x, y]` pair), `lnTo` (one endpoint), `quadBezTo` (one control point followed by the endpoint), `cubicBezTo` (two control points followed by the endpoint), and `close` (empty `points`).
+- The first command is the only `moveTo`; at least one drawing command follows. Optional `close` may occur only once, at the end. All coordinates must be finite numbers. An open path has `fill: "none"`.
+- `dash` defaults to `solid` and accepts `solid`, `dot`, `dash`, `lgDash`, `dashDot`, `lgDashDot`, `lgDashDotDot`, `sysDash`, `sysDot`, `sysDashDot`, or `sysDashDotDot`.
+- `start_arrow` and `end_arrow` default to `none` and accept only `none` or `triangle`. Arrowheads are supported only on `line` shapes and open paths.
+- Optional `semantic_line_id` is a non-empty string identifying one logical line. It must be unique across the page's shapes; repeating it on multiple shapes is a contract violation, including when those shapes are grouped. Omission does not waive the section 3.3 review.
+
+Example of one open dashed curve with an endpoint arrow:
+
+```json
+{
+  "type": "path",
+  "box_px": [100, 80, 300, 140],
+  "semantic_line_id": "trend-projection",
+  "path_px": [
+    {"op": "moveTo", "points": [[100, 220]]},
+    {"op": "cubicBezTo", "points": [[180, 80], [280, 180], [400, 100]]}
+  ],
+  "fill": "none",
+  "stroke": "00AACC",
+  "stroke_width": 2,
+  "dash": "dash",
+  "end_arrow": "triangle"
+}
+```
 
 Text-size fitting:
 
