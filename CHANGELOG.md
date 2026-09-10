@@ -4,6 +4,8 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+## 0.3.3
+
 ### Features
 
 - Build native editable Bézier paths with dash styles and endpoint arrows, keeping each continuous curve in one PowerPoint object.
