@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from build_pptx_from_manifest import TEXT_ALIGNMENTS, TEXT_VERTICAL_ALIGNMENTS, normalize_manifest
+from build_pptx_from_manifest import TEXT_ALIGNMENTS, TEXT_VERTICAL_ALIGNMENTS, normalize_manifest, slide_xml
 
 
 NS = {
@@ -394,6 +394,32 @@ def normalize_for_validation(manifest):
         return manifest, violations
 
 
+def line_geometry_violations(manifest, root):
+    """Check actual slide objects, rather than trusting the page's QA flags."""
+    if not any(item.get("type") == "path" or item.get("dash") or item.get("start_arrow") or item.get("end_arrow") or item.get("semantic_line_id")
+               for item in manifest.get("shapes", [])):
+        return []
+    expected = ET.fromstring(slide_xml(normalize_manifest(manifest))).findall(".//p:sp", NS)
+    actual = root.findall(".//p:sp", NS)
+    if len(actual) != len(expected):
+        return [{"field": "shapes", "reason": "slide object count differs from manifest; a line may be fragmented or missing"}]
+    violations = []
+    for index, (wanted, found) in enumerate(zip(expected, actual)):
+        props = wanted.find("p:spPr", NS)
+        name = wanted.find("p:nvSpPr/p:cNvPr", NS).get("name", "")
+        if not name.startswith(("Path ", "Line ")) and not any(props.find(f"a:ln/a:{tag}", NS) is not None for tag in ("prstDash", "headEnd", "tailEnd")):
+            continue
+        # Whitespace and namespace prefix changes do not affect the structure.
+        def structure(element):
+            if element is None:
+                return None
+            return element.tag, sorted(element.attrib.items()), [structure(child) for child in element]
+
+        if structure(props) != structure(found.find("p:spPr", NS)):
+            violations.append({"field": f"slide.shapes[{index}]", "reason": "path geometry, position, dash or arrow properties differ from manifest"})
+    return violations
+
+
 def sha256_text(value):
     return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
 
@@ -487,7 +513,8 @@ def validate_deck(args):
         "passed": False,
     }
 
-    for page in deck.get("pages", []):
+    geometry_manifests = []
+    for page_index, page in enumerate(deck.get("pages", []), start=1):
         manifest_path = Path(page.get("manifest", ""))
         validation_path = Path(page.get("validation", ""))
         if not manifest_path.is_absolute():
@@ -500,6 +527,8 @@ def validate_deck(args):
             try:
                 raw_manifest = read_manifest(manifest_path)
                 normalized_manifest, authoring_violations = normalize_for_validation(raw_manifest)
+                if not authoring_violations:
+                    geometry_manifests.append((page_index, normalized_manifest))
                 violations = (
                     authoring_violations
                     + page_contract_violations(normalized_manifest)
@@ -535,6 +564,12 @@ def validate_deck(args):
         with zipfile.ZipFile(args.pptx) as z:
             names = z.namelist()
             report["slides"] = len([n for n in names if re.match(r"ppt/slides/slide\d+\.xml$", n)])
+            for page_index, page_manifest in geometry_manifests:
+                slide_part = f"ppt/slides/slide{page_index}.xml"
+                if slide_part in names:
+                    violations = line_geometry_violations(page_manifest, ET.fromstring(z.read(slide_part)))
+                    if violations:
+                        report["page_contract_violations"].append({"page_index": page_index, "violations": violations})
             for part in ("[Content_Types].xml", "_rels/.rels", "ppt/presentation.xml", "ppt/_rels/presentation.xml.rels"):
                 if part not in names:
                     report["missing_parts"].append(part)
@@ -655,6 +690,7 @@ def main():
         "relationship_targets_checked": 0,
         "warnings": [],
         "page_contract_violations": [],
+        "line_geometry_violations": [],
     }
 
     try:
@@ -725,6 +761,8 @@ def main():
             for slide_name in slide_names:
                 xml = z.read(slide_name)
                 root = ET.fromstring(xml)
+                if not authoring_violations:
+                    report["line_geometry_violations"].extend(line_geometry_violations(manifest, root))
                 shapes = root.findall(".//p:sp", NS)
                 report["shape_count"] += len(shapes)
                 report["editable_text_shapes"] += sum(1 for shape in shapes if shape.findall(".//a:t", NS))
@@ -793,6 +831,7 @@ def main():
         and not report["missing_provenance_sources"]
         and not report["invalid_asset_provenance"]
         and not report["page_contract_violations"]
+        and not report["line_geometry_violations"]
         and (report["editable_text_shapes"] > 0 or not required)
     )
 

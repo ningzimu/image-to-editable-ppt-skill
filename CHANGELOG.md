@@ -4,8 +4,18 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Features
+
+- Build native editable Bézier paths with dash styles and endpoint arrows, keeping each continuous curve in one PowerPoint object.
+
+### Fixes
+
+- Emit valid slide-size metadata and complete theme style lists to avoid PowerPoint repair prompts.
+- Render diagonal and curved dashed strokes in previews and validate path contracts, stroke styles, and declared logical-line uniqueness.
+
 ### Documentation
 
+- Specify structural curve granularity, document curve editing, and distinguish editable paths from data-linked charts.
 - Add complete Korean README and English and Korean versions of the Docsify usage documentation, with synchronized language navigation, search, and pagination. (#26)
 - Align all usage guides with the built-in-first image backend policy and block delivery when compliant image assets cannot be produced. (#26)
 - Add compact documentation, Telegram, and issue support links to all README language versions, and remove the obsolete community QR code. (#28, #29)

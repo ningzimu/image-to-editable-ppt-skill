@@ -11,6 +11,8 @@ import zipfile
 from copy import deepcopy
 from pathlib import Path
 
+from path_geometry import custom_path_geometry_xml, draw_styled_path, preview_path_points, validate_shape
+
 
 EMU_PER_INCH = 914400
 REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -292,6 +294,16 @@ def fit_text_item(item, manifest):
 def normalize_manifest(manifest):
     """Return a manifest copy with pixel authoring fields resolved to inches."""
     normalized = deepcopy(manifest)
+    line_ids = set()
+    for item in normalized.get("shapes", []):
+        validate_shape(item)
+        line_id = item.get("semantic_line_id")
+        if line_id is not None:
+            if not isinstance(line_id, str) or not line_id.strip():
+                raise ValueError("semantic_line_id must be a non-empty string")
+            if line_id in line_ids:
+                raise ValueError(f"Logical line {line_id!r} is split across multiple shapes")
+            line_ids.add(line_id)
     normalized["text_boxes"] = [
         fit_text_item(normalize_position_item(normalized, item), normalized) for item in normalized.get("text_boxes", [])
     ]
@@ -317,7 +329,7 @@ def shape_fill(fill):
     return f'<a:solidFill><a:srgbClr val="{hex_color(fill)}"/></a:solidFill>'
 
 
-def shape_line_xml(stroke, width, dash=None):
+def shape_line_xml(stroke, width, dash=None, start_arrow=None, end_arrow=None):
     if not stroke or stroke == "none":
         return '<a:ln><a:noFill/></a:ln>'
     dash_xml = f'<a:prstDash val="{xml_text(dash)}"/>' if dash else ""
@@ -325,7 +337,9 @@ def shape_line_xml(stroke, width, dash=None):
         f'<a:ln w="{int(float(width or 1) * 12700)}">'
         f'<a:solidFill><a:srgbClr val="{hex_color(stroke)}"/></a:solidFill>'
         f"{dash_xml}"
-        "</a:ln>"
+        + (f'<a:headEnd type="{xml_text(start_arrow)}"/>' if start_arrow else "")
+        + (f'<a:tailEnd type="{xml_text(end_arrow)}"/>' if end_arrow else "")
+        + "</a:ln>"
     )
 
 
@@ -416,6 +430,7 @@ def image_xml(idx, rel_id, item):
 
 
 def shape_xml(idx, item):
+    validate_shape(item)
     kind = item.get("type", "rect")
     left = emu(item.get("left", 0))
     top = emu(item.get("top", 0))
@@ -425,9 +440,11 @@ def shape_xml(idx, item):
     flip_h = ' flipH="1"' if item.get("flip_h") else ""
     flip_v = ' flipV="1"' if item.get("flip_v") else ""
     fill = shape_fill(item.get("fill"))
-    line = shape_line_xml(item.get("stroke", "#000000"), stroke_width, item.get("dash"))
+    line = shape_line_xml(item.get("stroke", "#000000"), stroke_width, item.get("dash"), item.get("start_arrow"), item.get("end_arrow"))
     preset = item.get("preset")
-    if item.get("polygon_px"):
+    if kind == "path":
+        geometry = custom_path_geometry_xml(item)
+    elif item.get("polygon_px"):
         geometry = custom_polygon_geometry_xml(item)
     else:
         if not preset:
@@ -625,7 +642,7 @@ def is_wide_slide(width, height):
 
 
 def slide_size_type(width, height):
-    return "wide" if is_wide_slide(width, height) else "custom"
+    return "screen16x9" if is_wide_slide(width, height) else "custom"
 
 
 def presentation_xml(slide_count, width, height):
@@ -648,7 +665,7 @@ def presentation_rels_xml(slide_count):
 
 
 def write_common_parts(z, slide_count, width, height, notes_count):
-    presentation_format = "Widescreen" if slide_size_type(width, height) == "wide" else "Custom"
+    presentation_format = "Widescreen" if is_wide_slide(width, height) else "Custom"
     z.writestr("_rels/.rels", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>""")
     z.writestr("docProps/core.xml", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Image to editable PPT</dc:title></cp:coreProperties>""")
     z.writestr("docProps/app.xml", f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Codex</Application><PresentationFormat>{presentation_format}</PresentationFormat><Slides>{slide_count}</Slides></Properties>""")
@@ -658,7 +675,11 @@ def write_common_parts(z, slide_count, width, height, notes_count):
     z.writestr("ppt/slideMasters/_rels/slideMaster1.xml.rels", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/></Relationships>""")
     z.writestr("ppt/slideLayouts/slideLayout1.xml", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank" preserve="1"><p:cSld name="Blank"><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sldLayout>""")
     z.writestr("ppt/slideLayouts/_rels/slideLayout1.xml.rels", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>""")
-    z.writestr("ppt/theme/theme1.xml", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="ImageToEditablePPT"><a:themeElements><a:clrScheme name="Office"><a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1><a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="1F1F1F"/></a:dk2><a:lt2><a:srgbClr val="F8F8F8"/></a:lt2><a:accent1><a:srgbClr val="0F766E"/></a:accent1><a:accent2><a:srgbClr val="E66B00"/></a:accent2><a:accent3><a:srgbClr val="F6D365"/></a:accent3><a:accent4><a:srgbClr val="57C4B8"/></a:accent4><a:accent5><a:srgbClr val="666666"/></a:accent5><a:accent6><a:srgbClr val="111111"/></a:accent6><a:hlink><a:srgbClr val="0563C1"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink></a:clrScheme><a:fontScheme name="PingFang"><a:majorFont><a:latin typeface="PingFang SC"/><a:ea typeface="PingFang SC"/><a:cs typeface="PingFang SC"/></a:majorFont><a:minorFont><a:latin typeface="PingFang SC"/><a:ea typeface="PingFang SC"/><a:cs typeface="PingFang SC"/></a:minorFont></a:fontScheme><a:fmtScheme name="Office"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>""")
+    # DrawingML requires at least three entries in each theme style list.
+    theme_fills = '<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>' * 3
+    theme_lines = '<a:ln w="9525"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>' * 3
+    theme_effects = '<a:effectStyle><a:effectLst/></a:effectStyle>' * 3
+    z.writestr("ppt/theme/theme1.xml", f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="ImageToEditablePPT"><a:themeElements><a:clrScheme name="Office"><a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1><a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="1F1F1F"/></a:dk2><a:lt2><a:srgbClr val="F8F8F8"/></a:lt2><a:accent1><a:srgbClr val="0F766E"/></a:accent1><a:accent2><a:srgbClr val="E66B00"/></a:accent2><a:accent3><a:srgbClr val="F6D365"/></a:accent3><a:accent4><a:srgbClr val="57C4B8"/></a:accent4><a:accent5><a:srgbClr val="666666"/></a:accent5><a:accent6><a:srgbClr val="111111"/></a:accent6><a:hlink><a:srgbClr val="0563C1"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink></a:clrScheme><a:fontScheme name="PingFang"><a:majorFont><a:latin typeface="PingFang SC"/><a:ea typeface="PingFang SC"/><a:cs typeface="PingFang SC"/></a:majorFont><a:minorFont><a:latin typeface="PingFang SC"/><a:ea typeface="PingFang SC"/><a:cs typeface="PingFang SC"/></a:minorFont></a:fontScheme><a:fmtScheme name="Office"><a:fillStyleLst>{theme_fills}</a:fillStyleLst><a:lnStyleLst>{theme_lines}</a:lnStyleLst><a:effectStyleLst>{theme_effects}</a:effectStyleLst><a:bgFillStyleLst>{theme_fills}</a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>""")
     if notes_count:
         z.writestr("ppt/notesMasters/notesMaster1.xml", notes_master_xml())
         z.writestr("ppt/notesMasters/_rels/notesMaster1.xml.rels", notes_master_rels_xml())
@@ -800,15 +821,17 @@ def render_preview(manifest, manifest_path, out_path):
         if item.get("polygon"):
             points = [(point[0] * scale, point[1] * scale) for point in item["polygon"]]
             draw.polygon(points, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline)
-        elif item.get("type") == "line":
-            if "points" in item:
-                points = [value * scale for value in item["points"]]
-                draw.line(points, fill=outline, width=width)
-                return
-            if item.get("dash"):
-                draw_dashed_line(draw, box, outline, width)
+        elif item.get("type") in ("line", "path"):
+            width = max(1, round(float(item.get("stroke_width", 1)) * scale / 72))
+            if item.get("type") == "path":
+                points = preview_path_points(item, scale)
+                if item["path_px"][-1]["op"] == "close" and fill not in (None, "none"):
+                    draw.polygon(points, fill=fill)
             else:
-                draw.line(box, fill=outline, width=width)
+                coords = [value * scale for value in item["points"]] if "points" in item else box
+                points = [tuple(coords[:2]), tuple(coords[2:])]
+            if outline not in (None, "none"):
+                draw_styled_path(draw, points, outline, width, item.get("dash"), item.get("start_arrow"), item.get("end_arrow"))
         elif item.get("type") == "ellipse":
             draw.ellipse(box, fill=None if fill in (None, "none") else fill, outline=None if outline == "none" else outline, width=width)
         elif item.get("type") == "roundRect" or item.get("preset") == "roundRect":
@@ -948,28 +971,6 @@ def choose_preview_font(preferred):
         if candidate and Path(candidate).exists():
             return candidate
     return None
-
-
-def draw_dashed_line(draw, box, fill, width):
-    x1, y1, x2, y2 = box
-    dash = 8
-    gap = 6
-    if abs(y2 - y1) <= abs(x2 - x1):
-        step = dash + gap
-        x = min(x1, x2)
-        end = max(x1, x2)
-        y = y1
-        while x < end:
-            draw.line((x, y, min(x + dash, end), y), fill=fill, width=width)
-            x += step
-    else:
-        step = dash + gap
-        y = min(y1, y2)
-        end = max(y1, y2)
-        x = x1
-        while y < end:
-            draw.line((x, y, x, min(y + dash, end)), fill=fill, width=width)
-            y += step
 
 
 def main():

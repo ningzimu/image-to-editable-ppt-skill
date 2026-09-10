@@ -37,6 +37,7 @@ If you are already using the skill and run into problems, see [FAQ](/en/faq.md).
 
 - Multiple input formats: convert a single image, multiple images, a multi-page PDF, or an image-based PowerPoint file into an editable `.pptx`.
 - Object-level reconstruction: text becomes native text boxes, simple geometry becomes PowerPoint shapes, and complex visual elements remain separate image assets, so all three object types can be adjusted independently.
+- Supports complete native curve paths, dash styles, and endpoint arrows for editing a whole line’s shape and style; curve paths are not data-linked charts. In PowerPoint, right-click a curve, choose **Edit Points**, select an endpoint or vertex, and drag its white control handle to adjust curvature.
 - Measurement-driven text restoration: OCR generates text annotations for every page, including bounding boxes, font sizes, font-size groups, and recognized text. The model reconstructs text from these measurements and automatically keeps same-level text at consistent sizes. See the OCR Token section in [Installation and Configuration](/en/installation.md).
 - Parallel multi-page reconstruction: the main agent dispatches multi-page inputs to page workers/subagents in parallel; single-page inputs use the same reconstruction flow locally in the main agent.
 - Image generation and editing prefer the current agent's built-in `image_gen.imagegen` tool. Only defined fallback conditions invoke `editppt image`, whose CLI selects between Codex OAuth and an OpenAI-compatible API.
