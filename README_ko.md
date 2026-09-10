@@ -10,6 +10,15 @@
 
 스크린샷이나 이미지 형태의 슬라이드를 더 쉽게 다시 편집할 수 있는 PPT로 바꾸고, 텍스트·단순 도형·시각 에셋을 가능한 한 분리해 조정하려는 경우에 적합합니다.
 
+## 스폰서
+
+<table>
+<tr>
+<td width="180" align="center"><img src="assets/codia-noteslide-logo.png" alt="Codia NoteSlide" width="64"><br><strong>Codia NoteSlide</strong></td>
+<td><strong>대량 이미지의 PPT 변환을 위한 효율적인 선택.</strong> 많은 이미지나 PDF를 편집 가능한 PPT로 변환해야 하나요? Codia NoteSlide는 일괄 처리에 적합한 빠르고 합리적인 가격의 온라인 변환 서비스를 제공합니다. 이미 ChatGPT를 구독하고 있으며 Codex로 슬라이드를 한 장씩 재구성하고 텍스트와 레이아웃을 반복해서 다듬고 싶다면 이 프로젝트를 계속 사용할 수 있습니다. <a href="https://codia.ai/noteslide/r/12daee802"><strong>Codia NoteSlide 사용해 보기 →</strong></a></td>
+</tr>
+</table>
+
 > [!IMPORTANT]
 > **Codex에서 이 skill을 실행할 때는 “전체 액세스 권한” 사용을 권장합니다.**
 >

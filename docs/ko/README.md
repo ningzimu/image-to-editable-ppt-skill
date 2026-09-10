@@ -4,6 +4,15 @@ Image to Editable PPT는 이미지, PDF, 이미지 기반 PPT를 **객체 단위
 
 ![Image to Editable PPT 프로젝트 개요](https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/image-to-editable-ppt-overview.png)
 
+## 스폰서
+
+<table>
+<tr>
+<td width="180" align="center"><img src="https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/codia-noteslide-logo.png" alt="Codia NoteSlide" width="64"><br><strong>Codia NoteSlide</strong></td>
+<td><strong>대량 이미지의 PPT 변환을 위한 효율적인 선택.</strong> 많은 이미지나 PDF를 편집 가능한 PPT로 변환해야 하나요? Codia NoteSlide는 일괄 처리에 적합한 빠르고 합리적인 가격의 온라인 변환 서비스를 제공합니다. 이미 ChatGPT를 구독하고 있으며 Codex로 슬라이드를 한 장씩 재구성하고 텍스트와 레이아웃을 반복해서 다듬고 싶다면 이 프로젝트를 계속 사용할 수 있습니다. <a href="https://codia.ai/noteslide/r/12daee802"><strong>Codia NoteSlide 사용해 보기 →</strong></a></td>
+</tr>
+</table>
+
 ## 문서 읽는 방법
 
 빠르게 시작하려면 [빠른 시작](/ko/quickstart.md)을 먼저 읽어 보세요.
