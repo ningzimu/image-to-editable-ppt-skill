@@ -4,6 +4,15 @@ Image to Editable PPT is a skill that converts images, PDFs, and image-based Pow
 
 ![Image to Editable PPT overview](https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/image-to-editable-ppt-overview.png)
 
+## Sponsor
+
+<table>
+<tr>
+<td width="180" align="center"><img src="https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/codia-noteslide-logo.png" alt="Codia NoteSlide" width="64"><br><strong>Codia NoteSlide</strong></td>
+<td><strong>An efficient choice for bulk image-to-PPT conversion.</strong> Need to convert many images or PDFs into editable PPT files? Codia NoteSlide offers fast, affordable online conversion for batch processing. If you already subscribe to ChatGPT and want to use Codex to rebuild slides individually and iteratively refine text and layouts, you can continue using this project. <a href="https://codia.ai/noteslide/r/12daee802"><strong>Try Codia NoteSlide →</strong></a></td>
+</tr>
+</table>
+
 ## How to Read These Docs
 
 If you just want to get started, see [Quick Start](/en/quickstart.md).

@@ -10,6 +10,15 @@ A skill for converting images, PDFs, and image-based PPT files into editable Pow
 
 It is useful when screenshot-like or image-based slides need to become easier to edit again, with text, simple shapes, and visual assets separated where practical.
 
+## Sponsor
+
+<table>
+<tr>
+<td width="180" align="center"><img src="assets/codia-noteslide-logo.png" alt="Codia NoteSlide" width="64"><br><strong>Codia NoteSlide</strong></td>
+<td><strong>An efficient choice for bulk image-to-PPT conversion.</strong> Need to convert many images or PDFs into editable PPT files? Codia NoteSlide offers fast, affordable online conversion for batch processing. If you already subscribe to ChatGPT and want to use Codex to rebuild slides individually and iteratively refine text and layouts, you can continue using this project. <a href="https://codia.ai/noteslide/r/12daee802"><strong>Try Codia NoteSlide →</strong></a></td>
+</tr>
+</table>
+
 > [!IMPORTANT]
 > **Run this skill in Codex with Full Access whenever possible.**
 >
