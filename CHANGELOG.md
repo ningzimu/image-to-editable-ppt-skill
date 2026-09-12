@@ -8,20 +8,20 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Features
 
-- Build native PowerPoint tables with editable cells, proportional row and column sizing, rectangular merges, and shared build, preview, and validation support.
+- Build native PowerPoint tables with editable cells, proportional row and column sizing, rectangular merges, and shared build, preview, and validation support. (#38)
 
 ### Improvements
 
-- Reuse verified page assets during local recovery and load worker references by task instead of requiring every reference in full. Preserve OCR setup and blocked-OCR user interaction.
+- Reuse verified page assets during local recovery and load worker references by task instead of requiring every reference in full. Preserve OCR setup and blocked-OCR user interaction. (#38)
 
-- Add whole-object region splitting that retains disconnected details after chroma-key removal; keep flat-color asset generation as the default and fix processing of already-transparent supplied sheets.
+- Add whole-object region splitting that retains disconnected details after chroma-key removal; keep flat-color asset generation as the default and fix processing of already-transparent supplied sheets. (#38)
 
-- Default CLI image requests to GPT Image 2.5 Sunburst, support Flare and model-specific `xhigh`/`max` quality, and retain `auto` quality and built-in-first routing.
+- Default CLI image requests to GPT Image 2.5 Sunburst, support Flare and model-specific `xhigh`/`max` quality, and retain `auto` quality and built-in-first routing. (#38)
 
 ### Fixes
 
-- Validate structured foreground provenance without treating incidental words or negated descriptions as forbidden sources.
-- Reject changed recorded outputs and image assets before finalization, and report bounded faint isolated region residue as a warning while retaining boundary-cut failures.
+- Validate structured foreground provenance without treating incidental words or negated descriptions as forbidden sources. (#38)
+- Reject changed recorded outputs and image assets before finalization, and report bounded faint isolated region residue as a warning while retaining boundary-cut failures. (#38)
 
 ### Documentation
 
