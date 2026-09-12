@@ -4,6 +4,8 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+## 0.4.0
+
 ### Features
 
 - Build native PowerPoint tables with editable cells, proportional row and column sizing, rectangular merges, and shared build, preview, and validation support.
