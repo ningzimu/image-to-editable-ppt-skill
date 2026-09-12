@@ -4,6 +4,10 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Improvements
+
+- Default CLI image requests to GPT Image 2.5 Sunburst, support Flare and model-specific `xhigh`/`max` quality, and retain `auto` quality and built-in-first routing.
+
 ### Documentation
 
 - Add Codia NoteSlide sponsor cards and links across Chinese, English, and Korean READMEs and documentation homepages. (#37)

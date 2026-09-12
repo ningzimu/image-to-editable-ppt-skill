@@ -11,7 +11,7 @@ from pathlib import Path
 DEFAULT_CONFIG_HOME = "~/.editppt"
 DEFAULT_CODEX_AUTH_FILE = "~/.codex/auth.json"
 CODEX_PPT_RUNTIME_HOME = "~/.codex-ppt-skill"
-DEFAULT_IMAGE_MODEL = "gpt-image-2"
+DEFAULT_IMAGE_MODEL = "gpt-image-2.5-sunburst"
 ENV_FIELDS = ("OPENAI_API_KEY", "OPENAI_BASE_URL", "IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL", "PADDLE_OCR_TOKEN")
 PADDLE_TOKEN_APPLY_URL = "https://aistudio.baidu.com/account/accessToken"
 CODEX_PPT_ENV_MAP = {

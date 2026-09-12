@@ -39,7 +39,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 >
 > **If you do not strongly need editability, avoid this skill.**
 >
-> A lighter approach is to use gpt-image-2 image editing directly: provide the specific PPT page image you are unhappy with, ask for a targeted edit, and have it return the modified image.
+> A lighter approach is to use gpt-image-2.5-sunburst image editing directly: provide the specific PPT page image you are unhappy with, ask for a targeted edit, and have it return the modified image.
 
 > [!TIP]
 > This skill does not create new decks from articles, reports, outlines, or ideas. If your goal is to generate a PPT, use [codex-ppt-skill](https://github.com/ningzimu/codex-ppt-skill).

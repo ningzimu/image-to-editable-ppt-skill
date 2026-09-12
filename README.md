@@ -39,7 +39,7 @@
 >
 > **如果没有强烈的可编辑需求，请不要使用这个 skill。**
 >
-> 更轻量的做法是直接使用 gpt-image-2 的图像编辑能力：把你不满意的那一页 PPT 图片发给它，让它针对性修改，并返回修改后的图片。
+> 更轻量的做法是直接使用 gpt-image-2.5-sunburst 的图像编辑能力：把你不满意的那一页 PPT 图片发给它，让它针对性修改，并返回修改后的图片。
 
 > [!TIP]
 > 本 skill 不负责从文章、报告、大纲或想法直接生成全新 PPT。如果你要做的是“生成一份 PPT”，可以使用 [codex-ppt-skill](https://github.com/ningzimu/codex-ppt-skill)。
