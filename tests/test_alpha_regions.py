@@ -79,6 +79,51 @@ class AlphaRegionTests(unittest.TestCase):
         self.assertFalse((self.root / 'assets/first.png').exists())
         self.assertFalse((self.root / 'split_assets.json').exists())
 
+    def test_isolated_faint_residue_warns_and_preserves_source_and_owned_alpha(self):
+        self.write_regions([{'name': 'first', 'box': [5, 5, 35, 45]},
+                            {'name': 'second', 'box': [60, 15, 25, 30]}])
+        self.image.putpixel((95, 55), (200, 100, 0, 1))
+        self.image.save(self.source)
+        original = self.source.read_bytes()
+        result = self.process('--regions', 'regions.json')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads((self.root / 'split_assets.json').read_text())
+        self.assertEqual(report['warnings'], [{'code': 'ignored_faint_residue',
+                          'pixel_count': 1, 'max_alpha': 1, 'box': [95, 55, 96, 56]}])
+        self.assertIn('ignored_faint_residue', result.stdout)
+        self.assertEqual(self.source.read_bytes(), original)
+        for asset in report['assets']:
+            with Image.open(asset['path']) as output:
+                self.assertEqual(output.tobytes(), self.image.crop(asset['padded_box']).tobytes())
+        self.assertEqual(report['assets'][0]['area'], 337)  # Includes detached Alpha=3 detail.
+
+    def test_uncovered_residue_tolerance_is_bounded_by_total_area_and_opacity(self):
+        self.write_regions([{'name': 'first', 'box': [5, 5, 35, 45]},
+                            {'name': 'second', 'box': [60, 15, 25, 30]}])
+        for count, alpha, accepted in [(4, 8, True), (5, 1, False), (1, 9, False), (1, 255, False)]:
+            with self.subTest(count=count, alpha=alpha):
+                image = self.image.copy()
+                for index in range(count):
+                    image.putpixel((90 + index, 55), (200, 100, 0, alpha))
+                warnings = []
+                if accepted:
+                    region_components(image, self.regions, warnings)
+                    self.assertEqual(warnings[0]['pixel_count'], count)
+                    self.assertEqual(warnings[0]['max_alpha'], alpha)
+                else:
+                    with self.assertRaisesRegex(SystemExit, 'uncovered'):
+                        region_components(image, self.regions, warnings)
+                    self.assertEqual(warnings, [])
+
+    def test_faint_connected_stroke_crossing_region_boundary_still_fails(self):
+        self.write_regions([{'name': 'first', 'box': [5, 5, 23, 45]},
+                            {'name': 'second', 'box': [60, 15, 25, 30]}])
+        image = self.image.copy()
+        image.putpixel((30, 10), (0, 0, 0, 0))
+        ImageDraw.Draw(image).line((26, 30, 29, 30), fill=(0, 200, 0, 1))
+        with self.assertRaisesRegex(SystemExit, 'boundary'):
+            region_components(image, self.regions)
+
     def test_region_output_cannot_replace_input(self):
         self.write_regions([{'name': 'sheet', 'box': [0, 0, 50, 60]},
                             {'name': 'second', 'box': [50, 0, 50, 60]}])

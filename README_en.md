@@ -31,7 +31,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 > ![Codex Full Access permission setting](assets/codex-full-access-permission.png)
 
 > [!WARNING]
-> This skill currently uses a multi-agent collaborative reconstruction workflow with complex flow control. It is not a lightweight converter. The AI runs a "**rebuild -> self-check -> page-local correction**" loop and may iterate multiple times until it judges the result close enough to the source. During this process, page workers may make **many attempts** per page, so the workflow can consume a large number of tokens.
+> Failed page validation leads to local repairs that reuse verified assets. Work stops when the current outputs pass checks; acceptable minor fringes do not trigger regeneration. Routine steps run autonomously; missing OCR tokens or blocked OCR still require user input. Complex pages can still consume substantial tokens.
 >
 > **GPT Pro is recommended. Plus users should use this skill cautiously.**
 >
@@ -221,7 +221,7 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
 - Single-page or single-image input can be rebuilt locally by the main agent; multi-page input is rebuilt in parallel through page workers/subagents.
 - Complex visual assets need either the built-in image tool or the CLI fallback. If neither can produce a compliant asset, the page fails validation instead of substituting approximate shapes.
 - Complex photos, illustrations, textures, and hand-drawn decorations are usually movable image assets, not internally editable PowerPoint objects.
-- Native tables do not yet support diagonal headers or images embedded in cells. Unclear text, rows, columns, or merges require clarification rather than guessed content or structure. Charts and flowcharts continue to use editable structural objects.
+- Native tables do not yet support diagonal headers or images embedded in cells. Unclear text, rows, columns, or merges are checked against the source and OCR first; unresolved details are reported without guessing content or structure. Charts and flowcharts continue to use editable structural objects.
 - Visual similarity is not enough. Acceptance should check package structure, editable text coverage, asset provenance, preview, and diff.
 
 ## Repository Layout

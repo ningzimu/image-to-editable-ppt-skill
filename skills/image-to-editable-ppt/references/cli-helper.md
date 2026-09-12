@@ -57,7 +57,7 @@ Public `editppt image generate/edit` parameters are intentionally narrow. Requir
 ## Skill Script Commands
 
 ```bash
-python <skill-root>/scripts/build-page-worker-prompt.py <run> --page page_001 --out <absolute-run-dir>/pages/page_001/worker-prompt.md
+python3 <skill-root>/scripts/build-page-worker-prompt.py <run> --page page_001 --out <absolute-run-dir>/pages/page_001/worker-prompt.md
 ```
 
 Purpose: generate a page-worker prompt from the skill-local `prompts/page-worker.md` template. This is a skill script, not an `editppt` CLI command, because it reads skill documentation and references.
@@ -126,7 +126,7 @@ Purpose: read current run state and return the next stage. `stage=rebuild_page_l
 Generate the page-worker prompt with the skill script before spawning a worker:
 
 ```bash
-python <skill-root>/scripts/build-page-worker-prompt.py <run> --page page_001 --out <absolute-run-dir>/pages/page_001/worker-prompt.md
+python3 <skill-root>/scripts/build-page-worker-prompt.py <run> --page page_001 --out <absolute-run-dir>/pages/page_001/worker-prompt.md
 ```
 
 ```bash
@@ -145,13 +145,13 @@ Purpose: record that a page has been dispatched to a worker or claimed for singl
 editppt run record <run> --page page_001 --agent-id <worker-id>
 ```
 
-Purpose: after the page reconstructor writes its required outputs (see `manifest-schema.md`), validate `page.pptx` against `manifest.json` and record the page result. Missing `box_px` / `points_px` on positioned objects is a page failure. The command also fails when `validation.json` does not contain top-level `passed: true` — a failed page is never recorded; fix the root cause, `run reset` the page, and dispatch or claim a fresh page execution.
+Purpose: validate the required page outputs and record their hashes; failure recovery is defined in `SKILL.md` Phase 3.
 
 ```bash
 editppt run reset <run> --page page_001 --agent-id <worker-id> --confirm-lost
 ```
 
-Purpose: return a dispatched or recorded page to `pending`, clearing its dispatch and result records, so a new worker can be dispatched. Recorded pages can be reset with only `--page`. Dispatched pages require `--agent-id` plus `--confirm-lost`, and the id must match the recorded dispatch. Use this only when a worker returned a failed page, `run record` rejected the outputs, the runtime reports a terminal worker state, the user cancels that worker, or repeated reachability checks prove the worker is lost. The failure-handling policy is in `SKILL.md` Phase 3.
+Purpose: return a page to `pending` and clear dispatch/result records. Dispatched pages require matching `--agent-id` and `--confirm-lost`; eligibility is defined in `SKILL.md` Phase 3.
 
 ```bash
 editppt run finalize <run>
@@ -176,7 +176,7 @@ editppt page contact-sheet pages/page_001
 Purpose: create `split_assets_contact.png`, the origin-versus-preview comparison image, from `source.png` and `preview.png` in the page directory.
 
 ```bash
-editppt page validate pages/page_001
+editppt page validate pages/page_001 --report pages/page_001/validation.json
 ```
 
 Purpose: validate `page.pptx` against `manifest.json` with the same manifest-contract checks `editppt run record` will run (record additionally verifies the full artifact set, hashes, and top-level `passed: true`). Run it before returning so manifest-contract failures are fixed inside the page instead of bouncing back from the parent's record step. Optional `--report <file>` writes a JSON report.
@@ -248,6 +248,16 @@ Process a chroma-key asset sheet (already-transparent supplied inputs bypass chr
 editppt image process-sheet pages/page_001 \
   --job-id icon-sheet \
   --asset-sheet-source assets/icon-sheet.png \
+  --regions assets/asset-regions.json \
+  --assets-dir assets/icons
+```
+
+Re-split an existing Alpha sheet after changing only object regions:
+
+```bash
+editppt image process-sheet pages/page_001 \
+  --job-id icon-sheet \
+  --skip-chroma \
   --regions assets/asset-regions.json \
   --assets-dir assets/icons
 ```

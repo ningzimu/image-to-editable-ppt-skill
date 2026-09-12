@@ -17,6 +17,11 @@ NEIGHBORS = {
     8: ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)),
 }
 
+# Only disregard a few nearly invisible pixels outside all ownership regions.
+# Never threshold pixels within a region: detached details belong to the object.
+MAX_RESIDUE_PIXELS = 4
+MAX_RESIDUE_ALPHA = 8
+
 
 def foreground_mask(alpha, threshold, close_radius):
     mask = alpha.point(lambda p: 255 if p > threshold else 0, mode="L")
@@ -150,7 +155,7 @@ def extract_component_asset(image, box, pad, square, region_box=None):
     return canvas, [left, top, right, bottom]
 
 
-def region_components(image, path):
+def region_components(image, path, warnings=None):
     """Validate ownership regions before cropping, including faint detached pixels."""
     data = json.loads(Path(path).read_text())
     regions = data.get("regions") if isinstance(data, dict) else None
@@ -192,8 +197,18 @@ def region_components(image, path):
         components.append({"name": filename, "region_box": bounds,
                            "box": [x + bbox[0], y + bbox[1], x + bbox[2], y + bbox[3]],
                            "area": sum(local.histogram()[1:])})
-    if uncovered.getbbox() is not None:
-        raise SystemExit(f"Regions leave foreground uncovered: {list(uncovered.getbbox())}")
+    uncovered_box = uncovered.getbbox()
+    if uncovered_box is not None:
+        pixel_count = sum(uncovered.histogram()[1:])
+        max_alpha = uncovered.getextrema()[1]
+        if pixel_count > MAX_RESIDUE_PIXELS or max_alpha > MAX_RESIDUE_ALPHA:
+            raise SystemExit(f"Regions leave foreground uncovered: {list(uncovered_box)}")
+        # The blank perimeter enforced above separates these pixels from every
+        # owned object, including any faint stroke connected to its main body.
+        warning = {"code": "ignored_faint_residue", "pixel_count": pixel_count,
+                   "max_alpha": max_alpha, "box": list(uncovered_box)}
+        if warnings is not None:
+            warnings.append(warning)
     return components
 
 
@@ -246,10 +261,11 @@ def main():
     image = Image.open(src).convert("RGBA")
     if args.pad < 0:
         raise SystemExit("--pad must be nonnegative")
+    warnings = []
     if args.regions:
         if args.names or args.limit:
             raise SystemExit("--regions cannot be combined with --names or --limit")
-        components = region_components(image, args.regions)
+        components = region_components(image, args.regions, warnings)
     else:
         mask = foreground_mask(image.getchannel("A"), args.threshold, args.close_radius)
         components = component_boxes(mask, 1, args.connectivity)
@@ -292,8 +308,13 @@ def main():
         contact_items.append({"name": name, "image": component_image})
         print(f"{name}: box={component['box']} area={component['area']} size={component_image.size}")
 
+    for warning in warnings:
+        print(f"Warning: {json.dumps(warning)}")
     if args.manifest:
-        Path(args.manifest).write_text(json.dumps({"source": str(src), "assets": outputs}, ensure_ascii=False, indent=2))
+        report = {"source": str(src), "assets": outputs}
+        if warnings:
+            report["warnings"] = warnings
+        Path(args.manifest).write_text(json.dumps(report, ensure_ascii=False, indent=2))
     if args.contact_sheet:
         write_contact_sheet(contact_items, Path(args.contact_sheet))
 

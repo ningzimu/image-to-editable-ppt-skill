@@ -109,22 +109,9 @@ def read_manifest(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def compact_text(value):
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value.lower()
-    if isinstance(value, (int, float, bool)):
-        return str(value).lower()
-    if isinstance(value, dict):
-        return " ".join(compact_text(item) for item in value.values())
-    if isinstance(value, (list, tuple, set)):
-        return " ".join(compact_text(item) for item in value)
-    return str(value).lower()
-
-
 def contains_any(text, terms):
-    return any(term in text for term in terms)
+    # English terms are words, not substrings (e.g. mark != benchmark).
+    return any(re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", text.lower()) for term in terms)
 
 
 def visual_item_path(item):
@@ -136,80 +123,73 @@ def visual_item_path(item):
 
 
 def is_foreground_visual_item(item):
-    text = compact_text(item)
+    if isinstance(item, dict):
+        role = item.get("role")
+        if role in {"foreground", "background", "structure", "formula"}:
+            return role == "foreground"
+        # Free-form notes, file names and provenance explanations are not types.
+        text = str(item.get("object_type") or item.get("description") or "")
+    else:
+        text = str(item)
     if contains_any(text, NON_FOREGROUND_TERMS):
         return False
     return contains_any(text, FOREGROUND_TERMS)
 
 
+def has_forbidden_decision(decision):
+    # Legacy decisions may describe the method in prose; ignore simple negative
+    # statements, but never mine arbitrary notes for forbidden keywords.
+    text = str(decision).lower()
+    terms = "|".join(re.escape(term) for term in sorted(FORBIDDEN_FOREGROUND_FALLBACK_TERMS, key=len, reverse=True))
+    text = re.sub(r"\b(?:no|not|without|never)(?:\s+using)?\s+(?:" + terms + r")(?![a-z0-9])", "", text)
+    text = re.sub(r"(?:没有|未使用|不使用|无需|禁止)(?:" + terms + r")", "", text)
+    return contains_any(text, FORBIDDEN_FOREGROUND_FALLBACK_TERMS)
+
+
 def foreground_asset_contract_violations(manifest):
     violations = []
+    allowed_foreground_sources = {"asset-sheet-separated", "imagegen"}
     provenance_by_path = {
-        Path(entry.get("path", "")).as_posix(): entry
+        Path(entry["path"]).as_posix(): entry
         for entry in manifest.get("asset_provenance", [])
-        if entry.get("path")
+        if isinstance(entry, dict) and entry.get("path")
     }
+    foreground_paths = set()
 
     for index, item in enumerate(manifest.get("visual_inventory", [])):
-        if not isinstance(item, dict):
-            continue
-        text = compact_text(item)
         field = f"visual_inventory[{index}]"
-        if contains_any(text, FORBIDDEN_FOREGROUND_FALLBACK_TERMS):
-            violations.append(
-                {
-                    "field": field,
-                    "reason": "foreground visual decisions must not use direct crops, native approximations, emoji/text symbols, warning-only fallbacks, or similar shortcuts",
-                }
-            )
+        if isinstance(item, dict) and "role" in item and item["role"] not in {"foreground", "background", "structure", "formula"}:
+            violations.append({"field": field + ".role", "reason": "role must be foreground, background, structure, or formula"})
         if not is_foreground_visual_item(item):
             continue
-        if not contains_any(text, ASSET_SHEET_TERMS):
-            violations.append(
-                {
-                    "field": field,
-                    "reason": "foreground visual objects must explicitly use source-faithful asset-sheet separation",
-                }
-            )
+        structured = isinstance(item, dict) and any(key in item for key in ("role", "object_type", "source_type"))
+        decision = item.get("decision", "") if isinstance(item, dict) else item
+        declared_source = item.get("source_type") if isinstance(item, dict) else None
+        if (not structured and has_forbidden_decision(decision)) or (declared_source is not None and declared_source not in allowed_foreground_sources):
+            violations.append({"field": field, "reason": "foreground visual decisions must not use direct crops, native approximations, emoji/text symbols, or warning-only fallbacks"})
         path = visual_item_path(item)
         if path:
-            provenance = provenance_by_path.get(path, {})
-            source_type = provenance.get("source_type")
-            if source_type in {"user-provided", "user-approved-rasterization"}:
-                violations.append(
-                    {
-                        "field": field,
-                        "path": path,
-                        "reason": "foreground visual objects cannot use user-provided/direct raster provenance; use asset-sheet separation",
-                    }
-                )
+            foreground_paths.add(path)
+            provenance = provenance_by_path.get(path)
+            if not provenance or provenance.get("source_type") not in allowed_foreground_sources:
+                violations.append({"field": field, "path": path, "reason": "foreground visual objects require matching asset-sheet-separated or imagegen provenance"})
+            elif declared_source is not None and declared_source != provenance.get("source_type"):
+                violations.append({"field": field + ".source_type", "path": path, "reason": "source_type must match the linked asset provenance"})
+        elif structured:
+            violations.append({"field": field, "reason": "structured foreground visual objects require an asset path linked to provenance"})
+        elif not contains_any(str(decision), ASSET_SHEET_TERMS) or not any(
+            entry.get("source_type") in allowed_foreground_sources for entry in provenance_by_path.values()
+        ):
+            # Legacy inventories sometimes summarize several assets without paths.
+            # Keep them readable, but a claim of separation alone is not evidence.
+            violations.append({"field": field, "reason": "legacy foreground visual objects require an asset-sheet separation decision and matching permitted asset provenance"})
 
     for index, entry in enumerate(manifest.get("asset_provenance", [])):
         if not isinstance(entry, dict):
             continue
-        text = compact_text(entry)
-        source_type = entry.get("source_type")
         path = Path(entry.get("path", "")).as_posix()
-        field = f"asset_provenance[{index}]"
-        if source_type in {"user-provided", "user-approved-rasterization"} and contains_any(
-            text, FOREGROUND_TERMS | FORBIDDEN_FOREGROUND_FALLBACK_TERMS
-        ):
-            violations.append(
-                {
-                    "field": field,
-                    "path": path,
-                    "reason": "foreground-like raster provenance cannot be direct user-provided/cropped source material",
-                }
-            )
-        if contains_any(text, FORBIDDEN_FOREGROUND_FALLBACK_TERMS):
-            violations.append(
-                {
-                    "field": field,
-                    "path": path,
-                    "reason": "asset provenance records a forbidden foreground fallback such as crop, approximation, or warning-only delivery",
-                }
-            )
-
+        if (path in foreground_paths or is_foreground_visual_item(entry)) and entry.get("source_type") not in allowed_foreground_sources:
+            violations.append({"field": f"asset_provenance[{index}]", "path": path, "reason": "foreground asset provenance must use asset-sheet-separated or imagegen"})
     return violations
 
 

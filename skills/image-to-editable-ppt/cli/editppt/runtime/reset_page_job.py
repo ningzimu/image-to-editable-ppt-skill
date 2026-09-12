@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reset a failed or inactive page back to pending so it can be re-dispatched."""
+"""Reset an inactive or explicitly reopened page back to pending so it can be re-dispatched."""
 import argparse
 import json
 
@@ -23,7 +23,7 @@ def main():
     parser.add_argument(
         "--confirm-lost",
         action="store_true",
-        help="Required for dispatched pages. Confirms the original worker is no longer active or must be abandoned.",
+        help="Required for dispatched pages. Confirms the original worker is no longer active or has been explicitly cancelled.",
     )
     args = parser.parse_args()
 
@@ -42,7 +42,7 @@ def main():
         if not args.confirm_lost:
             raise SystemExit(
                 f"{page['page_id']} is still dispatched. Do not reset active workers because they are slow. "
-                "Use --confirm-lost with --agent-id only after explicit worker failure, terminal state, "
+                "Use --confirm-lost with --agent-id only after a terminal worker state, "
                 "user cancellation, or lost-worker verification."
             )
         if not args.agent_id:

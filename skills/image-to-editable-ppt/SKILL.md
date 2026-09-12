@@ -1,14 +1,12 @@
 ---
 name: image-to-editable-ppt
-description: Rebuild slide images, image-based or scanned PPT/PPTX files, and PDF decks into object-level editable PowerPoint (.pptx). Use whenever the user provides any visual slide source and wants slides they can edit — "make this PPT editable", "把图片/截图转成可编辑 PPT", "this PDF is a scanned deck, restore it", recreating slides from screenshots, reconstructing slide objects, or preserving speaker notes — even if they do not say "convert". Not for authoring new presentations from scratch.
+description: Rebuild slide images, scanned or image-based PPT/PPTX files, and PDF decks into object-level editable PowerPoint (.pptx), preserving speaker notes when supplied. Use for making visual slides editable or reconstructing slides from screenshots; not for authoring new presentations from scratch.
 ---
 # Image to Editable PPT
 
 ## Overview
 
-This skill rebuilds visual slide inputs into object-level editable PowerPoint `.pptx` files.
-
-Inputs can be a single image, multiple images, a PDF, or an image-based PPT/PPTX. The output is always `.pptx`. The goal is not to wrap a full-slide screenshot inside PowerPoint; the goal is to use the `editppt` runtime and page-level prompts to decompose, reconstruct, validate, and assemble editable slides.
+Use the `editppt` runtime to decompose, reconstruct, validate, and assemble visual slides as editable `.pptx`. Inputs may be single or multiple images, PDF, or image-based PPT/PPTX.
 
 ## References
 
@@ -18,7 +16,7 @@ Each rule in this skill has exactly one authoritative home; the other files poin
 - `scripts/build-page-worker-prompt.py`: skill-local prompt builder. It reads `prompts/page-worker.md`, fills run/page paths, writes `worker-prompt.md`, and prints the dispatch command template.
 - `references/cli-helper.md`: CLI install check (Pre-Run Check), command tree, and command syntax examples. Read it when deciding which `editppt` command to call.
 - `references/manifest-schema.md`: the single home for JSON field contracts of deck/page/image artifacts — required manifest fields, positioned-object coordinates, `validation.json`, and `page_result.json` shapes. Read it when writing or validating any run/page file.
-- `references/page-decision-tree.md`: the single source of truth for page object decisions — background handling, foreground asset separation, native shapes, formulas, text-hints usage, the final self-check, and the fix-versus-warning split. Read it before reconstructing any page.
+- `references/page-decision-tree.md`: the single source of truth for page object decisions — background handling, foreground asset separation, native shapes, formulas, text-hints usage, the final self-check, and the fix-versus-warning split. Read its common decision boundaries first, then the sections relevant to the page inventory; the page prompt provides the reading route.
 
 ## Entry Contract
 
@@ -32,6 +30,7 @@ These parent-level rules are stated once here; page-level rules live in the refe
 - A user request to convert visual slides into editable PPT authorizes the required OCR and image-backend calls for that conversion, unless the user explicitly requests local-only processing or marks the input as confidential/no-external-processing. Do not refuse solely because the workflow calls PaddleOCR, the built-in `image_gen.imagegen` tool, Codex OAuth/ChatGPT image endpoints, or a user-configured OpenAI-compatible API; those calls are necessary to the skill.
 - Only send task-local page images, prompts, masks, and reference images required for the current conversion. Never send unrelated local files, API keys, auth tokens, credentials, or generated artifacts that are not needed by the current OCR/image operation. Third-party API endpoints are allowed only when already configured by the user or explicitly specified for this run.
 - In network-restricted environments, request any approval required by the current runtime before external OCR/image calls, including `editppt prepare` or `editppt run hints` when `PADDLE_OCR_TOKEN` is set and every CLI fallback `editppt image generate/edit` call. The approval justification must say this is a user-requested `image-to-editable-ppt` conversion, that the upload is limited to task-local page images/prompts/masks/references, and that OCR/image-backend calls are part of this skill's required workflow. Do not present the required call as unsafe or ask the user to re-approve it unless they requested local-only/confidential handling or the approval system explicitly rejects the request.
+- Execute routine reconstruction, configured backend fallback, and local repairs autonomously. Do not add confirmation gates; retain the OCR choices in Phase 1 and any approval required by the runtime. A missing prerequisite that only the user can supply is a concrete blocker, not a request to debug the workflow.
 - All page object decisions follow `references/page-decision-tree.md`, including its no-fallback rule for foreground visual objects and its rule that deterministic validation is a structure gate that never waives an object-source decision.
 - `manifest.json` is the authoritative page build source: `editppt run record` validates `page.pptx` against it, and `editppt run finalize` rebuilds the final deck from recorded page manifests. Required fields and coordinate contracts are defined in `references/manifest-schema.md`.
 - `editppt prepare` writes per-page text measurements (`text_hints.json`/`text_hints.png`). How page reconstructors consume them is defined in `references/page-decision-tree.md` section 3.1.
@@ -48,12 +47,7 @@ The exact built-in arguments, input-inspection prerequisite, output acceptance r
 
 ## Roles
 
-The parent agent owns orchestration and user interaction:
-
-- Select the backend during `editppt prepare` exactly as "Image Backend Selection" above requires. The resulting `image_backend` contract is copied into every page request, so the normal path needs no separate backend configuration command.
-- Drive the run with `editppt run next` through local rebuild or worker dispatch → record → finalize, exactly as the Workflow phases below describe. Single-page input follows local page-reconstructor mode; multi-page input follows page-worker dispatch.
-- Report progress, the final PPTX path, and the validation result to the user.
-- Do not repeat page-level visual QA that page reconstructors already completed; `record` and `finalize` re-validate deterministically.
+The parent owns orchestration and user interaction under the Entry Contract and Workflow below. Report progress, the final PPTX path, and validation results. Do not repeat completed page-level visual QA; `record` and `finalize` enforce their deterministic handoff checks.
 
 Each page reconstructor owns exactly one `pages/page_NNN/` directory. Its full contract — ownership boundary, decision order, required outputs, and return format — is the prompt generated from `prompts/page-worker.md`; the rules it follows live in `references/page-decision-tree.md` and `references/manifest-schema.md`.
 
@@ -83,13 +77,13 @@ editppt run next <run>
 
 When `stage=rebuild_page_locally` is returned, the run has exactly one page. The parent agent must claim local execution before writing page artifacts:
 
-1. `python <skill-root>/scripts/build-page-worker-prompt.py <run> --page <page_id> --out <absolute-run-dir>/pages/<page_id>/worker-prompt.md`
+1. `python3 <skill-root>/scripts/build-page-worker-prompt.py <run> --page <page_id> --out <absolute-run-dir>/pages/<page_id>/worker-prompt.md`
 2. `editppt run dispatch <run> --page <page_id> --agent-id main --prompt-file <absolute-run-dir>/pages/<page_id>/worker-prompt.md --local`
 3. Read the generated prompt and rebuild the page inside that page directory yourself, producing the same required outputs a page worker would produce.
 
 When `stage=dispatch_pages` is returned, the following steps are mandatory for each suggested page:
 
-1. `python <skill-root>/scripts/build-page-worker-prompt.py <run> --page <page_id> --out <absolute-run-dir>/pages/<page_id>/worker-prompt.md`
+1. `python3 <skill-root>/scripts/build-page-worker-prompt.py <run> --page <page_id> --out <absolute-run-dir>/pages/<page_id>/worker-prompt.md`
 2. Spawn a page worker using the current environment's available subagent/multi-agent tool.
 3. `editppt run dispatch <run> --page <page_id> --agent-id <id> --prompt-file <absolute-run-dir>/pages/<page_id>/worker-prompt.md`
 
@@ -111,13 +105,17 @@ editppt run record <run> --page <page_id> --agent-id <id>
 
 This command validates `page.pptx` against `manifest.json` before recording. It fails if positioned objects are missing source-pixel coordinates, if the manifest cannot independently rebuild the page, or if `validation.json` does not contain top-level `passed: true` — a failed page is never recorded.
 
-Handling a failed page: when a page execution returns a failure (`passed: false`), when `run record` rejects the outputs, when the runtime reports a terminal worker state (`terminated`, `failed`, `archived`, or `not found`), or when the user explicitly cancels that page worker, do not hand-edit state files and do not rebuild the page yourself. A long-running worker is not lost. Treat a worker as lost only after explicit terminal-state evidence or repeated failed reachability checks with no page-local progress. Read the page's `validation.json` when present, fix the root cause (for example a missing image-backend login reported by the page execution), then run:
+For a rejected record or page-local validation issue, read the failure evidence and have the current page owner repair only the affected artifacts, then refresh the validation report using the page validation example in `references/cli-helper.md` and record again. In single-page local mode the parent is that owner; in multi-page mode send the repair to the existing worker. Do not reset a reachable owner merely because validation failed, and do not regenerate compliant assets to fix an unrelated manifest or table error.
+
+Reset is for a page that needs a replacement execution: explicit terminal-state evidence (`terminated`, `failed`, `archived`, or `not found`), user cancellation, or repeated failed reachability checks with no page-local progress. A long-running worker is not lost. After fixing the prerequisite that prevented execution, use:
 
 ```bash
 editppt run reset <run> --page <page_id> --agent-id <id> --confirm-lost
 ```
 
-For recorded pages, `editppt run reset <run> --page <page_id>` is allowed. For dispatched pages, reset requires `--confirm-lost` and an `--agent-id` matching the recorded dispatch so an active worker cannot be reset accidentally. This returns the page to `pending`. Then rebuild the worker prompt and dispatch a new worker through the normal Phase 2 steps. Never re-dispatch without changing something first: a worker re-run under identical conditions fails identically. When the same page fails twice on the same root cause, the diagnosis is yours, not the user's — read the failed attempt's `validation.json` and artifacts, reproduce the failing command yourself if needed, and fix the underlying cause (backend login, missing tools, broken assets) before resetting again. Only surface a problem to the user when it genuinely requires something only the user has (credentials, a paid account decision, the original file); phrase it as the concrete action needed, never as a debugging question.
+For recorded pages, `editppt run reset <run> --page <page_id>` is allowed. For dispatched pages, the matching agent id and `--confirm-lost` protect the active lease. Reset returns the page to `pending`; resume through Phase 2 with a new prompt and execution. Keep existing artifacts for provenance checks and selective reuse under the page prompt's recovery contract. Never hand-edit state or let the parent rebuild multi-page artifacts.
+
+Retry only after changing the relevant input or condition. Diagnose repeated failures from validation and command evidence; do not repeat an unchanged failing tool call or re-dispatch under identical conditions. If a real prerequisite is unavailable, preserve progress and report the concrete blocker instead of fabricating success or asking the user to debug. Once the current outputs pass their required checks, advance to finalize; do not repeat unchanged visual QA.
 
 ### Phase 4: Finalize
 
