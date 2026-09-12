@@ -148,7 +148,7 @@ Step 3 rebuilds everything carried by native PowerPoint structure, plus formula 
 
 ### 3.1 Text and Text Boxes
 
-All readable text defaults to native PPT text boxes. Never use generated images to carry editable text, and never use hidden text, transparent text, 1 pt text, or off-canvas text to satisfy the text inventory. (Formulas are not ordinary text — see 3.2.)
+All readable text defaults to native PPT text boxes or native table cells (see 3.3). Never use generated images to carry editable text, and never use hidden text, transparent text, 1 pt text, or off-canvas text to satisfy the text inventory. (Formulas are not ordinary text — see 3.2.)
 
 Exceptions — text that is part of brand or background identity rather than editable content:
 
@@ -199,10 +199,14 @@ These may use native PPT shapes or structural objects:
 - Rectangles, rounded rectangles, circles, ellipses.
 - Ordinary arrows and connectors.
 - Solid-color cards, panels, dividers, borders.
-- Tables, table lines, axes, gridlines.
+- Table lines, axes, gridlines; native tables follow the rule below.
 - Simple bar charts, progress bars, status color blocks.
 - Simple callouts.
 - Basic flow boxes and containers without style-specific details.
+
+Regular row-and-column tables with readable content and clear cell boundaries must use one native PowerPoint table per logical table, not a collection of text boxes and rectangle/line fragments. This preserves cell editing and row/column operations. Record source-supported row/column proportions, rectangular merges, text, fills, borders, and alignment; the field contract lives in `manifest-schema.md`, "Native tables." Table cell text remains in `text_inventory` and must not also be emitted as overlaid text boxes.
+
+Diagonal headers and images embedded inside cells are not supported by the table builder. If cell text, row/column structure, or merge boundaries are unclear, record the uncertainty and request clarification or a better source; do not invent values or merge relationships. Do not silently replace the table with a screenshot to bypass native editability.
 
 Native shapes carry only layout structure, never semantic icons or visual identity: a DNA mark, lock, network node, target, magnifier, or checkmark inside a circular icon is not a structural primitive — separate it in step 2.
 
@@ -223,7 +227,7 @@ Corner decisions are conservative because over-rounding is a common, visible fai
 
 ### 3.5 Text Strokes and Decoration Splitting
 
-A readable character stroke belongs only to its native text box — never draw the same stroke again as a shape. Independent decorative lines, dividers, and button underlines may be shapes, but only after confirming they are not part of text. If the preview shows an extra dash, dot, or repeated symbol, inspect the source to decide whether it is a text stroke or an independent decoration, then remove the duplicate.
+A readable character stroke belongs only to its native text box or table cell — never draw the same stroke again as a shape. Independent decorative lines, dividers, and button underlines may be shapes, but only after confirming they are not part of text. If the preview shows an extra dash, dot, or repeated symbol, inspect the source to decide whether it is a text stroke or an independent decoration, then remove the duplicate.
 
 ### 3.6 Grouping and Layering
 
@@ -265,7 +269,7 @@ Assets:
 
 Text:
 
-- `text_inventory` covers all readable text; every editable item is a real, visible native text box (no hidden, transparent, 1 pt, or off-canvas text).
+- `text_inventory` covers all readable text; every editable item is a real, visible native text box or table cell (no hidden, transparent, 1 pt, or off-canvas text).
 - Font sizes and positions are calibrated per 3.1: no clipping, wrong wrapping, or container overflow, and no level visibly larger, heavier, or more crowded than the source.
 - CJK previews show no boxes or mojibake; use a stable CJK font when needed.
 - No text, icon, or decoration appears both in an image layer and as a native object.
@@ -276,7 +280,7 @@ Shapes and layers:
 
 - Corners follow 3.4; large container corners, table borders, and card borders align with the source. Corner misclassification is a current-page fix, not a low-risk warning.
 - No text stroke is redrawn as a decorative shape (3.5).
-- Dashboards, tables, cards, and charts are decomposed per 1.4, never screenshotted wholesale.
+- Dashboards, tables, cards, and charts are decomposed per 1.4, never screenshotted wholesale. Check native tables against section 3.3, including cell text and merge boundaries.
 - Badge and circular-number groups follow the shared-box centering rule in 3.6.
 - z-index follows 3.6; no text or key object is covered.
 

@@ -84,6 +84,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 - Preserve `.pptx` speaker notes on matching output slides without modifying note text.
 - Decides page by page whether to use the confirmed image backend for visual-layer extraction; when needed, sparse asset sheets group foreground assets, prefer placing icons on one sheet, and keep generous gaps for later splitting.
 - Asset sheets use a flat background color distinct from the subjects by default. After background removal, whole-object regions preserve disconnected details during cropping. Successful splitting still requires checking each asset against the source.
+- Rebuilds regular row-and-column tables as native PowerPoint tables with editable cells, row/column dimensions, rectangular merges, and basic styling.
 - Supports hybrid reconstruction: editable text, simple native shapes, and independent image assets.
 - Supports complete native curve paths, dash styles, and endpoint arrows for editing a whole line’s shape and style; curve paths are not data-linked charts. In PowerPoint, right-click a curve, choose **Edit Points**, select an endpoint or vertex, and drag its white control handle to adjust curvature.
 
@@ -220,7 +221,7 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
 - Single-page or single-image input can be rebuilt locally by the main agent; multi-page input is rebuilt in parallel through page workers/subagents.
 - Complex visual assets need either the built-in image tool or the CLI fallback. If neither can produce a compliant asset, the page fails validation instead of substituting approximate shapes.
 - Complex photos, illustrations, textures, and hand-drawn decorations are usually movable image assets, not internally editable PowerPoint objects.
-- Tables, charts, and diagrams should only be rebuilt as native objects when confidence is high enough; otherwise keep them as assets and document the limit.
+- Native tables do not yet support diagonal headers or images embedded in cells. Unclear text, rows, columns, or merges require clarification rather than guessed content or structure. Charts and flowcharts continue to use editable structural objects.
 - Visual similarity is not enough. Acceptance should check package structure, editable text coverage, asset provenance, preview, and diff.
 
 ## Repository Layout

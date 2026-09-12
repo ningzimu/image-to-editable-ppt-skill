@@ -36,8 +36,8 @@ Work through the page in this order:
 1. Build the page inventory (Pre-Decision Checklist in page-decision-tree.md).
 2. Decide the background (page-decision-tree.md section 1) and record `background_strategy`.
 3. Decide and separate foreground assets (section 2). Run step-1/2 image jobs serially through the backend order above; do not use a batch interface. Put icons/foreground objects onto one sparse asset sheet when they fit, with generous gaps between objects for clean splitting; create multiple sheets only when one sheet cannot fit them. After each selected local output, record and process it with `editppt image import` and `editppt image process-sheet`.
-4. Rebuild native text, shapes, and tables (section 3). Fill `text_boxes` from the measured text hints per section 3.1; render formulas with `editppt formula render-latex` per section 3.2.
-5. Write manifest.json following the field contracts in manifest-schema.md, including `text_inventory`, `visual_inventory`, `background_strategy`, `quality_checks`, and positioned `text_boxes`/`images`/`shapes`.
+4. Rebuild native text, shapes, and tables (section 3). Use measured text hints per section 3.1 and native table decisions per section 3.3; render formulas with `editppt formula render-latex` per section 3.2.
+5. Write manifest.json following the field contracts in manifest-schema.md, including `text_inventory`, `visual_inventory`, `background_strategy`, `quality_checks`, and positioned `text_boxes`/`images`/`shapes`/`tables` (see "Native tables" for the table contract).
 6. Build the artifacts with the deterministic runtime: `editppt page build {{PAGE_DIR}}` (writes page.pptx and preview.png from manifest.json), then `editppt page contact-sheet {{PAGE_DIR}}`, then `editppt page validate {{PAGE_DIR}}` — it runs the same manifest-contract checks `editppt run record` will run, so fix every reported issue here, inside the page.
 
 The Page dir must contain when you return:

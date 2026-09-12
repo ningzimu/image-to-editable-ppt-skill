@@ -232,7 +232,7 @@ def page_contract_violations(manifest):
     violations = []
     slide = manifest.get("slide", {})
     images = manifest.get("images", [])
-    text_boxes = manifest.get("text_boxes", [])
+    text_boxes = manifest.get("text_boxes", []) or manifest.get("tables", [])
     provenance_by_path = {
         Path(entry.get("path", "")).as_posix(): entry
         for entry in manifest.get("asset_provenance", [])
@@ -355,13 +355,13 @@ def pixel_authoring_violations(manifest):
             }
         )
 
-    for section in ("text_boxes", "images"):
+    for section in ("text_boxes", "images", "tables"):
         for index, item in enumerate(manifest.get(section, [])):
             if "box_px" not in item:
                 violations.append(
                     {
                         "field": f"{section}[{index}].box_px",
-                        "reason": "positioned text and image objects must use source-image pixel coordinates",
+                        "reason": "positioned text, image, and table objects must use source-image pixel coordinates",
                     }
                 )
 
@@ -420,6 +420,34 @@ def line_geometry_violations(manifest, root):
     return violations
 
 
+def table_structure_violations(manifest, root):
+    """Verify native table geometry, cells, merges and formatting in the actual PPTX."""
+    def frames(slide):
+        return [frame for frame in slide.findall(".//p:graphicFrame", NS)
+                if frame.find("a:graphic/a:graphicData/a:tbl", NS) is not None]
+
+    actual = frames(root)
+    if len(actual) != len(manifest.get("tables", [])):
+        return [{"field": "tables", "reason": "native table count differs from manifest"}]
+    if not actual:
+        return []
+    expected = frames(ET.fromstring(slide_xml(normalize_manifest(manifest))))
+
+    def structure(node):
+        if node is None:
+            return None
+        return (node.tag, sorted(node.attrib.items()), node.text if node.tag == f"{{{NS['a']}}}t" else None,
+                [structure(child) for child in node])
+
+    violations = []
+    for index, (wanted, found) in enumerate(zip(expected, actual)):
+        for path in ("p:xfrm", "a:graphic"):
+            if structure(wanted.find(path, NS)) != structure(found.find(path, NS)):
+                violations.append({"field": f"tables[{index}]", "reason": "native table geometry, content, merges or style differs from manifest"})
+                break
+    return violations
+
+
 def sha256_text(value):
     return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
 
@@ -454,6 +482,9 @@ def required_texts_from_manifest(manifest):
     required = []
     required.extend(flatten_required_text(manifest.get("required_text", [])))
     required.extend(flatten_required_text(manifest.get("text_inventory", [])))
+    for table in manifest.get("tables", []):
+        for text in flatten_required_text(table.get("cells", [])):
+            required.extend(line for line in text.splitlines() if line)
     return required
 
 
@@ -567,7 +598,9 @@ def validate_deck(args):
             for page_index, page_manifest in geometry_manifests:
                 slide_part = f"ppt/slides/slide{page_index}.xml"
                 if slide_part in names:
-                    violations = line_geometry_violations(page_manifest, ET.fromstring(z.read(slide_part)))
+                    slide_root = ET.fromstring(z.read(slide_part))
+                    violations = (line_geometry_violations(page_manifest, slide_root)
+                                  + table_structure_violations(page_manifest, slide_root))
                     if violations:
                         report["page_contract_violations"].append({"page_index": page_index, "violations": violations})
             for part in ("[Content_Types].xml", "_rels/.rels", "ppt/presentation.xml", "ppt/_rels/presentation.xml.rels"):
@@ -673,6 +706,8 @@ def main():
         "slides": 0,
         "images": 0,
         "editable_text_shapes": 0,
+        "native_tables": 0,
+        "editable_table_cells": 0,
         "shape_count": 0,
         "all_text": "",
         "required_text": required,
@@ -691,6 +726,7 @@ def main():
         "warnings": [],
         "page_contract_violations": [],
         "line_geometry_violations": [],
+        "table_structure_violations": [],
     }
 
     try:
@@ -763,6 +799,15 @@ def main():
                 root = ET.fromstring(xml)
                 if not authoring_violations:
                     report["line_geometry_violations"].extend(line_geometry_violations(manifest, root))
+                    report["table_structure_violations"].extend(table_structure_violations(manifest, root))
+                tables = root.findall(".//a:tbl", NS)
+                report["native_tables"] += len(tables)
+                report["editable_table_cells"] += sum(
+                    1 for table in tables for cell in table.findall("a:tr/a:tc", NS)
+                    if cell.get("hMerge", "0") not in ("1", "true")
+                    and cell.get("vMerge", "0") not in ("1", "true")
+                    and any(node.text for node in cell.findall(".//a:t", NS))
+                )
                 shapes = root.findall(".//p:sp", NS)
                 report["shape_count"] += len(shapes)
                 report["editable_text_shapes"] += sum(1 for shape in shapes if shape.findall(".//a:t", NS))
@@ -832,7 +877,8 @@ def main():
         and not report["invalid_asset_provenance"]
         and not report["page_contract_violations"]
         and not report["line_geometry_violations"]
-        and (report["editable_text_shapes"] > 0 or not required)
+        and not report["table_structure_violations"]
+        and (report["editable_text_shapes"] > 0 or report["editable_table_cells"] > 0 or not required)
     )
 
     output = json.dumps(report, ensure_ascii=False, indent=2)

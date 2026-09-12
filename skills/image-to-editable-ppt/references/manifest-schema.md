@@ -9,7 +9,7 @@ This document describes the responsibilities, owners, and current field contract
 - `page_request.json`
 - `page_result.json`
 - `pages/page_NNN/validation.json`
-- `pages/page_NNN/manifest.json`
+- `pages/page_NNN/manifest.json` (including Native tables)
 - `pages/page_NNN/imagegen-jobs.json`
 - Asset sheet regions and split reports
 - `notes_manifest.json`
@@ -178,6 +178,12 @@ Purpose: page-level deliverability conclusion.
 
 `line_geometry_violations` records mismatches between declared paths/stroke styles and the actual PPTX objects. A non-empty list fails page validation; final deck validation reports these mismatches under `page_contract_violations`.
 
+Native table validation report fields:
+
+- `native_tables`: number of native table objects in the PPTX.
+- `editable_table_cells`: number of table cells containing native DrawingML text (`a:t`). These cells satisfy editable-text checks, including on table-only pages.
+- `table_structure_violations`: differences between manifest tables and the built PPTX. A non-empty list fails validation; final deck validation also rechecks native table structure.
+
 Must contain at top level:
 
 ```json
@@ -220,12 +226,44 @@ Positioned build object requirements:
 
 - Every `text_boxes[]` item must have `box_px`. Text in `text_inventory` does not create a positioned text box.
 - Every `images[]` item must have `box_px`.
+- Every `tables[]` item must have `box_px` with positive width and height.
 - Every non-line `shapes[]` item must have `box_px`.
 - Every line shape must have `points_px`.
 
-`text_inventory` and `visual_inventory` are only inventories; they do not substitute for positioned `text_boxes`, `images`, and `shapes`. The manifest must be sufficient to rebuild the page without reading any custom page script.
+`text_inventory` and `visual_inventory` are only inventories; they do not substitute for positioned `text_boxes`, `images`, `shapes`, and `tables`. The manifest must be sufficient to rebuild the page without reading any custom page script.
 
 Missing coordinates are page-contract violations. The runtime must reject them during `editppt run record` and deck validation because otherwise missing values fall back to default positions such as the top-left corner.
+
+**Native tables**
+
+`tables` is optional and defaults to `[]`, preserving existing manifests. Each item builds one native DrawingML `a:tbl` object. Object-source decisions live in `page-decision-tree.md` section 3.3, "Structural Primitives and Layout Objects."
+
+- `id` optionally names the table; `z_index` defaults to `250`.
+- `box_px: [x, y, width, height]` positions the entire table in source pixels, using the same content-area mapping as other objects.
+- `cells` is a non-empty rectangular two-dimensional array. Each slot is a string or an object with `text`, optional `row_span` / `col_span`, and optional `style`. Spans are positive integers and default to `1`.
+- `column_widths` and `row_heights` are optional lists of positive relative weights, with exactly one weight per column or row. They scale to the table box; omitted lists assign equal sizes.
+- A merged rectangle is declared only in its top-left cell. All covered slots must be `""`, `{}`, or `{"text": ""}`. Overlapping merges, out-of-grid spans, and content or style in covered slots are rejected.
+- `style` on the table supplies cell defaults; `cells[r][c].style` overrides individual fields. Supported fields are `font`, `font_size`, `color`, `bold`, `italic`, `align`, `valign`, `wrap`, `fit_text`, `fill`, `stroke`, `stroke_width`, and `margin_left`, `margin_right`, `margin_top`, `margin_bottom`.
+- Defaults: `font: "PingFang SC"`, `font_size: 18` points, `color: "#111111"`, `align: "left"`, `valign: "top"`, `wrap: "none"`, `fill: "#FFFFFF"`, `stroke: "#000000"`, `stroke_width: 1` point, and each margin `0.05` inches. Font fitting is enabled by default. Alignment values follow "Text alignment" below.
+- Cell strings, including newline-separated text, participate in text coverage validation.
+
+Example with a merged header and two data columns:
+
+```json
+{
+  "tables": [{
+    "id": "results",
+    "box_px": [80, 120, 640, 180],
+    "column_widths": [2, 1],
+    "row_heights": [1, 1],
+    "style": {"font_size": 16, "valign": "middle"},
+    "cells": [
+      [{"text": "Results", "col_span": 2, "style": {"bold": true, "fill": "#E8EEF5"}}, ""],
+      ["Completed", "24"]
+    ]
+  }]
+}
+```
 
 **Native paths and stroke styles**
 

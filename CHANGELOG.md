@@ -4,6 +4,10 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ## Unreleased
 
+### Features
+
+- Build native PowerPoint tables with editable cells, proportional row and column sizing, rectangular merges, and shared build, preview, and validation support.
+
 ### Improvements
 
 - Add whole-object region splitting that retains disconnected details after chroma-key removal; keep flat-color asset generation as the default and fix processing of already-transparent supplied sheets.

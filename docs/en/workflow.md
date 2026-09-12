@@ -13,6 +13,8 @@ This page describes the complete conversion process from input to final `.pptx`,
 
 Asset sheets use a flat background color distinct from the subjects by default. After background removal, whole-object regions preserve disconnected details during cropping. Successful splitting still requires checking each asset against the source.
 
+Rebuilds regular row-and-column tables as native PowerPoint tables with editable cells, row/column dimensions, rectangular merges, and basic styling.
+
 ## Input-to-Output Mapping
 
 The output is always a PowerPoint `.pptx`:
@@ -62,7 +64,7 @@ output/image-to-editable-ppt/{job-id}/        # Conversion task directory
 
 - This skill reconstructs an input page as editable objects; it does not generate a new presentation from scratch. That is the responsibility of [codex-ppt-skill](https://github.com/ningzimu/codex-ppt-skill).
 - Complex visual elements such as photos, illustrations, textures, and hand-drawn decoration can usually be moved only as separate image assets; their internal objects are not guaranteed to be editable.
-- For structured regions such as tables, charts, and flowcharts, the skill prioritizes preserving editable semantics. When confidence is low, it keeps the region as an asset and explains the choice in the validation report.
+- Native tables do not yet support diagonal headers or images embedded in cells. Unclear text, rows, columns, or merges require clarification rather than guessed content or structure. Charts and flowcharts continue to use editable structural objects.
 - Some image elements and text positions may be slightly offset. A 100% match to the source page is not guaranteed.
 - If the defined image generation or editing path cannot produce a compliant asset, the page fails or remains blocked. The skill does not downgrade the missing asset to a warning, nor does it record, finalize, or deliver an incomplete substitute.
 - Visual similarity does not guarantee editability. Final evaluation should consider the PPTX structure, text coverage, asset provenance, and preview/diff together.
