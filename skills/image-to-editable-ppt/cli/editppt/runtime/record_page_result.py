@@ -96,19 +96,26 @@ def main():
         raise SystemExit(
             f"{page['page_id']} validation.json does not contain top-level \"passed\": true; "
             "the page is not deliverable and was not recorded. Inspect the worker's "
-            "validation.json for the failure reason, fix the root cause, then run "
-            f"`editppt run reset {run_dir} --page {page['page_id']} "
-            f"--agent-id {args.agent_id} --confirm-lost` and dispatch a new worker."
+            "validation.json for the failure reason. Keep the current worker or local owner, "
+            "verify and preserve valid artifacts, and repair only the affected outputs. "
+            f"Run `editppt page validate {page_dir} --report {validation_path}`, then repeat "
+            f"`editppt run record {run_dir} --page {page['page_id']} --agent-id {args.agent_id}`."
         )
     paths = {key: output_path(page_dir, result, key, default) for key, default in REQUIRED_OUTPUTS.items()}
     validate_page_contract(paths)
     hashes = {key: sha256_file(path) for key, path in paths.items()}
+    manifest = read_json(paths["page_manifest"])
+    asset_hashes = {}
+    for item in manifest.get("images", []):
+        asset = inside_or_missing(paths["page_manifest"].parent, item["path"])
+        asset_hashes[rel_to_run(run_dir, asset)] = sha256_file(asset)
     page["result"] = {
         "agent_id": args.agent_id,
         "record_mode": record_mode,
         "recorded_at": now_iso(),
         "outputs": {key: rel_to_run(run_dir, path) for key, path in paths.items()},
         "hashes": hashes,
+        "asset_hashes": asset_hashes,
         "validation_passed": validation_passed,
     }
     page["status"] = "recorded"

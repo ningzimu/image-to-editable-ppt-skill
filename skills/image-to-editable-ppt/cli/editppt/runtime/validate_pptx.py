@@ -109,22 +109,9 @@ def read_manifest(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def compact_text(value):
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value.lower()
-    if isinstance(value, (int, float, bool)):
-        return str(value).lower()
-    if isinstance(value, dict):
-        return " ".join(compact_text(item) for item in value.values())
-    if isinstance(value, (list, tuple, set)):
-        return " ".join(compact_text(item) for item in value)
-    return str(value).lower()
-
-
 def contains_any(text, terms):
-    return any(term in text for term in terms)
+    # English terms are words, not substrings (e.g. mark != benchmark).
+    return any(re.search(r"(?<![a-z0-9])" + re.escape(term) + r"(?![a-z0-9])", text.lower()) for term in terms)
 
 
 def visual_item_path(item):
@@ -136,80 +123,73 @@ def visual_item_path(item):
 
 
 def is_foreground_visual_item(item):
-    text = compact_text(item)
+    if isinstance(item, dict):
+        role = item.get("role")
+        if role in {"foreground", "background", "structure", "formula"}:
+            return role == "foreground"
+        # Free-form notes, file names and provenance explanations are not types.
+        text = str(item.get("object_type") or item.get("description") or "")
+    else:
+        text = str(item)
     if contains_any(text, NON_FOREGROUND_TERMS):
         return False
     return contains_any(text, FOREGROUND_TERMS)
 
 
+def has_forbidden_decision(decision):
+    # Legacy decisions may describe the method in prose; ignore simple negative
+    # statements, but never mine arbitrary notes for forbidden keywords.
+    text = str(decision).lower()
+    terms = "|".join(re.escape(term) for term in sorted(FORBIDDEN_FOREGROUND_FALLBACK_TERMS, key=len, reverse=True))
+    text = re.sub(r"\b(?:no|not|without|never)(?:\s+using)?\s+(?:" + terms + r")(?![a-z0-9])", "", text)
+    text = re.sub(r"(?:没有|未使用|不使用|无需|禁止)(?:" + terms + r")", "", text)
+    return contains_any(text, FORBIDDEN_FOREGROUND_FALLBACK_TERMS)
+
+
 def foreground_asset_contract_violations(manifest):
     violations = []
+    allowed_foreground_sources = {"asset-sheet-separated", "imagegen"}
     provenance_by_path = {
-        Path(entry.get("path", "")).as_posix(): entry
+        Path(entry["path"]).as_posix(): entry
         for entry in manifest.get("asset_provenance", [])
-        if entry.get("path")
+        if isinstance(entry, dict) and entry.get("path")
     }
+    foreground_paths = set()
 
     for index, item in enumerate(manifest.get("visual_inventory", [])):
-        if not isinstance(item, dict):
-            continue
-        text = compact_text(item)
         field = f"visual_inventory[{index}]"
-        if contains_any(text, FORBIDDEN_FOREGROUND_FALLBACK_TERMS):
-            violations.append(
-                {
-                    "field": field,
-                    "reason": "foreground visual decisions must not use direct crops, native approximations, emoji/text symbols, warning-only fallbacks, or similar shortcuts",
-                }
-            )
+        if isinstance(item, dict) and "role" in item and item["role"] not in {"foreground", "background", "structure", "formula"}:
+            violations.append({"field": field + ".role", "reason": "role must be foreground, background, structure, or formula"})
         if not is_foreground_visual_item(item):
             continue
-        if not contains_any(text, ASSET_SHEET_TERMS):
-            violations.append(
-                {
-                    "field": field,
-                    "reason": "foreground visual objects must explicitly use source-faithful asset-sheet separation",
-                }
-            )
+        structured = isinstance(item, dict) and any(key in item for key in ("role", "object_type", "source_type"))
+        decision = item.get("decision", "") if isinstance(item, dict) else item
+        declared_source = item.get("source_type") if isinstance(item, dict) else None
+        if (not structured and has_forbidden_decision(decision)) or (declared_source is not None and declared_source not in allowed_foreground_sources):
+            violations.append({"field": field, "reason": "foreground visual decisions must not use direct crops, native approximations, emoji/text symbols, or warning-only fallbacks"})
         path = visual_item_path(item)
         if path:
-            provenance = provenance_by_path.get(path, {})
-            source_type = provenance.get("source_type")
-            if source_type in {"user-provided", "user-approved-rasterization"}:
-                violations.append(
-                    {
-                        "field": field,
-                        "path": path,
-                        "reason": "foreground visual objects cannot use user-provided/direct raster provenance; use asset-sheet separation",
-                    }
-                )
+            foreground_paths.add(path)
+            provenance = provenance_by_path.get(path)
+            if not provenance or provenance.get("source_type") not in allowed_foreground_sources:
+                violations.append({"field": field, "path": path, "reason": "foreground visual objects require matching asset-sheet-separated or imagegen provenance"})
+            elif declared_source is not None and declared_source != provenance.get("source_type"):
+                violations.append({"field": field + ".source_type", "path": path, "reason": "source_type must match the linked asset provenance"})
+        elif structured:
+            violations.append({"field": field, "reason": "structured foreground visual objects require an asset path linked to provenance"})
+        elif not contains_any(str(decision), ASSET_SHEET_TERMS) or not any(
+            entry.get("source_type") in allowed_foreground_sources for entry in provenance_by_path.values()
+        ):
+            # Legacy inventories sometimes summarize several assets without paths.
+            # Keep them readable, but a claim of separation alone is not evidence.
+            violations.append({"field": field, "reason": "legacy foreground visual objects require an asset-sheet separation decision and matching permitted asset provenance"})
 
     for index, entry in enumerate(manifest.get("asset_provenance", [])):
         if not isinstance(entry, dict):
             continue
-        text = compact_text(entry)
-        source_type = entry.get("source_type")
         path = Path(entry.get("path", "")).as_posix()
-        field = f"asset_provenance[{index}]"
-        if source_type in {"user-provided", "user-approved-rasterization"} and contains_any(
-            text, FOREGROUND_TERMS | FORBIDDEN_FOREGROUND_FALLBACK_TERMS
-        ):
-            violations.append(
-                {
-                    "field": field,
-                    "path": path,
-                    "reason": "foreground-like raster provenance cannot be direct user-provided/cropped source material",
-                }
-            )
-        if contains_any(text, FORBIDDEN_FOREGROUND_FALLBACK_TERMS):
-            violations.append(
-                {
-                    "field": field,
-                    "path": path,
-                    "reason": "asset provenance records a forbidden foreground fallback such as crop, approximation, or warning-only delivery",
-                }
-            )
-
+        if (path in foreground_paths or is_foreground_visual_item(entry)) and entry.get("source_type") not in allowed_foreground_sources:
+            violations.append({"field": f"asset_provenance[{index}]", "path": path, "reason": "foreground asset provenance must use asset-sheet-separated or imagegen"})
     return violations
 
 
@@ -232,7 +212,7 @@ def page_contract_violations(manifest):
     violations = []
     slide = manifest.get("slide", {})
     images = manifest.get("images", [])
-    text_boxes = manifest.get("text_boxes", [])
+    text_boxes = manifest.get("text_boxes", []) or manifest.get("tables", [])
     provenance_by_path = {
         Path(entry.get("path", "")).as_posix(): entry
         for entry in manifest.get("asset_provenance", [])
@@ -355,13 +335,13 @@ def pixel_authoring_violations(manifest):
             }
         )
 
-    for section in ("text_boxes", "images"):
+    for section in ("text_boxes", "images", "tables"):
         for index, item in enumerate(manifest.get(section, [])):
             if "box_px" not in item:
                 violations.append(
                     {
                         "field": f"{section}[{index}].box_px",
-                        "reason": "positioned text and image objects must use source-image pixel coordinates",
+                        "reason": "positioned text, image, and table objects must use source-image pixel coordinates",
                     }
                 )
 
@@ -420,6 +400,34 @@ def line_geometry_violations(manifest, root):
     return violations
 
 
+def table_structure_violations(manifest, root):
+    """Verify native table geometry, cells, merges and formatting in the actual PPTX."""
+    def frames(slide):
+        return [frame for frame in slide.findall(".//p:graphicFrame", NS)
+                if frame.find("a:graphic/a:graphicData/a:tbl", NS) is not None]
+
+    actual = frames(root)
+    if len(actual) != len(manifest.get("tables", [])):
+        return [{"field": "tables", "reason": "native table count differs from manifest"}]
+    if not actual:
+        return []
+    expected = frames(ET.fromstring(slide_xml(normalize_manifest(manifest))))
+
+    def structure(node):
+        if node is None:
+            return None
+        return (node.tag, sorted(node.attrib.items()), node.text if node.tag == f"{{{NS['a']}}}t" else None,
+                [structure(child) for child in node])
+
+    violations = []
+    for index, (wanted, found) in enumerate(zip(expected, actual)):
+        for path in ("p:xfrm", "a:graphic"):
+            if structure(wanted.find(path, NS)) != structure(found.find(path, NS)):
+                violations.append({"field": f"tables[{index}]", "reason": "native table geometry, content, merges or style differs from manifest"})
+                break
+    return violations
+
+
 def sha256_text(value):
     return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
 
@@ -454,6 +462,9 @@ def required_texts_from_manifest(manifest):
     required = []
     required.extend(flatten_required_text(manifest.get("required_text", [])))
     required.extend(flatten_required_text(manifest.get("text_inventory", [])))
+    for table in manifest.get("tables", []):
+        for text in flatten_required_text(table.get("cells", [])):
+            required.extend(line for line in text.splitlines() if line)
     return required
 
 
@@ -567,7 +578,9 @@ def validate_deck(args):
             for page_index, page_manifest in geometry_manifests:
                 slide_part = f"ppt/slides/slide{page_index}.xml"
                 if slide_part in names:
-                    violations = line_geometry_violations(page_manifest, ET.fromstring(z.read(slide_part)))
+                    slide_root = ET.fromstring(z.read(slide_part))
+                    violations = (line_geometry_violations(page_manifest, slide_root)
+                                  + table_structure_violations(page_manifest, slide_root))
                     if violations:
                         report["page_contract_violations"].append({"page_index": page_index, "violations": violations})
             for part in ("[Content_Types].xml", "_rels/.rels", "ppt/presentation.xml", "ppt/_rels/presentation.xml.rels"):
@@ -673,6 +686,8 @@ def main():
         "slides": 0,
         "images": 0,
         "editable_text_shapes": 0,
+        "native_tables": 0,
+        "editable_table_cells": 0,
         "shape_count": 0,
         "all_text": "",
         "required_text": required,
@@ -691,6 +706,7 @@ def main():
         "warnings": [],
         "page_contract_violations": [],
         "line_geometry_violations": [],
+        "table_structure_violations": [],
     }
 
     try:
@@ -763,6 +779,15 @@ def main():
                 root = ET.fromstring(xml)
                 if not authoring_violations:
                     report["line_geometry_violations"].extend(line_geometry_violations(manifest, root))
+                    report["table_structure_violations"].extend(table_structure_violations(manifest, root))
+                tables = root.findall(".//a:tbl", NS)
+                report["native_tables"] += len(tables)
+                report["editable_table_cells"] += sum(
+                    1 for table in tables for cell in table.findall("a:tr/a:tc", NS)
+                    if cell.get("hMerge", "0") not in ("1", "true")
+                    and cell.get("vMerge", "0") not in ("1", "true")
+                    and any(node.text for node in cell.findall(".//a:t", NS))
+                )
                 shapes = root.findall(".//p:sp", NS)
                 report["shape_count"] += len(shapes)
                 report["editable_text_shapes"] += sum(1 for shape in shapes if shape.findall(".//a:t", NS))
@@ -832,7 +857,8 @@ def main():
         and not report["invalid_asset_provenance"]
         and not report["page_contract_violations"]
         and not report["line_geometry_violations"]
-        and (report["editable_text_shapes"] > 0 or not required)
+        and not report["table_structure_violations"]
+        and (report["editable_text_shapes"] > 0 or report["editable_table_cells"] > 0 or not required)
     )
 
     output = json.dumps(report, ensure_ascii=False, indent=2)

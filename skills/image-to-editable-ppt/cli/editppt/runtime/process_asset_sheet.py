@@ -64,7 +64,7 @@ def mark_processed(page_dir, args):
 def main():
     parser = argparse.ArgumentParser(
         prog="editppt image process-sheet",
-        description="Remove chroma key and split an imagegen asset sheet.",
+        description="Preserve transparent input or remove chroma key, then split an asset sheet.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
   editppt image process-sheet <page_dir> --job-id icon-sheet-1 --asset-sheet-source assets/sheet.png --asset-names icon-a,icon-b
@@ -76,12 +76,13 @@ def main():
     parser.add_argument("--chroma", help="Intermediate chroma-key output path relative to page_dir. Defaults to a job-scoped path when --job-id is set.")
     parser.add_argument("--alpha", help="Transparent sheet output path relative to page_dir. Defaults to a job-scoped path when --job-id is set.")
     parser.add_argument("--skip-chroma", action="store_true", help="Skip chroma-key removal when processing an already-transparent sheet.")
-    parser.add_argument("--force-chroma", action="store_true", help="Run chroma-key removal even if the alpha output already exists.")
+    parser.add_argument("--force-chroma", action="store_true", help="Allow replacing an existing alpha output; transparent input always preserves its original alpha.")
     parser.add_argument("--despill", action="store_true", help="Reduce remaining chroma color around extracted asset edges.")
     parser.add_argument("--skip-split", action="store_true", help="Do not auto-split connected alpha components.")
     parser.add_argument("--transparent-threshold", default="12", help="RGB distance threshold treated as fully transparent during chroma removal.")
     parser.add_argument("--opaque-threshold", default="220", help="RGB distance threshold treated as fully opaque during chroma removal.")
     parser.add_argument("--assets-dir", default="assets", help="Output directory for split assets, relative to page_dir.")
+    parser.add_argument("--regions", help="JSON object regions in generated-sheet pixels; relative path resolved under page_dir.")
     parser.add_argument("--asset-names", help="Comma-separated names assigned to split assets in visual order.")
     parser.add_argument("--split-sort", choices=["x", "y", "area"], default="x", help="Sort extracted alpha components by x position, y position, or area.")
     parser.add_argument("--split-min-area", default="1000", help="Minimum connected-component pixel area to keep as an extracted asset.")

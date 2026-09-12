@@ -1,4 +1,5 @@
 import io
+import hashlib
 import json
 import os
 import subprocess
@@ -163,6 +164,16 @@ def write_page_outputs(page_dir, text="Valid Page", validation_passed=True, mani
             "page_result": "page_result.json",
         },
     )
+
+
+def recorded_fixture(run_dir, page_dir):
+    # These finalize-only fixtures bypass recording to exercise final construction.
+    outputs = {path.name: str(path.relative_to(run_dir)) for path in page_dir.iterdir() if path.is_file()}
+    return {
+        "validation_passed": True,
+        "outputs": outputs,
+        "hashes": {key: hashlib.sha256((run_dir / value).read_bytes()).hexdigest() for key, value in outputs.items()},
+    }
 
 
 class MultiAgentBackendTest(unittest.TestCase):
@@ -342,7 +353,9 @@ class MultiAgentBackendTest(unittest.TestCase):
             page_dir = Path(tmp) / "pages/page_001"
             assets_dir = page_dir / "assets"
             assets_dir.mkdir(parents=True)
-            Image.new("RGB", (24, 24), "#ff00ff").save(assets_dir / "sheet.png")
+            sheet = Image.new("RGBA", (24, 24), (0, 0, 0, 0))
+            sheet.paste((255, 0, 255, 180), (4, 4, 20, 20))
+            sheet.save(assets_dir / "sheet.png")
 
             result = subprocess.run(
                 [
@@ -354,7 +367,7 @@ class MultiAgentBackendTest(unittest.TestCase):
                     str(page_dir),
                     "--asset-sheet-source",
                     "assets/sheet.png",
-                    "--chroma",
+                    "--alpha",
                     "copied-sheet.png",
                     "--skip-chroma",
                     "--skip-split",
@@ -365,6 +378,8 @@ class MultiAgentBackendTest(unittest.TestCase):
             )
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertTrue((page_dir / "copied-sheet.png").exists())
+            with Image.open(page_dir / "copied-sheet.png") as copied:
+                self.assertEqual(copied.tobytes(), sheet.tobytes())
 
     def test_process_sheet_scopes_default_outputs_by_job_id(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -884,11 +899,11 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertEqual(0, prompt.returncode, prompt.stderr)
             prompt_text = prompt_path.read_text(encoding="utf-8")
             self.assertIn(str(run_dir), prompt_text)
-            self.assertIn(str(ROOT / "skills/image-to-editable-ppt/references/page-decision-tree.md"), prompt_text)
-            self.assertIn("image_gen.imagegen", prompt_text)
-            self.assertIn("referenced_image_paths", prompt_text)
-            self.assertIn("Missing `mask`, `model`, `size`, `quality`, or `out` never triggers fallback", prompt_text)
-            self.assertIn('never a scanned "newest" file', prompt_text)
+            self.assertIn(str(ROOT / "skills/image-to-editable-ppt") + "/references/", prompt_text)
+            for reference in ("page-decision-tree.md", "manifest-schema.md", "cli-helper.md"):
+                self.assertIn(reference, prompt_text)
+                self.assertTrue((ROOT / "skills/image-to-editable-ppt/references" / reference).is_file())
+            self.assertIn("image_backend", prompt_text)
 
             local_dispatch = subprocess.run(
                 [
@@ -1112,7 +1127,11 @@ class MultiAgentBackendTest(unittest.TestCase):
             write_json(run_dir / "page_jobs.json", jobs)
 
             page_dir = run_dir / "pages/page_002"
-            write_page_outputs(page_dir, "Worker Page")
+            Image.new("RGB", (4, 4), "white").save(page_dir / "asset.png")
+            manifest = valid_page_manifest("Worker Page")
+            manifest["images"] = [{"path": "asset.png", "box_px": [100, 300, 40, 40]}]
+            manifest["asset_provenance"] = [{"path": "asset.png", "source_type": "imagegen", "source": "asset.png", "provenance_note": "Generated fixture"}]
+            write_page_outputs(page_dir, manifest=manifest)
 
             result = subprocess.run(
                 [
@@ -1133,6 +1152,10 @@ class MultiAgentBackendTest(unittest.TestCase):
             self.assertEqual("dispatched-worker", result_payload["record_mode"])
             self.assertNotIn("qa_note", result_payload)
             self.assertNotIn("known_limits", result_payload)
+            self.assertEqual(
+                {"pages/page_002/asset.png": hashlib.sha256((page_dir / "asset.png").read_bytes()).hexdigest()},
+                result_payload["asset_hashes"],
+            )
 
     def test_record_page_result_rejects_manifest_without_positioned_boxes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1177,6 +1200,8 @@ class MultiAgentBackendTest(unittest.TestCase):
 
             page_dir = run_dir / "pages/page_002"
             write_page_outputs(page_dir, "Refresh Page", validation_passed=False)
+            before = {path: path.read_bytes() for path in page_dir.rglob("*") if path.is_file()}
+            jobs_before = (run_dir / "page_jobs.json").read_bytes()
 
             first = subprocess.run(
                 [
@@ -1193,11 +1218,15 @@ class MultiAgentBackendTest(unittest.TestCase):
             )
             self.assertNotEqual(0, first.returncode)
             self.assertIn("passed", first.stdout + first.stderr)
-            self.assertIn("run reset", first.stdout + first.stderr)
+            self.assertNotIn("run reset", first.stdout + first.stderr)
+            self.assertIn("Keep the current worker or local owner", first.stdout + first.stderr)
             jobs = read_json(run_dir / "page_jobs.json")
             self.assertEqual("dispatched", jobs["pages"][1]["status"])
 
-            write_json(page_dir / "validation.json", {"passed": True})
+            self.assertEqual(jobs_before, (run_dir / "page_jobs.json").read_bytes())
+            self.assertEqual(before, {path: path.read_bytes() for path in page_dir.rglob("*") if path.is_file()})
+            validation = run_cli("page", "validate", page_dir, "--report", "validation.json")
+            self.assertEqual(0, validation.returncode, validation.stdout + validation.stderr)
             second = subprocess.run(
                 [
                     sys.executable,
@@ -1330,6 +1359,35 @@ class MultiAgentBackendTest(unittest.TestCase):
             )
             self.assertEqual(0, validate.returncode, validate.stdout + validate.stderr)
 
+    def test_finalize_rejects_changed_recorded_manifest_or_asset(self):
+        for changed in ("manifest.json", "asset.png"):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as tmp:
+                run_dir = make_minimal_run(tmp)
+                jobs = read_json(run_dir / "page_jobs.json")
+                for page in jobs["pages"]:
+                    page_dir = run_dir / page["page_dir"]
+                    asset = page_dir / "asset.png"
+                    Image.new("RGB", (2, 2), "white").save(asset)
+                    manifest = valid_page_manifest()
+                    manifest["images"] = [{"path": "asset.png", "box_px": [100, 300, 40, 40]}]
+                    manifest["asset_provenance"] = [{"path": "asset.png", "source_type": "imagegen", "source": "asset.png", "provenance_note": "Generated fixture"}]
+                    write_page_outputs(page_dir, manifest=manifest)
+                    page["status"] = "dispatched"
+                    page["dispatch"] = {"agent_id": "worker-1"}
+                write_json(run_dir / "page_jobs.json", jobs)
+                for page in jobs["pages"]:
+                    record = run_cli("run", "record", run_dir, "--page", page["page_id"], "--agent-id", "worker-1")
+                    self.assertEqual(0, record.returncode, record.stdout + record.stderr)
+                jobs = read_json(run_dir / "page_jobs.json")
+                target = run_dir / "pages/page_001" / changed
+                target.write_bytes(target.read_bytes() + b"changed")
+                result = run_cli("run", "finalize", run_dir)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("recorded artifact changed or missing", result.stderr)
+                self.assertIn(changed, result.stderr)
+                self.assertFalse((run_dir / "final").exists())
+                self.assertEqual(jobs, read_json(run_dir / "page_jobs.json"))
+
     def test_finalize_rebuilds_final_deck_from_page_manifests(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = make_minimal_run(tmp)
@@ -1392,7 +1450,7 @@ class MultiAgentBackendTest(unittest.TestCase):
                     },
                 )
                 page["status"] = "recorded"
-                page["result"] = {"validation_passed": True}
+                page["result"] = recorded_fixture(run_dir, page_dir)
             write_json(run_dir / "page_jobs.json", jobs)
 
             result = subprocess.run(
@@ -1432,7 +1490,7 @@ class MultiAgentBackendTest(unittest.TestCase):
                 write_json(page_dir / "manifest.json", manifest)
                 write_json(page_dir / "validation.json", {"passed": True})
                 page["status"] = "recorded"
-                page["result"] = {"validation_passed": True}
+                page["result"] = recorded_fixture(run_dir, page_dir)
             write_json(run_dir / "page_jobs.json", jobs)
 
             result = subprocess.run(

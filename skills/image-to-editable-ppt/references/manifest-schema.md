@@ -9,8 +9,9 @@ This document describes the responsibilities, owners, and current field contract
 - `page_request.json`
 - `page_result.json`
 - `pages/page_NNN/validation.json`
-- `pages/page_NNN/manifest.json`
+- `pages/page_NNN/manifest.json` (including Native tables)
 - `pages/page_NNN/imagegen-jobs.json`
+- Asset sheet regions and split reports
 - `notes_manifest.json`
 
 ## `deck_manifest.json`
@@ -153,6 +154,8 @@ Includes:
 - validation path
 - page-local output hashes, which may be supplemented by `editppt run record`
 
+`editppt run record` stores output `hashes` and `asset_hashes` under the page entry’s `result` in `page_jobs.json`. Asset keys are run-relative paths from `manifest.images`, and values are SHA-256 digests. Finalization rejects missing or changed recorded files before building. Legacy records without `asset_hashes` retain output-hash checks but cannot verify image freshness.
+
 Minimal required shape (paths are relative to the page directory):
 
 ```json
@@ -176,6 +179,12 @@ Owner: created by the page reconstructor, read by `editppt run record`.
 Purpose: page-level deliverability conclusion.
 
 `line_geometry_violations` records mismatches between declared paths/stroke styles and the actual PPTX objects. A non-empty list fails page validation; final deck validation reports these mismatches under `page_contract_violations`.
+
+Native table validation report fields:
+
+- `native_tables`: number of native table objects in the PPTX.
+- `editable_table_cells`: number of table cells containing native DrawingML text (`a:t`). These cells satisfy editable-text checks, including on table-only pages.
+- `table_structure_violations`: differences between manifest tables and the built PPTX. A non-empty list fails validation; final deck validation also rechecks native table structure.
 
 Must contain at top level:
 
@@ -219,12 +228,44 @@ Positioned build object requirements:
 
 - Every `text_boxes[]` item must have `box_px`. Text in `text_inventory` does not create a positioned text box.
 - Every `images[]` item must have `box_px`.
+- Every `tables[]` item must have `box_px` with positive width and height.
 - Every non-line `shapes[]` item must have `box_px`.
 - Every line shape must have `points_px`.
 
-`text_inventory` and `visual_inventory` are only inventories; they do not substitute for positioned `text_boxes`, `images`, and `shapes`. The manifest must be sufficient to rebuild the page without reading any custom page script.
+`text_inventory` and `visual_inventory` are only inventories; they do not substitute for positioned `text_boxes`, `images`, `shapes`, and `tables`. The manifest must be sufficient to rebuild the page without reading any custom page script.
 
 Missing coordinates are page-contract violations. The runtime must reject them during `editppt run record` and deck validation because otherwise missing values fall back to default positions such as the top-left corner.
+
+**Native tables**
+
+`tables` is optional and defaults to `[]`, preserving existing manifests. Each item builds one native DrawingML `a:tbl` object. Object-source decisions live in `page-decision-tree.md` section 3.3, "Structural Primitives and Layout Objects."
+
+- `id` optionally names the table; `z_index` defaults to `250`.
+- `box_px: [x, y, width, height]` positions the entire table in source pixels, using the same content-area mapping as other objects.
+- `cells` is a non-empty rectangular two-dimensional array. Each slot is a string or an object with `text`, optional `row_span` / `col_span`, and optional `style`. Spans are positive integers and default to `1`.
+- `column_widths` and `row_heights` are optional lists of positive relative weights, with exactly one weight per column or row. They scale to the table box; omitted lists assign equal sizes.
+- A merged rectangle is declared only in its top-left cell. All covered slots must be `""`, `{}`, or `{"text": ""}`. Overlapping merges, out-of-grid spans, and content or style in covered slots are rejected.
+- `style` on the table supplies cell defaults; `cells[r][c].style` overrides individual fields. Supported fields are `font`, `font_size`, `color`, `bold`, `italic`, `align`, `valign`, `wrap`, `fit_text`, `fill`, `stroke`, `stroke_width`, and `margin_left`, `margin_right`, `margin_top`, `margin_bottom`.
+- Defaults: `font: "PingFang SC"`, `font_size: 18` points, `color: "#111111"`, `align: "left"`, `valign: "top"`, `wrap: "none"`, `fill: "#FFFFFF"`, `stroke: "#000000"`, `stroke_width: 1` point, and each margin `0.05` inches. Font fitting is enabled by default. Alignment values follow "Text alignment" below.
+- Cell strings, including newline-separated text, participate in text coverage validation.
+
+Example with a merged header and two data columns:
+
+```json
+{
+  "tables": [{
+    "id": "results",
+    "box_px": [80, 120, 640, 180],
+    "column_widths": [2, 1],
+    "row_heights": [1, 1],
+    "style": {"font_size": 16, "valign": "middle"},
+    "cells": [
+      [{"text": "Results", "col_span": 2, "style": {"bold": true, "fill": "#E8EEF5"}}, ""],
+      ["Completed", "24"]
+    ]
+  }]
+}
+```
 
 **Native paths and stroke styles**
 
@@ -260,7 +301,7 @@ Text-size fitting:
 
 - `text_boxes[].font_size` is treated as the requested font size. The deterministic builder may clamp it downward during normalization when the requested size is too large for the resolved source-pixel box.
 - Keep default fitting enabled for first drafts. Set `fit_text: false` only when the page author has manually calibrated the box and font size.
-- `text_boxes[].box_px` should describe the source text bounds plus modest padding. Do not use an entire card, chart, table cell group, or unrelated container as the text box, because the fitter can only infer size from the box it receives.
+- `text_boxes[].box_px` should describe the source text bounds plus modest padding. Do not use an unrelated card, chart, or table cell group as the text box, because the fitter infers size from the supplied box. Badge-centered text is the explicit shared-box exception in `page-decision-tree.md` section 3.6.
 - Optional tuning fields are `min_font_size`, `max_font_size`, `text_fit_safety`, and `line_height`.
 
 Text alignment:
@@ -303,10 +344,7 @@ Text alignment:
 - `source_type`: exactly one of `asset-sheet-separated`, `imagegen`, `latex-rendered-formula`, `user-provided`, `user-approved-rasterization`. No other value passes validation.
 - `provenance_note`: a non-empty explanation of how the asset was produced.
 
-Validation keyword-scans the free text of `visual_inventory` and `asset_provenance` entries:
-
-- An item whose description names a foreground object (icon, photo, logo, screenshot, badge, 图标, 照片, ...) must state its separation method in its text — include a term like "asset-sheet separated" / "image edit" / "分离" — unless the text marks it as background, formula, or native structure. Matching is substring-level, so words like "benchmark" or "trademark" also trigger the foreground check ("mark"); give native structural items an explicit "native structural" / "结构" marker in their description to exempt them.
-- Terms naming forbidden fallbacks — "crop", "approximation", "fallback", "emoji", "裁剪", "近似", "降级", and similar — fail validation wherever they appear in these texts, even inside negations such as "no crop". Describe what was done ("asset-sheet separated from source"), not what was avoided.
+New `visual_inventory` entries should declare `role` (`foreground`, `background`, `structure`, or `formula`) and may supply `object_type` (such as `icon` or `photo`). For `role: foreground`, supply `path` matching an image and its `asset_provenance`, plus `source_type` matching that provenance (`asset-sheet-separated` or `imagegen`). Descriptions and provenance notes explain the work; they are not keyword-based proof of the source method. Legacy entries remain supported; prefer these fields for unambiguous classification.
 
 `roundRect` shapes must record `source_corner_radius_px`; they may also record `corner_reason`. If the source is a straight-corner rectangle, use `rect`.
 
@@ -357,7 +395,7 @@ Allowed `corner_category` values: `straight`, `small-radius`, `large-radius`, `p
 }
 ```
 
-Formula images must be generated by `editppt formula render-latex`. Do not use source-image formula snippets, and do not assemble complex formulas from hand-written native text boxes.
+Formula source decisions and failure handling are defined in `page-decision-tree.md` section 3.2.
 
 ## `pages/page_NNN/imagegen-jobs.json`
 
@@ -388,6 +426,14 @@ Each imported job records at least the selected output and the backend that actu
 `backend` is the actual producer: `builtin-imagegen`, `codex-oauth`, or `openai-compatible-api`; `unknown` is reserved for legacy page directories that have no `image_backend` contract. `editppt image import` requires an explicit producer, rejects files that are not readable images, and checks `backend`/`fallback_reason` against the page contract. `fallback_reason` is `null` when the preferred backend succeeded or the run selected a CLI contract directly; when a built-in contract enters its CLI fallback, it records the matching event from `image_backend.fallback_policy.on`.
 
 State and provenance record rules are described in the State Principles section of `SKILL.md` and in the asset processing examples in `cli-helper.md`.
+
+## Asset sheet regions and split reports
+
+`asset-regions.json` is authored by the page reconstructor after inspecting the generated sheet. It contains `regions`, a nonempty array of `{ "name": "icon-a", "box": [x, y, width, height] }`. Names are unique safe filenames (PNG extension optional); coordinates are integer pixels of the **generated sheet**, not `source.png`. Boxes must have positive size, be inside the image, and not overlap. Each region must contain foreground surrounded by transparent margins; collectively regions cover all nonzero Alpha except the faint-residue allowance below. Empty grid slots are omitted.
+
+The split report records `source`, `assets`, and each asset's `path`, `source`, `box`, `padded_box`, `area`, `merged_count`, and `size`; region mode also records `region_box`. Report boxes are `[left, top, right, bottom]` in generated-sheet pixels, unlike the region input's width/height form. `area` in region mode counts all nonzero Alpha pixels. Crops preserve the original RGBA pixels and retain disconnected fragments; padding is clipped to the owning region.
+
+If all uncovered pixels together total at most 4 pixels with maximum Alpha 8 (on the 0–255 scale), region splitting accepts them as faint residue and emits `warnings: [{"code": "ignored_faint_residue", "pixel_count": 1, "max_alpha": 1, "box": [x1, y1, x2, y2]}]`. Any foreground touching a region boundary still fails, including a faint connected stroke; larger or more opaque uncovered content also fails. This never thresholds pixels inside a region. The unchanged source sheet retains residue for inspection.
 
 ## `notes_manifest.json`
 

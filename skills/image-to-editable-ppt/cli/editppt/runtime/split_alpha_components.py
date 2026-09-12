@@ -17,6 +17,11 @@ NEIGHBORS = {
     8: ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)),
 }
 
+# Only disregard a few nearly invisible pixels outside all ownership regions.
+# Never threshold pixels within a region: detached details belong to the object.
+MAX_RESIDUE_PIXELS = 4
+MAX_RESIDUE_ALPHA = 8
+
 
 def foreground_mask(alpha, threshold, close_radius):
     mask = alpha.point(lambda p: 255 if p > threshold else 0, mode="L")
@@ -129,13 +134,14 @@ def sort_components(components, mode):
     return sorted(components, key=lambda item: (item["box"][0], item["box"][1]))
 
 
-def extract_component_asset(image, box, pad, square):
+def extract_component_asset(image, box, pad, square, region_box=None):
     width, height = image.size
     left, top, right, bottom = box
-    left = max(0, left - pad)
-    top = max(0, top - pad)
-    right = min(width, right + pad)
-    bottom = min(height, bottom + pad)
+    bounds = region_box or [0, 0, width, height]
+    left = max(bounds[0], left - pad)
+    top = max(bounds[1], top - pad)
+    right = min(bounds[2], right + pad)
+    bottom = min(bounds[3], bottom + pad)
     component_image = image.crop((left, top, right, bottom))
     if not square:
         return component_image, [left, top, right, bottom]
@@ -147,6 +153,63 @@ def extract_component_asset(image, box, pad, square):
         ((side - component_image.size[0]) // 2, (side - component_image.size[1]) // 2),
     )
     return canvas, [left, top, right, bottom]
+
+
+def region_components(image, path, warnings=None):
+    """Validate ownership regions before cropping, including faint detached pixels."""
+    data = json.loads(Path(path).read_text())
+    regions = data.get("regions") if isinstance(data, dict) else None
+    if not isinstance(regions, list) or not regions:
+        raise SystemExit("--regions requires a nonempty regions list")
+    alpha = image.getchannel("A")
+    uncovered = alpha.copy()
+    components = []
+    names = set()
+    for region in regions:
+        if not isinstance(region, dict):
+            raise SystemExit("Each region must be an object")
+        name, box = region.get("name"), region.get("box")
+        if (not isinstance(name, str) or not name or name in {".", ".."}
+                or any(c in name for c in ("/", "\\", "\x00"))):
+            raise SystemExit("Region name must be a safe filename component")
+        filename = name if name.lower().endswith(".png") else name + ".png"
+        if filename.casefold() in names:
+            raise SystemExit("Region names must be unique")
+        names.add(filename.casefold())
+        if (not isinstance(box, list) or len(box) != 4
+                or any(type(v) is not int for v in box)):
+            raise SystemExit("Region box must be [x, y, width, height] integer pixels")
+        x, y, width, height = box
+        if x < 0 or y < 0 or width <= 0 or height <= 0 or x + width > image.width or y + height > image.height:
+            raise SystemExit(f"Region {name} is outside the image or has nonpositive size")
+        bounds = [x, y, x + width, y + height]
+        for prior in components:
+            a, b, c, d = prior["region_box"]
+            if max(x, a) < min(x + width, c) and max(y, b) < min(y + height, d):
+                raise SystemExit(f"Region {name} overlaps another region")
+        local = alpha.crop(bounds)
+        bbox = local.getbbox()
+        if bbox is None:
+            raise SystemExit(f"Region {name} contains no foreground")
+        if bbox[0] == 0 or bbox[1] == 0 or bbox[2] == width or bbox[3] == height:
+            raise SystemExit(f"Region {name} foreground touches its boundary; expand the region")
+        uncovered.paste(0, bounds)
+        components.append({"name": filename, "region_box": bounds,
+                           "box": [x + bbox[0], y + bbox[1], x + bbox[2], y + bbox[3]],
+                           "area": sum(local.histogram()[1:])})
+    uncovered_box = uncovered.getbbox()
+    if uncovered_box is not None:
+        pixel_count = sum(uncovered.histogram()[1:])
+        max_alpha = uncovered.getextrema()[1]
+        if pixel_count > MAX_RESIDUE_PIXELS or max_alpha > MAX_RESIDUE_ALPHA:
+            raise SystemExit(f"Regions leave foreground uncovered: {list(uncovered_box)}")
+        # The blank perimeter enforced above separates these pixels from every
+        # owned object, including any faint stroke connected to its main body.
+        warning = {"code": "ignored_faint_residue", "pixel_count": pixel_count,
+                   "max_alpha": max_alpha, "box": list(uncovered_box)}
+        if warnings is not None:
+            warnings.append(warning)
+    return components
 
 
 def write_contact_sheet(items, out_path):
@@ -175,6 +238,7 @@ def main():
     parser = argparse.ArgumentParser(description="Split a transparent asset sheet into component PNG files.")
     parser.add_argument("--input", required=True, help="RGBA asset sheet after chroma-key removal")
     parser.add_argument("--out-dir", required=True, help="Directory for split PNG assets")
+    parser.add_argument("--regions", help="JSON {regions: [{name, box: [x,y,width,height]}]}; preserves all alpha within each region")
     parser.add_argument("--names", help="Comma-separated output names in sorted component order")
     parser.add_argument("--sort", choices=["x", "y", "area"], default="x")
     parser.add_argument("--threshold", type=int, default=20, help="Alpha threshold for foreground pixels")
@@ -195,24 +259,38 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     image = Image.open(src).convert("RGBA")
-    mask = foreground_mask(image.getchannel("A"), args.threshold, args.close_radius)
-    components = component_boxes(mask, args.min_area, args.connectivity)
-    components = merge_fragments(components, args.merge_gap, args.merge_union_growth)
-    components = sort_components(components, args.sort)
-    if args.limit:
-        components = components[: args.limit]
+    if args.pad < 0:
+        raise SystemExit("--pad must be nonnegative")
+    warnings = []
+    if args.regions:
+        if args.names or args.limit:
+            raise SystemExit("--regions cannot be combined with --names or --limit")
+        components = region_components(image, args.regions, warnings)
+    else:
+        mask = foreground_mask(image.getchannel("A"), args.threshold, args.close_radius)
+        components = component_boxes(mask, 1, args.connectivity)
+        components = merge_fragments(components, args.merge_gap, args.merge_union_growth)
+        components = [item for item in components if item["area"] >= args.min_area]
+        components = sort_components(components, args.sort)
+        if args.limit:
+            components = components[: args.limit]
 
     names = parse_names(args.names)
     if names and len(names) != len(components):
         raise SystemExit(f"--names supplied {len(names)} names, but detected {len(components)} components")
 
+    if args.regions:
+        for component in components:
+            if (out_dir / component["name"]).resolve() == src.resolve():
+                raise SystemExit("A region output must not overwrite the input sheet")
+
     outputs = []
     contact_items = []
     for index, component in enumerate(components, start=1):
-        name = names[index - 1] if names else f"asset_{index:02d}.png"
+        name = component.get("name") or (names[index - 1] if names else f"asset_{index:02d}.png")
         if not name.lower().endswith(".png"):
             name += ".png"
-        component_image, padded_box = extract_component_asset(image, component["box"], args.pad, args.square)
+        component_image, padded_box = extract_component_asset(image, component["box"], args.pad, args.square, component.get("region_box"))
         out_path = out_dir / name
         component_image.save(out_path)
         entry = {
@@ -224,12 +302,19 @@ def main():
             "merged_count": component.get("merged_count", 1),
             "size": list(component_image.size),
         }
+        if "region_box" in component:
+            entry["region_box"] = component["region_box"]
         outputs.append(entry)
         contact_items.append({"name": name, "image": component_image})
         print(f"{name}: box={component['box']} area={component['area']} size={component_image.size}")
 
+    for warning in warnings:
+        print(f"Warning: {json.dumps(warning)}")
     if args.manifest:
-        Path(args.manifest).write_text(json.dumps({"source": str(src), "assets": outputs}, ensure_ascii=False, indent=2))
+        report = {"source": str(src), "assets": outputs}
+        if warnings:
+            report["warnings"] = warnings
+        Path(args.manifest).write_text(json.dumps(report, ensure_ascii=False, indent=2))
     if args.contact_sheet:
         write_contact_sheet(contact_items, Path(args.contact_sheet))
 

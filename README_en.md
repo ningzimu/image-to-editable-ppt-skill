@@ -31,7 +31,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 > ![Codex Full Access permission setting](assets/codex-full-access-permission.png)
 
 > [!WARNING]
-> This skill currently uses a multi-agent collaborative reconstruction workflow with complex flow control. It is not a lightweight converter. The AI runs a "**rebuild -> self-check -> page-local correction**" loop and may iterate multiple times until it judges the result close enough to the source. During this process, page workers may make **many attempts** per page, so the workflow can consume a large number of tokens.
+> Failed page validation leads to local repairs that reuse verified assets. Work stops when the current outputs pass checks; acceptable minor fringes do not trigger regeneration. Routine steps run autonomously; missing OCR tokens or blocked OCR still require user input. Complex pages can still consume substantial tokens.
 >
 > **GPT Pro is recommended. Plus users should use this skill cautiously.**
 >
@@ -39,7 +39,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 >
 > **If you do not strongly need editability, avoid this skill.**
 >
-> A lighter approach is to use gpt-image-2 image editing directly: provide the specific PPT page image you are unhappy with, ask for a targeted edit, and have it return the modified image.
+> A lighter approach is to use gpt-image-2.5-sunburst image editing directly: provide the specific PPT page image you are unhappy with, ask for a targeted edit, and have it return the modified image.
 
 > [!TIP]
 > This skill does not create new decks from articles, reports, outlines, or ideas. If your goal is to generate a PPT, use [codex-ppt-skill](https://github.com/ningzimu/codex-ppt-skill).
@@ -83,6 +83,8 @@ It is useful when screenshot-like or image-based slides need to become easier to
 - Keep multiple images in the provided order; preserve PDF and `.pptx` page order.
 - Preserve `.pptx` speaker notes on matching output slides without modifying note text.
 - Decides page by page whether to use the confirmed image backend for visual-layer extraction; when needed, sparse asset sheets group foreground assets, prefer placing icons on one sheet, and keep generous gaps for later splitting.
+- Asset sheets use a flat background color distinct from the subjects by default. After background removal, whole-object regions preserve disconnected details during cropping. Successful splitting still requires checking each asset against the source.
+- Rebuilds regular row-and-column tables as native PowerPoint tables with editable cells, row/column dimensions, rectangular merges, and basic styling.
 - Supports hybrid reconstruction: editable text, simple native shapes, and independent image assets.
 - Supports complete native curve paths, dash styles, and endpoint arrows for editing a whole line’s shape and style; curve paths are not data-linked charts. In PowerPoint, right-click a curve, choose **Edit Points**, select an endpoint or vertex, and drag its white control handle to adjust curvature.
 
@@ -219,7 +221,7 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
 - Single-page or single-image input can be rebuilt locally by the main agent; multi-page input is rebuilt in parallel through page workers/subagents.
 - Complex visual assets need either the built-in image tool or the CLI fallback. If neither can produce a compliant asset, the page fails validation instead of substituting approximate shapes.
 - Complex photos, illustrations, textures, and hand-drawn decorations are usually movable image assets, not internally editable PowerPoint objects.
-- Tables, charts, and diagrams should only be rebuilt as native objects when confidence is high enough; otherwise keep them as assets and document the limit.
+- Native tables do not yet support diagonal headers or images embedded in cells. Unclear text, rows, columns, or merges are checked against the source and OCR first; unresolved details are reported without guessing content or structure. Charts and flowcharts continue to use editable structural objects.
 - Visual similarity is not enough. Acceptance should check package structure, editable text coverage, asset provenance, preview, and diff.
 
 ## Repository Layout

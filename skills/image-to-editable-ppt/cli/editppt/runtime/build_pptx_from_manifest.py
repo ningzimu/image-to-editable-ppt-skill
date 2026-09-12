@@ -11,6 +11,8 @@ import zipfile
 from copy import deepcopy
 from pathlib import Path
 
+from native_tables import normalize_table, table_xml, cell_text_box
+
 from path_geometry import custom_path_geometry_xml, draw_styled_path, preview_path_points, validate_shape
 
 
@@ -309,6 +311,7 @@ def normalize_manifest(manifest):
     ]
     for key in ("images", "shapes"):
         normalized[key] = [normalize_position_item(normalized, item) for item in normalized.get(key, [])]
+    normalized["tables"] = [normalize_table(item, normalized, normalize_position_item, fit_text_item, text_alignment, text_vertical_alignment) for item in normalized.get("tables", [])]
     return normalized
 
 
@@ -527,6 +530,8 @@ def slide_xml(manifest):
         layered.append((float(item.get("z_index", 100)), index, "shape", item, None))
     for rel_index, item in enumerate(manifest.get("images", []), start=1):
         layered.append((float(item.get("z_index", 200)), rel_index, "image", item, f"rId{rel_index + 1}"))
+    for index, item in enumerate(manifest.get("tables", [])):
+        layered.append((float(item.get("z_index", 250)), index, "table", item, None))
     for index, item in enumerate(manifest.get("text_boxes", [])):
         layered.append((float(item.get("z_index", 300)), index, "text", item, None))
 
@@ -535,6 +540,8 @@ def slide_xml(manifest):
             parts.append(shape_xml(next_id, item))
         elif kind == "image":
             parts.append(image_xml(next_id, rel_id, item))
+        elif kind == "table":
+            parts.append(table_xml(next_id, item, emu, text_box_xml, shape_fill, shape_line_xml, text_vertical_alignment))
         else:
             parts.append(text_box_xml(next_id, item))
         next_id += 1
@@ -946,7 +953,26 @@ def render_preview(manifest, manifest_path, out_path):
             return
         draw_content(draw, box_x, box_y)
 
+    def render_table(table):
+        visible = [cell for row in table["cells"] for cell in row if "_owner" not in cell]
+        for cell in visible:
+            fill = preview_color(cell["fill"])
+            if fill not in (None, "none"):
+                draw.rectangle([cell["left"] * scale, cell["top"] * scale,
+                                (cell["left"] + cell["width"]) * scale,
+                                (cell["top"] + cell["height"]) * scale], fill=fill)
+        for cell in visible:
+            stroke = preview_color(cell["stroke"])
+            if stroke not in (None, "none") and cell["stroke_width"] > 0:
+                draw.rectangle([cell["left"] * scale, cell["top"] * scale,
+                                (cell["left"] + cell["width"]) * scale,
+                                (cell["top"] + cell["height"]) * scale], outline=stroke,
+                               width=max(1, round(cell["stroke_width"] * scale / 72)))
+            render_text(cell_text_box(cell))
+
     layered = []
+    for index, item in enumerate(manifest.get("tables", [])):
+        layered.append((float(item.get("z_index", 250)), index, render_table, item))
     for index, item in enumerate(manifest.get("shapes", [])):
         layered.append((float(item.get("z_index", 100)), index, render_shape, item))
     for index, item in enumerate(manifest.get("images", [])):

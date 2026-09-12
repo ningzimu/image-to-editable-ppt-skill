@@ -62,6 +62,8 @@ Token 없이도 실행할 수 있습니다. 이 경우 skill은 내장 오프라
 
 이미지 생성과 편집은 현재 agent의 내장 `image_gen.imagegen` 도구를 우선 사용합니다. 정해진 폴백 조건을 충족할 때만 `editppt image` CLI로 전환하며, CLI는 로컬 Codex OAuth(`~/.codex/auth.json`)를 우선 사용하고 사용할 수 없으면 `~/.editppt/config.yaml` 또는 환경 변수의 OpenAI-compatible API 설정을 읽습니다.
 
+CLI의 기본 요청 모델은 `gpt-image-2.5-sunburst`이며 `--model gpt-image-2.5-flare`로 전환할 수 있습니다. 기본 품질은 `auto`이고 두 2.5 모델 모두 `--quality xhigh` 또는 `--quality max`를 지원합니다. 기존 모델 설정이 기본값보다 우선합니다. 내장 도구에는 모델 선택 매개변수가 없으며 OAuth 요청 모델명은 서버의 실제 모델을 확인한 결과가 아닙니다.
+
 일반적으로 직접 구성할 필요는 없습니다. 다음 경우에만 AI에게 API 폴백 구성을 요청하세요.
 
 - 타사 API 또는 OpenAI 호환 중계 서비스를 사용하도록 명시적으로 요청한 경우

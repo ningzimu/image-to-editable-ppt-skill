@@ -22,9 +22,7 @@ Contents:
 
 ## Common Failure Mode: False Progress
 
-Do not create a "good enough" editable draft by rebuilding text and layout while cropping or approximating foreground assets. This is false progress: it may pass deterministic validation but it fails the object-source contract. Deterministic validation is a structure gate, not a waiver — `validation.json.passed=true` never makes a forbidden foreground fallback acceptable.
-
-When a page has complex foreground visuals, first prove the foreground asset workflow is feasible. If it is not, stop with a page failure before building `manifest.json`. Do not convert the missing workflow into a warning, a direct source crop, a native-shape approximation, an emoji/text-symbol substitute, or any other fallback.
+First establish that the foreground workflow in section 2.1 is feasible; if it is blocked, report that failure before building a replacement page. Passing structural validation never waives the object-source rules.
 
 ## Pre-Decision: Page Inventory
 
@@ -38,7 +36,7 @@ Build a complete inventory before deciding anything, so that no object's source 
 - Formula candidates: objective functions, constraints, matrices, fractions, roots, cases, multiline equation groups, ordinary math expressions. List formulas separately; never group them with ordinary text.
 - Corner geometry for every rectangle/card/table outline: straight, slight radius, obvious radius, pill.
 
-Record the inventory in `visual_inventory`, and the decisions of the next three sections in `background_strategy` and `quality_checks` (field contracts in `manifest-schema.md`; all four `quality_checks` flags must end up `true`).
+Record visual objects in `visual_inventory`, readable text in `text_inventory`, and decisions in `background_strategy`; record completed checks in `quality_checks`. Field contracts live in `manifest-schema.md`.
 
 ## 1. Background Recognition and Repair
 
@@ -121,15 +119,17 @@ An asset sheet is source-faithful separation, not redraw. The generation prompt 
 
 - Separate existing objects from the source.
 - Preserve original shapes, strokes, colors, proportions, internal spacing, texture, and visual identity.
-- Use a flat chroma-key background; choose the key color based on the subject colors in `visual_inventory`.
+- Use a flat chroma-key background; choose the key color based on the subject colors in `visual_inventory`. This keeps generation compatible with image backends that do not support transparent output; do not require transparent generation first. Keep extraction prompts source-faithful and do not add shadows or effects.
 - Put as many icons and foreground visual objects as practical onto one sparse asset sheet. Create multiple asset sheets only when a single sheet cannot fit all required objects with clear separation.
 - Every object complete, not touching or overlapping other objects, with generous empty space between neighboring objects and sufficient outer padding so `process-sheet` can split each icon/object cleanly.
 - Object count and order match `visual_inventory`.
-- No readable text, labels, pseudo-text, or watermarks.
+- Remove ordinary editable text and labels; preserve identity text classified under section 3.1 (such as logo wordmarks). Do not add pseudo-text or watermarks.
 - No whole cards, whole panels, whole charts, or full-page fragments.
 - No redrawing, beautifying, simplifying, synonym-symbol replacement, or "cleaner" substitute icons.
 
-Key color: any high-saturation pure color (cyan, green, magenta, red, orange, ...) that does not appear in the assets and is far from all subject, stroke, shadow, and highlight colors — green subjects must not use `#00ff00`, blue/purple subjects must not use cyan/blue families, purple/magenta subjects must not use `#ff00ff`, white subjects must not use white or light gray. If `process-sheet` background removal fades the subject, cuts edges, or leaves key-color remnants, regenerate the sheet with a different key color first; only then consider tuning removal parameters.
+Key color: any high-saturation pure color (cyan, green, magenta, red, orange, ...) that does not appear in the assets and is far from all subject, stroke, shadow, and highlight colors — green subjects must not use `#00ff00`, blue/purple subjects must not use cyan/blue families, purple/magenta subjects must not use `#ff00ff`, white subjects must not use white or light gray. Apply "Fix versus Warning" before making another attempt. Accept harmless small fringes or residue; for actual defects, inspect whether splitting boundaries or removal parameters caused them and repair that local stage first. Regenerate with a different key color only when subject/background colors collide or the generated sheet itself lacks usable source detail.
+
+For sparse sheets, assign one complete object to each region after inspecting the actual generated sheet. Keep disconnected dots, strokes, and soft edges inside the same region; do not infer object identity from connected components. Use the region contract in `manifest-schema.md`, "Asset sheet regions and split reports". Regions must preserve complete objects with transparent margins; inspect boundaries rather than blindly dividing the requested grid. The split-report contract defines the narrow exception for faint isolated residue; review its warnings during reconciliation. When processing an already-transparent supplied sheet, preserve its Alpha without re-keying; this is input compatibility, not a transparent-generation step. Legacy connected-component splitting remains available when regions are not supplied, but its output still requires the reconciliation below.
 
 ### 2.3 Asset Sheet Reconciliation
 
@@ -146,7 +146,7 @@ Step 3 rebuilds everything carried by native PowerPoint structure, plus formula 
 
 ### 3.1 Text and Text Boxes
 
-All readable text defaults to native PPT text boxes. Never use generated images to carry editable text, and never use hidden text, transparent text, 1 pt text, or off-canvas text to satisfy the text inventory. (Formulas are not ordinary text — see 3.2.)
+All readable text defaults to native PPT text boxes or native table cells (see 3.3). Never use generated images to carry editable text, and never use hidden text, transparent text, 1 pt text, or off-canvas text to satisfy the text inventory. (Formulas are not ordinary text — see 3.2.)
 
 Exceptions — text that is part of brand or background identity rather than editable content:
 
@@ -160,7 +160,7 @@ Exceptions — text that is part of brand or background identity rather than edi
 
 Explain each exception in `visual_inventory` or `asset_provenance`. Never disguise main titles, subtitles, body text, table text, legends, axis labels, numbers, tags, or button text as exceptions.
 
-Do not guess font sizes or positions by eye — `editppt prepare` already measured them. Every page dir contains `text_hints.json` (each detected line's source-pixel `box_px`, glyph height, and derived font sizes; the `backend` field records which detector produced them) and `text_hints.png`, the source image with every detected line framed and labeled. If missing, regenerate with `editppt page hints <page_dir>`. Use the hints like this:
+Use reliable measured font sizes and positions first; inspect the source to correct missing or implausible measurements rather than treating detection as ground truth. Every page dir contains `text_hints.json` (each detected line's source-pixel `box_px`, glyph height, and derived font sizes; the `backend` field records which detector produced them) and `text_hints.png`, the source image with every detected line framed and labeled. If missing, regenerate with `editppt page hints <page_dir>`. Use the hints like this:
 
 - Match each detected line in the overlay image to the text you read in the source.
 - Copy the measured `box_px` and the matching font size column (`font_pt_if_cjk` for CJK text, `font_pt_if_latin` for Latin) into the corresponding `text_boxes` item.
@@ -197,10 +197,14 @@ These may use native PPT shapes or structural objects:
 - Rectangles, rounded rectangles, circles, ellipses.
 - Ordinary arrows and connectors.
 - Solid-color cards, panels, dividers, borders.
-- Tables, table lines, axes, gridlines.
+- Table lines, axes, gridlines; native tables follow the rule below.
 - Simple bar charts, progress bars, status color blocks.
 - Simple callouts.
 - Basic flow boxes and containers without style-specific details.
+
+Regular row-and-column tables with readable content and clear cell boundaries must use one native PowerPoint table per logical table, not a collection of text boxes and rectangle/line fragments. This preserves cell editing and row/column operations. Record source-supported row/column proportions, rectangular merges, text, fills, borders, and alignment; the field contract lives in `manifest-schema.md`, "Native tables." Table cell text remains in `text_inventory` and must not also be emitted as overlaid text boxes.
+
+Diagonal headers and images embedded inside cells are not supported by the table builder. If cell text, row/column structure, or merge boundaries are unclear, inspect the source at higher resolution and available hints first. If essential evidence is still missing, record the specific source limitation as a page failure; do not invent values or merge relationships. Do not silently replace the table with a screenshot to bypass native editability.
 
 Native shapes carry only layout structure, never semantic icons or visual identity: a DNA mark, lock, network node, target, magnifier, or checkmark inside a circular icon is not a structural primitive — separate it in step 2.
 
@@ -221,7 +225,7 @@ Corner decisions are conservative because over-rounding is a common, visible fai
 
 ### 3.5 Text Strokes and Decoration Splitting
 
-A readable character stroke belongs only to its native text box — never draw the same stroke again as a shape. Independent decorative lines, dividers, and button underlines may be shapes, but only after confirming they are not part of text. If the preview shows an extra dash, dot, or repeated symbol, inspect the source to decide whether it is a text stroke or an independent decoration, then remove the duplicate.
+A readable character stroke belongs only to its native text box or table cell — never draw the same stroke again as a shape. Independent decorative lines, dividers, and button underlines may be shapes, but only after confirming they are not part of text. If the preview shows an extra dash, dot, or repeated symbol, inspect the source to decide whether it is a text stroke or an independent decoration, then remove the duplicate.
 
 ### 3.6 Grouping and Layering
 
@@ -241,7 +245,7 @@ The background must not cover text, foreground assets must sit on the right laye
 
 ## Final Self-Check
 
-Whoever rebuilds the page checks it once against this list — deterministic validation is necessary but not sufficient, and the parent agent does not repeat this check. Record the evidence in structured manifest fields and `validation.json`. (Deck-level structural QA at finalize time is in `SKILL.md` Phase 4.)
+Whoever rebuilds the page checks it once against this list; after a repair, recheck the affected objects and their layout dependencies. Do not rerun unchanged visual checks. Deterministic validation is necessary but not sufficient, and the parent agent does not repeat this check. Record the evidence in structured manifest fields and `validation.json`. (Deck-level structural QA at finalize time is in `SKILL.md` Phase 4.)
 
 Structure and artifacts:
 
@@ -250,7 +254,7 @@ Structure and artifacts:
 
 Background:
 
-- The clean base contains no readable text and no foreground object that will be rebuilt later.
+- The clean base contains none of the text or foreground objects designated for rebuilding in sections 1 and 3.1.
 - Repaired regions show no ghosts, blur blocks, smear patches, or pseudo-text.
 - A complex-background clean base is the same background as the source — composition, perspective, object positions, colors, lighting, and key details have not drifted. A related-theme lookalike is a current-page fix even if deterministic validation passes.
 - No image-backend call was wasted on solid or regular backgrounds.
@@ -258,12 +262,12 @@ Background:
 Assets:
 
 - `visual_inventory` covers all non-text visual objects; each has an independent representation unless explicitly recorded as background; no required object is missing or stood in by a low-quality placeholder.
-- Every source decision follows sections 1-3: nothing marked for separation was replaced with a similar-but-different symbol, approximated with native primitives, or substituted with a source-image snippet.
-- Split assets have no fused objects, missing edges, wrong names, fragments, or cross-object shadows; alpha edges have no chroma-key remnants.
+- Object sources satisfy sections 1-3; compare separated assets with their source identities.
+- Split assets have no fused objects, missing edges, wrong names, fragments, or cross-object shadows; check alpha edges for chroma-key remnants and apply the minor-defect tolerance in "Fix versus Warning".
 
 Text:
 
-- `text_inventory` covers all readable text; every editable item is a real, visible native text box (no hidden, transparent, 1 pt, or off-canvas text).
+- `text_inventory` covers all readable text; every editable item is a real, visible native text box or table cell (no hidden, transparent, 1 pt, or off-canvas text).
 - Font sizes and positions are calibrated per 3.1: no clipping, wrong wrapping, or container overflow, and no level visibly larger, heavier, or more crowded than the source.
 - CJK previews show no boxes or mojibake; use a stable CJK font when needed.
 - No text, icon, or decoration appears both in an image layer and as a native object.
@@ -274,13 +278,13 @@ Shapes and layers:
 
 - Corners follow 3.4; large container corners, table borders, and card borders align with the source. Corner misclassification is a current-page fix, not a low-risk warning.
 - No text stroke is redrawn as a decorative shape (3.5).
-- Dashboards, tables, cards, and charts are decomposed per 1.4, never screenshotted wholesale.
+- Dashboards, tables, cards, and charts are decomposed per 1.4, never screenshotted wholesale. Check native tables against section 3.3, including cell text and merge boundaries.
 - Badge and circular-number groups follow the shared-box centering rule in 3.6.
 - z-index follows 3.6; no text or key object is covered.
 
 ## Fix versus Warning
 
-Every failed self-check item above is a current-page fix, owned by the page author, before the page returns. These structural conditions are also hard failures, never warnings:
+Classify defects using the warning allowances below before deciding to repair. Any remaining failed self-check is a current-page fix owned by the page author. Once required outputs pass and only allowed warnings remain, return the page without further polishing. These structural conditions are also hard failures, never warnings:
 
 - Line/curve object-granularity or stroke-style violations of 3.3, even when the rendered curve looks correct.
 - The input cannot be normalized.
@@ -289,7 +293,7 @@ Every failed self-check item above is a current-page fix, owned by the page auth
 
 May ship as recorded warnings with the current PPT — but only after the required object-source workflow has succeeded:
 
-- Minor line-width, antialiasing, proportion, shadow, or detail differences in separated assets.
+- Minor line-width, antialiasing, proportion, shadow, or detail differences in separated assets, including small edge fringes or isolated remnants that do not affect object completeness or use.
 - Minor visual drift in non-critical decorations.
 - Recorded low-risk font differences.
 - A formula whose LaTeX rendering is blocked by missing local TeX tooling, with the LaTeX source, error, and required repair recorded per 3.2.

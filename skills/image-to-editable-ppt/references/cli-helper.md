@@ -34,7 +34,7 @@ editppt                         - top-level CLI for setup, run orchestration, im
 |   |-- generate                - create a new image from a text prompt
 |   |-- edit                    - edit a source image for clean bases or source-faithful asset sheets
 |   |-- import                  - copy a selected image into the page dir and record provenance
-|   `-- process-sheet           - split a chroma-key asset sheet into transparent assets
+|   `-- process-sheet           - split a transparent or chroma-key asset sheet into assets
 `-- formula                     - render formula assets from agent-transcribed LaTeX
     `-- render-latex            - render LaTeX into SVG/PNG/PDF plus a manifest fragment
 ```
@@ -52,12 +52,12 @@ editppt formula render-latex --help
 
 `editppt image` is the CLI fallback layer. Within that layer it automatically chooses Codex OAuth first, then OpenAI-compatible API credentials from `~/.editppt/config.yaml` or environment variables if OAuth is unavailable. See `manifest-schema.md` for the run/page backend field contract. `editppt doctor` checks CLI backend readiness; it cannot discover whether an agent runtime exposes the built-in tool.
 
-Public `editppt image generate/edit` parameters are intentionally narrow. Required request inputs are `--prompt` or `--prompt-file`, plus at least one `--image` for `edit`. CLI fallback calls should pass an explicit `--out`. Retained useful controls are `--model` (default `gpt-image-2`), `--size` (default `auto`), `--quality` (default `auto`), `--force`, `--dry-run`, `--timeout`, and edit-only `--mask`. The CLI does not pass any other image API options.
+Public `editppt image generate/edit` parameters are intentionally narrow. Required request inputs are `--prompt` or `--prompt-file`, plus at least one `--image` for `edit`. CLI fallback calls should pass an explicit `--out`. Retained useful controls are `--model` (requested model; default `gpt-image-2.5-sunburst`, also accepts `gpt-image-2.5-flare`), `--size` (default `auto`), `--quality` (default `auto`; `xhigh` and `max` require either GPT Image 2.5 model), `--force`, `--dry-run`, `--timeout`, and edit-only `--mask`. The CLI does not pass any other image API options.
 
 ## Skill Script Commands
 
 ```bash
-python <skill-root>/scripts/build-page-worker-prompt.py <run> --page page_001 --out <absolute-run-dir>/pages/page_001/worker-prompt.md
+python3 <skill-root>/scripts/build-page-worker-prompt.py <run> --page page_001 --out <absolute-run-dir>/pages/page_001/worker-prompt.md
 ```
 
 Purpose: generate a page-worker prompt from the skill-local `prompts/page-worker.md` template. This is a skill script, not an `editppt` CLI command, because it reads skill documentation and references.
@@ -126,7 +126,7 @@ Purpose: read current run state and return the next stage. `stage=rebuild_page_l
 Generate the page-worker prompt with the skill script before spawning a worker:
 
 ```bash
-python <skill-root>/scripts/build-page-worker-prompt.py <run> --page page_001 --out <absolute-run-dir>/pages/page_001/worker-prompt.md
+python3 <skill-root>/scripts/build-page-worker-prompt.py <run> --page page_001 --out <absolute-run-dir>/pages/page_001/worker-prompt.md
 ```
 
 ```bash
@@ -145,13 +145,13 @@ Purpose: record that a page has been dispatched to a worker or claimed for singl
 editppt run record <run> --page page_001 --agent-id <worker-id>
 ```
 
-Purpose: after the page reconstructor writes its required outputs (see `manifest-schema.md`), validate `page.pptx` against `manifest.json` and record the page result. Missing `box_px` / `points_px` on positioned objects is a page failure. The command also fails when `validation.json` does not contain top-level `passed: true` — a failed page is never recorded; fix the root cause, `run reset` the page, and dispatch or claim a fresh page execution.
+Purpose: validate the required page outputs and record their hashes; failure recovery is defined in `SKILL.md` Phase 3.
 
 ```bash
 editppt run reset <run> --page page_001 --agent-id <worker-id> --confirm-lost
 ```
 
-Purpose: return a dispatched or recorded page to `pending`, clearing its dispatch and result records, so a new worker can be dispatched. Recorded pages can be reset with only `--page`. Dispatched pages require `--agent-id` plus `--confirm-lost`, and the id must match the recorded dispatch. Use this only when a worker returned a failed page, `run record` rejected the outputs, the runtime reports a terminal worker state, the user cancels that worker, or repeated reachability checks prove the worker is lost. The failure-handling policy is in `SKILL.md` Phase 3.
+Purpose: return a page to `pending` and clear dispatch/result records. Dispatched pages require matching `--agent-id` and `--confirm-lost`; eligibility is defined in `SKILL.md` Phase 3.
 
 ```bash
 editppt run finalize <run>
@@ -176,7 +176,7 @@ editppt page contact-sheet pages/page_001
 Purpose: create `split_assets_contact.png`, the origin-versus-preview comparison image, from `source.png` and `preview.png` in the page directory.
 
 ```bash
-editppt page validate pages/page_001
+editppt page validate pages/page_001 --report pages/page_001/validation.json
 ```
 
 Purpose: validate `page.pptx` against `manifest.json` with the same manifest-contract checks `editppt run record` will run (record additionally verifies the full artifact set, hashes, and top-level `passed: true`). Run it before returning so manifest-contract failures are fixed inside the page instead of bouncing back from the parent's record step. Optional `--report <file>` writes a JSON report.
@@ -242,18 +242,31 @@ editppt image import pages/page_001 \
 
 `--source-image` must be an existing, readable local image. `--backend` records the actual producer and is required; `--fallback-reason` is accepted only when it is consistent with the page's backend contract. Field values and provenance rules live in `manifest-schema.md`.
 
-Process a chroma-key asset sheet:
+Process a chroma-key asset sheet (already-transparent supplied inputs bypass chroma removal):
 
 ```bash
 editppt image process-sheet pages/page_001 \
   --job-id icon-sheet \
   --asset-sheet-source assets/icon-sheet.png \
+  --regions assets/asset-regions.json \
+  --assets-dir assets/icons
+```
+
+Re-split an existing Alpha sheet after changing only object regions:
+
+```bash
+editppt image process-sheet pages/page_001 \
+  --job-id icon-sheet \
+  --skip-chroma \
+  --regions assets/asset-regions.json \
   --assets-dir assets/icons
 ```
 
 When `--job-id` is present, the default chroma image, alpha image, and split report are written under `assets/` with that job id in the filename. This keeps multiple asset-sheet jobs on one page isolated. Explicit `--chroma`, `--alpha`, and `--split-manifest` values still override those defaults; calls without `--job-id` retain the legacy page-level filenames.
 
-The asset sheet key color is determined by the generation prompt; `process-sheet` samples the key color from the image edge. Key-color selection and when to regenerate a sheet with a different key color are defined in `page-decision-tree.md` section 2.2.
+`--regions` selects whole-object region splitting; omit it for legacy connected-component splitting. `--skip-chroma` requires genuine transparency; `--force-chroma` permits replacing the Alpha output but never re-keys a transparent source. Region and report fields are defined in `manifest-schema.md`, "Asset sheet regions and split reports".
+
+For opaque sheets, the asset sheet key color is determined by the generation prompt; `process-sheet` samples the key color from the image edge. Key-color selection and when to regenerate a sheet with a different key color are defined in `page-decision-tree.md` section 2.2.
 
 ## Formula Commands
 
