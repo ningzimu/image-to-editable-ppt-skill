@@ -121,7 +121,7 @@ An asset sheet is source-faithful separation, not redraw. The generation prompt 
 
 - Separate existing objects from the source.
 - Preserve original shapes, strokes, colors, proportions, internal spacing, texture, and visual identity.
-- Use a flat chroma-key background; choose the key color based on the subject colors in `visual_inventory`.
+- Use a flat chroma-key background; choose the key color based on the subject colors in `visual_inventory`. This keeps generation compatible with image backends that do not support transparent output; do not require transparent generation first. Keep extraction prompts source-faithful and do not add shadows or effects.
 - Put as many icons and foreground visual objects as practical onto one sparse asset sheet. Create multiple asset sheets only when a single sheet cannot fit all required objects with clear separation.
 - Every object complete, not touching or overlapping other objects, with generous empty space between neighboring objects and sufficient outer padding so `process-sheet` can split each icon/object cleanly.
 - Object count and order match `visual_inventory`.
@@ -130,6 +130,8 @@ An asset sheet is source-faithful separation, not redraw. The generation prompt 
 - No redrawing, beautifying, simplifying, synonym-symbol replacement, or "cleaner" substitute icons.
 
 Key color: any high-saturation pure color (cyan, green, magenta, red, orange, ...) that does not appear in the assets and is far from all subject, stroke, shadow, and highlight colors — green subjects must not use `#00ff00`, blue/purple subjects must not use cyan/blue families, purple/magenta subjects must not use `#ff00ff`, white subjects must not use white or light gray. If `process-sheet` background removal fades the subject, cuts edges, or leaves key-color remnants, regenerate the sheet with a different key color first; only then consider tuning removal parameters.
+
+For sparse sheets, assign one complete object to each region after inspecting the actual generated sheet. Keep disconnected dots, strokes, and soft edges inside the same region; do not infer object identity from connected components. Use the region contract in `manifest-schema.md`, "Asset sheet regions and split reports". Regions must have transparent margins and cover every foreground pixel; inspect and adjust boundaries instead of blindly dividing the requested grid. When processing an already-transparent supplied sheet, preserve its Alpha without re-keying; this is input compatibility, not a transparent-generation step. Legacy connected-component splitting remains available when regions are not supplied, but its output still requires the reconciliation below.
 
 ### 2.3 Asset Sheet Reconciliation
 
@@ -259,7 +261,7 @@ Assets:
 
 - `visual_inventory` covers all non-text visual objects; each has an independent representation unless explicitly recorded as background; no required object is missing or stood in by a low-quality placeholder.
 - Every source decision follows sections 1-3: nothing marked for separation was replaced with a similar-but-different symbol, approximated with native primitives, or substituted with a source-image snippet.
-- Split assets have no fused objects, missing edges, wrong names, fragments, or cross-object shadows; alpha edges have no chroma-key remnants.
+- Split assets have no fused objects, missing edges, wrong names, fragments, or cross-object shadows; check alpha edges for chroma-key remnants and apply the minor-defect tolerance in "Fix versus Warning".
 
 Text:
 
@@ -289,7 +291,7 @@ Every failed self-check item above is a current-page fix, owned by the page auth
 
 May ship as recorded warnings with the current PPT — but only after the required object-source workflow has succeeded:
 
-- Minor line-width, antialiasing, proportion, shadow, or detail differences in separated assets.
+- Minor line-width, antialiasing, proportion, shadow, or detail differences in separated assets, including small edge fringes or isolated remnants that do not affect object completeness or use.
 - Minor visual drift in non-critical decorations.
 - Recorded low-risk font differences.
 - A formula whose LaTeX rendering is blocked by missing local TeX tooling, with the LaTeX source, error, and required repair recorded per 3.2.

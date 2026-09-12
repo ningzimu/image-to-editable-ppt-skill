@@ -6,6 +6,8 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Improvements
 
+- Add whole-object region splitting that retains disconnected details after chroma-key removal; keep flat-color asset generation as the default and fix processing of already-transparent supplied sheets.
+
 - Default CLI image requests to GPT Image 2.5 Sunburst, support Flare and model-specific `xhigh`/`max` quality, and retain `auto` quality and built-in-first routing.
 
 ### Documentation

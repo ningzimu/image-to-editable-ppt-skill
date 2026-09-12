@@ -34,7 +34,7 @@ editppt                         - top-level CLI for setup, run orchestration, im
 |   |-- generate                - create a new image from a text prompt
 |   |-- edit                    - edit a source image for clean bases or source-faithful asset sheets
 |   |-- import                  - copy a selected image into the page dir and record provenance
-|   `-- process-sheet           - split a chroma-key asset sheet into transparent assets
+|   `-- process-sheet           - split a transparent or chroma-key asset sheet into assets
 `-- formula                     - render formula assets from agent-transcribed LaTeX
     `-- render-latex            - render LaTeX into SVG/PNG/PDF plus a manifest fragment
 ```
@@ -242,18 +242,21 @@ editppt image import pages/page_001 \
 
 `--source-image` must be an existing, readable local image. `--backend` records the actual producer and is required; `--fallback-reason` is accepted only when it is consistent with the page's backend contract. Field values and provenance rules live in `manifest-schema.md`.
 
-Process a chroma-key asset sheet:
+Process a chroma-key asset sheet (already-transparent supplied inputs bypass chroma removal):
 
 ```bash
 editppt image process-sheet pages/page_001 \
   --job-id icon-sheet \
   --asset-sheet-source assets/icon-sheet.png \
+  --regions assets/asset-regions.json \
   --assets-dir assets/icons
 ```
 
 When `--job-id` is present, the default chroma image, alpha image, and split report are written under `assets/` with that job id in the filename. This keeps multiple asset-sheet jobs on one page isolated. Explicit `--chroma`, `--alpha`, and `--split-manifest` values still override those defaults; calls without `--job-id` retain the legacy page-level filenames.
 
-The asset sheet key color is determined by the generation prompt; `process-sheet` samples the key color from the image edge. Key-color selection and when to regenerate a sheet with a different key color are defined in `page-decision-tree.md` section 2.2.
+`--regions` selects whole-object region splitting; omit it for legacy connected-component splitting. `--skip-chroma` requires genuine transparency; `--force-chroma` permits replacing the Alpha output but never re-keys a transparent source. Region and report fields are defined in `manifest-schema.md`, "Asset sheet regions and split reports".
+
+For opaque sheets, the asset sheet key color is determined by the generation prompt; `process-sheet` samples the key color from the image edge. Key-color selection and when to regenerate a sheet with a different key color are defined in `page-decision-tree.md` section 2.2.
 
 ## Formula Commands
 

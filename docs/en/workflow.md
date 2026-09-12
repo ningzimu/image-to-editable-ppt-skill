@@ -11,6 +11,8 @@ This page describes the complete conversion process from input to final `.pptx`,
 5. **Record state**: `editppt` commands record dispatch state, page results, and acceptance state, so progress can be inspected at any time.
 6. **Assemble and validate the final deck**: the main agent runs `editppt run finalize`, reads each accepted `manifest.json` in page order, rebuilds the final `.pptx`, copies speaker notes from `.pptx` inputs, and runs deck validation.
 
+Asset sheets use a flat background color distinct from the subjects by default. After background removal, whole-object regions preserve disconnected details during cropping. Successful splitting still requires checking each asset against the source.
+
 ## Input-to-Output Mapping
 
 The output is always a PowerPoint `.pptx`:

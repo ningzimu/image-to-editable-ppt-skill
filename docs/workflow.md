@@ -11,6 +11,8 @@
 5. **状态记录**：用 `editppt` 命令记录 dispatch、page result 和 accepted 状态，任务进度随时可查。
 6. **最终组装与校验**：主 agent 用 `editppt run finalize` 按页顺序读取已记录的 `manifest.json` 重建最终 `.pptx`，复制 `.pptx` 页面备注，并运行 deck validation。
 
+素材卡默认使用与主体颜色区分明显的纯色背景，去背后按对象区域裁切，保留分离的小笔画。分割成功不代表图标与原图完全一致，仍需逐项核对。
+
 ## 输入与输出对应
 
 输出始终是 PowerPoint `.pptx`：

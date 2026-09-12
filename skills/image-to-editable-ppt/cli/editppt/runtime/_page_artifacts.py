@@ -32,37 +32,40 @@ def process_asset_sheet(args, page_dir):
     alpha = resolve_under_page(page_dir, args.alpha)
     if not args.asset_sheet_source and not chroma.exists() and not alpha.exists():
         return
-    if not args.asset_sheet_source and args.skip_chroma and args.skip_split:
-        return
 
-    if not args.skip_chroma and alpha.exists() and not args.force_chroma:
+    from PIL import Image
+
+    source = resolve_under_page(page_dir, args.asset_sheet_source) if args.asset_sheet_source else (
+        alpha if args.skip_chroma else chroma
+    )
+    if not source.exists():
+        raise SystemExit(f"Asset sheet source does not exist: {source}")
+    with Image.open(source) as image:
+        extrema = image.convert("RGBA").getchannel("A").getextrema()
+    has_alpha = extrema[0] == 0 and extrema[1] > 0
+    if extrema[1] == 0:
+        raise SystemExit("Asset sheet is fully transparent and contains no foreground")
+    if args.skip_chroma and not has_alpha:
+        raise SystemExit("--skip-chroma requires real transparent background and nonempty foreground")
+
+    same_alpha = source.resolve() == alpha.resolve()
+    if alpha.exists() and not args.force_chroma and not (same_alpha and args.skip_chroma):
         raise SystemExit(f"Output already exists: {alpha} (use --force-chroma to overwrite)")
 
-    if args.asset_sheet_source:
-        source = resolve_under_page(page_dir, args.asset_sheet_source)
-        if not source.exists():
-            raise SystemExit(f"Asset sheet source does not exist: {source}")
-        chroma.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, chroma)
-        print(f"Wrote {chroma}")
-
-    if not args.skip_chroma:
-        if not chroma.exists():
-            raise SystemExit(f"Chroma input does not exist: {chroma}")
+    if has_alpha:
+        alpha.parent.mkdir(parents=True, exist_ok=True)
+        if not same_alpha:
+            shutil.copy2(source, alpha)
+        print(f"Using original alpha: {alpha}")
+    else:
+        if source.resolve() != chroma.resolve():
+            chroma.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, chroma)
         command = [
-            sys.executable,
-            imagegen_chroma_helper(),
-            "--input",
-            chroma,
-            "--out",
-            alpha,
-            "--auto-key",
-            "border",
-            "--soft-matte",
-            "--transparent-threshold",
-            args.transparent_threshold,
-            "--opaque-threshold",
-            args.opaque_threshold,
+            sys.executable, imagegen_chroma_helper(), "--input", chroma,
+            "--out", alpha, "--auto-key", "border", "--soft-matte",
+            "--transparent-threshold", args.transparent_threshold,
+            "--opaque-threshold", args.opaque_threshold,
         ]
         if args.despill:
             command.append("--despill")
@@ -93,6 +96,8 @@ def process_asset_sheet(args, page_dir):
         "--manifest",
         resolve_under_page(page_dir, args.split_manifest),
     ]
+    if getattr(args, "regions", None):
+        command.extend(["--regions", resolve_under_page(page_dir, args.regions)])
     if args.square_assets:
         command.append("--square")
     if args.asset_names:

@@ -11,6 +11,7 @@ This document describes the responsibilities, owners, and current field contract
 - `pages/page_NNN/validation.json`
 - `pages/page_NNN/manifest.json`
 - `pages/page_NNN/imagegen-jobs.json`
+- Asset sheet regions and split reports
 - `notes_manifest.json`
 
 ## `deck_manifest.json`
@@ -388,6 +389,12 @@ Each imported job records at least the selected output and the backend that actu
 `backend` is the actual producer: `builtin-imagegen`, `codex-oauth`, or `openai-compatible-api`; `unknown` is reserved for legacy page directories that have no `image_backend` contract. `editppt image import` requires an explicit producer, rejects files that are not readable images, and checks `backend`/`fallback_reason` against the page contract. `fallback_reason` is `null` when the preferred backend succeeded or the run selected a CLI contract directly; when a built-in contract enters its CLI fallback, it records the matching event from `image_backend.fallback_policy.on`.
 
 State and provenance record rules are described in the State Principles section of `SKILL.md` and in the asset processing examples in `cli-helper.md`.
+
+## Asset sheet regions and split reports
+
+`asset-regions.json` is authored by the page reconstructor after inspecting the generated sheet. It contains `regions`, a nonempty array of `{ "name": "icon-a", "box": [x, y, width, height] }`. Names are unique safe filenames (PNG extension optional); coordinates are integer pixels of the **generated sheet**, not `source.png`. Boxes must have positive size, be inside the image, and not overlap. Each region must contain foreground surrounded by transparent margins; collectively regions cover all nonzero Alpha. Empty grid slots are omitted.
+
+The split report records `source`, `assets`, and each asset's `path`, `source`, `box`, `padded_box`, `area`, `merged_count`, and `size`; region mode also records `region_box`. Report boxes are `[left, top, right, bottom]` in generated-sheet pixels, unlike the region input's width/height form. `area` in region mode counts all nonzero Alpha pixels. Crops preserve the original RGBA pixels and retain disconnected fragments; padding is clipped to the owning region.
 
 ## `notes_manifest.json`
 

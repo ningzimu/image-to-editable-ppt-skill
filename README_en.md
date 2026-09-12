@@ -83,6 +83,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 - Keep multiple images in the provided order; preserve PDF and `.pptx` page order.
 - Preserve `.pptx` speaker notes on matching output slides without modifying note text.
 - Decides page by page whether to use the confirmed image backend for visual-layer extraction; when needed, sparse asset sheets group foreground assets, prefer placing icons on one sheet, and keep generous gaps for later splitting.
+- Asset sheets use a flat background color distinct from the subjects by default. After background removal, whole-object regions preserve disconnected details during cropping. Successful splitting still requires checking each asset against the source.
 - Supports hybrid reconstruction: editable text, simple native shapes, and independent image assets.
 - Supports complete native curve paths, dash styles, and endpoint arrows for editing a whole line’s shape and style; curve paths are not data-linked charts. In PowerPoint, right-click a curve, choose **Edit Points**, select an endpoint or vertex, and drag its white control handle to adjust curvature.
 

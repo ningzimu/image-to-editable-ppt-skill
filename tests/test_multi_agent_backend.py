@@ -342,7 +342,9 @@ class MultiAgentBackendTest(unittest.TestCase):
             page_dir = Path(tmp) / "pages/page_001"
             assets_dir = page_dir / "assets"
             assets_dir.mkdir(parents=True)
-            Image.new("RGB", (24, 24), "#ff00ff").save(assets_dir / "sheet.png")
+            sheet = Image.new("RGBA", (24, 24), (0, 0, 0, 0))
+            sheet.paste((255, 0, 255, 180), (4, 4, 20, 20))
+            sheet.save(assets_dir / "sheet.png")
 
             result = subprocess.run(
                 [
@@ -354,7 +356,7 @@ class MultiAgentBackendTest(unittest.TestCase):
                     str(page_dir),
                     "--asset-sheet-source",
                     "assets/sheet.png",
-                    "--chroma",
+                    "--alpha",
                     "copied-sheet.png",
                     "--skip-chroma",
                     "--skip-split",
@@ -365,6 +367,8 @@ class MultiAgentBackendTest(unittest.TestCase):
             )
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertTrue((page_dir / "copied-sheet.png").exists())
+            with Image.open(page_dir / "copied-sheet.png") as copied:
+                self.assertEqual(copied.tobytes(), sheet.tobytes())
 
     def test_process_sheet_scopes_default_outputs_by_job_id(self):
         with tempfile.TemporaryDirectory() as tmp:

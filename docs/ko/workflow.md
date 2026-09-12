@@ -11,6 +11,8 @@
 5. **상태 기록**: `editppt` 명령으로 dispatch, page result, accepted 상태를 기록하므로 언제든 작업 진행 상황을 확인할 수 있습니다.
 6. **최종 조립 및 검증**: 메인 agent가 `editppt run finalize`로 기록된 `manifest.json`을 페이지 순서대로 읽어 최종 `.pptx`를 재구성하고, `.pptx` 페이지 노트를 복사한 뒤 deck validation을 실행합니다.
 
+소재 보드는 기본적으로 대상 색상과 구별되는 단색 배경을 사용합니다. 배경 제거 후 객체별 영역으로 잘라 분리된 작은 획을 보존합니다. 분리가 성공해도 각 소재를 원본과 대조해야 합니다.
+
 ## 입력과 출력의 대응 관계
 
 출력은 항상 PowerPoint `.pptx`입니다.
