@@ -249,6 +249,10 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
 
 Having trouble? Check the [usage documentation](https://ningzimu.github.io/image-to-editable-ppt-skill/#/en/), join [CodexPPT](https://t.me/CodexPPT), or [open an issue](https://github.com/ningzimu/image-to-editable-ppt-skill/issues/new).
 
+Scan the QR code to join the WeChat community group, share your experience, report issues, and receive update notifications.
+
+<img src="assets/image-to-editable-ppt-community-qr.png" alt="Image to Editable PPT WeChat community group QR code" width="220">
+
 ## License
 
 MIT
