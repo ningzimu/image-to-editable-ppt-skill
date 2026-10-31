@@ -112,6 +112,68 @@ class QualityContractTest(unittest.TestCase):
         ]
         self.assertEqual([], quality_contract_violations(manifest))
 
+    def test_free_text_does_not_override_structured_provenance(self):
+        manifest = base_manifest()
+        manifest["visual_inventory"] = [{
+            "role": "foreground", "object_type": "icon", "path": "assets/icon.png",
+            "source_type": "asset-sheet-separated", "description": "no crop; no emoji",
+        }]
+        manifest["asset_provenance"] = [{
+            "path": "assets/icon.png", "source_type": "asset-sheet-separated",
+            "source": "assets/sheet.png", "provenance_note": "no crop from source; separated from sheet",
+        }]
+        self.assertEqual([], quality_contract_violations(manifest))
+
+    def test_benchmark_and_trademark_are_not_substring_foreground_matches(self):
+        manifest = base_manifest()
+        manifest["visual_inventory"] = [
+            {"description": "benchmark reference line", "decision": "native line"},
+            {"description": "trademark registration text", "decision": "native text"},
+            {"role": "structure", "description": "line beside icon", "decision": "native line"},
+        ]
+        self.assertEqual([], quality_contract_violations(manifest))
+
+    def test_legacy_decision_can_negate_crop(self):
+        manifest = base_manifest()
+        manifest["visual_inventory"] = [{
+            "description": "foreground icon", "decision": "asset-sheet separated; no crop",
+            "path": "assets/icon.png", "notes": "no emoji approximation",
+        }]
+        manifest["asset_provenance"] = [{"path": "assets/icon.png", "source_type": "asset-sheet-separated"}]
+        self.assertEqual([], quality_contract_violations(manifest))
+
+    def test_structured_foreground_requires_linked_provenance(self):
+        for provenance in ([], [{"path": "assets/other.png", "source_type": "asset-sheet-separated"}]):
+            with self.subTest(provenance=provenance):
+                manifest = base_manifest()
+                manifest["visual_inventory"] = [{"role": "foreground", "path": "assets/icon.png"}]
+                manifest["asset_provenance"] = provenance
+                self.assertTrue(quality_contract_violations(manifest))
+        manifest["visual_inventory"] = [{"role": "foreground"}]
+        self.assertTrue(quality_contract_violations(manifest))
+
+    def test_structured_foreground_rejects_unsupported_sources(self):
+        for source in ("native", "emoji", "direct-crop", "user-provided", "user-approved-rasterization"):
+            with self.subTest(source=source):
+                manifest = base_manifest()
+                manifest["visual_inventory"] = [{"role": "foreground", "path": "assets/icon.png", "source_type": source}]
+                manifest["asset_provenance"] = [{"path": "assets/icon.png", "source_type": source}]
+                self.assertTrue(quality_contract_violations(manifest))
+
+    def test_declared_source_must_match_provenance(self):
+        manifest = base_manifest()
+        manifest["visual_inventory"] = [{"role": "foreground", "path": "assets/icon.png", "source_type": "imagegen"}]
+        manifest["asset_provenance"] = [{"path": "assets/icon.png", "source_type": "asset-sheet-separated"}]
+        self.assertTrue(quality_contract_violations(manifest))
+
+    def test_legacy_string_inventory_keeps_separated_assets_compatible(self):
+        manifest = base_manifest()
+        manifest["visual_inventory"] = ["clipboard icon asset-sheet separated", "native structural table"]
+        manifest["asset_provenance"] = [{"path": "assets/icon.png", "source_type": "asset-sheet-separated"}]
+        self.assertEqual([], quality_contract_violations(manifest))
+        manifest["asset_provenance"] = []
+        self.assertTrue(quality_contract_violations(manifest))
+
     def test_round_rect_writes_ooxml_adjustment(self):
         xml = shape_xml(
             2,

@@ -1,8 +1,26 @@
 # Image to Editable PPT Skill Documentation
 
+<video controls playsinline preload="none" width="100%" poster="https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/image-to-editable-ppt-promo-poster.png" aria-label="Demo video">
+  <source src="https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9" type="video/mp4">
+  <a href="https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9">Demo video</a>
+</video>
+
 Image to Editable PPT is a skill that converts images, PDFs, and image-based PowerPoint files into **object-level editable PowerPoint presentations** (`.pptx`). It first normalizes the input into page-level tasks, then rebuilds each page as a `.pptx`: readable text is restored as native text boxes whenever possible, simple geometry is recreated as PowerPoint shapes, and complex visual elements are preserved as separate image assets with source records.
 
 ![Image to Editable PPT overview](https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/image-to-editable-ppt-overview.png)
+
+## Sponsor
+
+<table>
+<tr>
+<td width="180" align="center"><img src="https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/codia-noteslide-logo.png" alt="Codia NoteSlide" width="64"><br><strong>Codia NoteSlide</strong></td>
+<td><strong>An efficient choice for bulk image-to-PPT conversion.</strong> Need to convert many images or PDFs into editable PPT files? Codia NoteSlide offers fast, affordable online conversion for batch processing. If you already subscribe to ChatGPT and want to use Codex to rebuild slides individually and iteratively refine text and layouts, you can continue using this project. <a href="https://codia.ai/noteslide/r/12daee802"><strong>Try Codia NoteSlide →</strong></a></td>
+</tr>
+<tr>
+<td width="180" align="center"><img src="https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/spire-presentation-logo.png" alt="Spire.Presentation for Python" width="64"><br><strong>Spire.Presentation for Python</strong></td>
+<td><strong>Take your editable PPTs further.</strong> Use Python to edit, convert, and generate PowerPoint files programmatically, enabling AI Agents to handle the next steps directly through code. <a href="https://www.e-iceblue.com/Introduce/presentation-for-python.html?aff_id=420"><strong>Try Spire.Presentation for Python →</strong></a></td>
+</tr>
+</table>
 
 ## How to Read These Docs
 
@@ -37,6 +55,7 @@ If you are already using the skill and run into problems, see [FAQ](/en/faq.md).
 
 - Multiple input formats: convert a single image, multiple images, a multi-page PDF, or an image-based PowerPoint file into an editable `.pptx`.
 - Object-level reconstruction: text becomes native text boxes, simple geometry becomes PowerPoint shapes, and complex visual elements remain separate image assets, so all three object types can be adjusted independently.
+- Supports complete native curve paths, dash styles, and endpoint arrows for editing a whole line’s shape and style; curve paths are not data-linked charts. In PowerPoint, right-click a curve, choose **Edit Points**, select an endpoint or vertex, and drag its white control handle to adjust curvature.
 - Measurement-driven text restoration: OCR generates text annotations for every page, including bounding boxes, font sizes, font-size groups, and recognized text. The model reconstructs text from these measurements and automatically keeps same-level text at consistent sizes. See the OCR Token section in [Installation and Configuration](/en/installation.md).
 - Parallel multi-page reconstruction: the main agent dispatches multi-page inputs to page workers/subagents in parallel; single-page inputs use the same reconstruction flow locally in the main agent.
 - Image generation and editing prefer the current agent's built-in `image_gen.imagegen` tool. Only defined fallback conditions invoke `editppt image`, whose CLI selects between Codex OAuth and an OpenAI-compatible API.
@@ -47,7 +66,7 @@ If you are already using the skill and run into problems, see [FAQ](/en/faq.md).
 
 **This is not a lightweight converter.** The skill uses a multi-agent reconstruction workflow in which AI performs a rebuild → self-check → page-level revision loop, potentially over multiple iterations. It can consume substantial tokens: reconstructing a 10-slide deck may use an entire five-hour ChatGPT allowance, and a single slide may take more than 10 minutes. **ChatGPT Pro is recommended; Plus users should proceed with caution.**
 
-**Do not use this skill unless you have a strong need for editability.** A lighter alternative is to use `gpt-image-2` directly: send it the slide image you want to change and ask it to make the targeted edits.
+**Do not use this skill unless you have a strong need for editability.** A lighter alternative is to use `gpt-image-2.5-sunburst` directly: send it the slide image you want to change and ask it to make the targeted edits.
 
 **We recommend running this skill in Codex with Full Access enabled.** Otherwise, approval prompts may repeatedly interrupt OCR, image generation, and subagent dispatch. See [Installation and Configuration](/en/installation.md).
 

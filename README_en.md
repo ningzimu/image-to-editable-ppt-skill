@@ -2,13 +2,28 @@
 
 [简体中文](README.md) · **English** · [한국어](README_ko.md)
 
-[![Docs](https://img.shields.io/badge/docs-Guide-111827)](https://ningzimu.github.io/image-to-editable-ppt-skill/#/en/) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
+[![Docs](https://img.shields.io/badge/Docs-Guide-111827)](https://ningzimu.github.io/image-to-editable-ppt-skill/#/en/) [![Support](https://img.shields.io/badge/Support-Get_Help-2CA5E0)](https://t.me/CodexPPT) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
+
+https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9
 
 ![Image to Editable PPT project overview](assets/image-to-editable-ppt-overview.png)
 
 A skill for converting images, PDFs, and image-based PPT files into editable PowerPoint `.pptx` output. It normalizes inputs into per-page jobs, then rebuilds editable text, simple shapes, and positioned visual assets.
 
 It is useful when screenshot-like or image-based slides need to become easier to edit again, with text, simple shapes, and visual assets separated where practical.
+
+## Sponsor
+
+<table>
+<tr>
+<td width="180" align="center"><img src="assets/codia-noteslide-logo.png" alt="Codia NoteSlide" width="64"><br><strong>Codia NoteSlide</strong></td>
+<td><strong>An efficient choice for bulk image-to-PPT conversion.</strong> Need to convert many images or PDFs into editable PPT files? Codia NoteSlide offers fast, affordable online conversion for batch processing. If you already subscribe to ChatGPT and want to use Codex to rebuild slides individually and iteratively refine text and layouts, you can continue using this project. <a href="https://codia.ai/noteslide/r/12daee802"><strong>Try Codia NoteSlide →</strong></a></td>
+</tr>
+<tr>
+<td width="180" align="center"><img src="assets/spire-presentation-logo.png" alt="Spire.Presentation for Python" width="64"><br><strong>Spire.Presentation for Python</strong></td>
+<td><strong>Take your editable PPTs further.</strong> Use Python to edit, convert, and generate PowerPoint files programmatically, enabling AI Agents to handle the next steps directly through code. <a href="https://www.e-iceblue.com/Introduce/presentation-for-python.html?aff_id=420"><strong>Try Spire.Presentation for Python →</strong></a></td>
+</tr>
+</table>
 
 > [!IMPORTANT]
 > **Run this skill in Codex with Full Access whenever possible.**
@@ -22,7 +37,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 > ![Codex Full Access permission setting](assets/codex-full-access-permission.png)
 
 > [!WARNING]
-> This skill currently uses a multi-agent collaborative reconstruction workflow with complex flow control. It is not a lightweight converter. The AI runs a "**rebuild -> self-check -> page-local correction**" loop and may iterate multiple times until it judges the result close enough to the source. During this process, page workers may make **many attempts** per page, so the workflow can consume a large number of tokens.
+> Failed page validation leads to local repairs that reuse verified assets. Work stops when the current outputs pass checks; acceptable minor fringes do not trigger regeneration. Routine steps run autonomously; missing OCR tokens or blocked OCR still require user input. Complex pages can still consume substantial tokens.
 >
 > **GPT Pro is recommended. Plus users should use this skill cautiously.**
 >
@@ -30,7 +45,7 @@ It is useful when screenshot-like or image-based slides need to become easier to
 >
 > **If you do not strongly need editability, avoid this skill.**
 >
-> A lighter approach is to use gpt-image-2 image editing directly: provide the specific PPT page image you are unhappy with, ask for a targeted edit, and have it return the modified image.
+> A lighter approach is to use gpt-image-2.5-sunburst image editing directly: provide the specific PPT page image you are unhappy with, ask for a targeted edit, and have it return the modified image.
 
 > [!TIP]
 > This skill does not create new decks from articles, reports, outlines, or ideas. If your goal is to generate a PPT, use [codex-ppt-skill](https://github.com/ningzimu/codex-ppt-skill).
@@ -74,7 +89,10 @@ It is useful when screenshot-like or image-based slides need to become easier to
 - Keep multiple images in the provided order; preserve PDF and `.pptx` page order.
 - Preserve `.pptx` speaker notes on matching output slides without modifying note text.
 - Decides page by page whether to use the confirmed image backend for visual-layer extraction; when needed, sparse asset sheets group foreground assets, prefer placing icons on one sheet, and keep generous gaps for later splitting.
+- Asset sheets use a flat background color distinct from the subjects by default. After background removal, whole-object regions preserve disconnected details during cropping. Successful splitting still requires checking each asset against the source.
+- Rebuilds regular row-and-column tables as native PowerPoint tables with editable cells, row/column dimensions, rectangular merges, and basic styling.
 - Supports hybrid reconstruction: editable text, simple native shapes, and independent image assets.
+- Supports complete native curve paths, dash styles, and endpoint arrows for editing a whole line’s shape and style; curve paths are not data-linked charts. In PowerPoint, right-click a curve, choose **Edit Points**, select an endpoint or vertex, and drag its white control handle to adjust curvature.
 
 ## Use Cases
 
@@ -209,7 +227,7 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
 - Single-page or single-image input can be rebuilt locally by the main agent; multi-page input is rebuilt in parallel through page workers/subagents.
 - Complex visual assets need either the built-in image tool or the CLI fallback. If neither can produce a compliant asset, the page fails validation instead of substituting approximate shapes.
 - Complex photos, illustrations, textures, and hand-drawn decorations are usually movable image assets, not internally editable PowerPoint objects.
-- Tables, charts, and diagrams should only be rebuilt as native objects when confidence is high enough; otherwise keep them as assets and document the limit.
+- Native tables do not yet support diagonal headers or images embedded in cells. Unclear text, rows, columns, or merges are checked against the source and OCR first; unresolved details are reported without guessing content or structure. Charts and flowcharts continue to use editable structural objects.
 - Visual similarity is not enough. Acceptance should check package structure, editable text coverage, asset provenance, preview, and diff.
 
 ## Repository Layout
@@ -233,15 +251,9 @@ output/image-to-editable-ppt/{job-id}/        # One conversion job folder
 └── README_ko.md                          # Korean documentation
 ```
 
-## Star History
+## Support
 
-[![Star History Chart](https://api.star-history.com/svg?repos=ningzimu/image-to-editable-ppt-skill&type=Date)](https://www.star-history.com/#ningzimu/image-to-editable-ppt-skill&Date)
-
-## Community
-
-Scan the QR code to join the Skill community group, share usage experience, report issues, and receive update notices.
-
-<img src="assets/image-to-editable-ppt-community-qr.png" alt="Image to Editable PPT Skill community QR code" width="220">
+Having trouble? Check the [usage documentation](https://ningzimu.github.io/image-to-editable-ppt-skill/#/en/), join [CodexPPT](https://t.me/CodexPPT), or [open an issue](https://github.com/ningzimu/image-to-editable-ppt-skill/issues/new).
 
 ## License
 

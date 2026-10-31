@@ -8,7 +8,7 @@ This skill uses a multi-agent reconstruction workflow. The AI runs a rebuild →
 
 ## When Should I Not Use This Skill?
 
-Do not use it unless you have a strong need for editability. A lighter alternative is to use `gpt-image-2` directly: send it the slide image you want to change and ask it to make targeted edits and return the revised image.
+Do not use it unless you have a strong need for editability. A lighter alternative is to use `gpt-image-2.5-sunburst` directly: send it the slide image you want to change and ask it to make targeted edits and return the revised image.
 
 This skill also does not generate a new presentation from an article, report, outline, or idea. That is the responsibility of [codex-ppt-skill](https://github.com/ningzimu/codex-ppt-skill).
 

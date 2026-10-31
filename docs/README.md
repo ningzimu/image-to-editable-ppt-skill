@@ -1,8 +1,26 @@
 # Image to Editable PPT Skill 说明文档
 
+<video controls playsinline preload="none" width="100%" poster="https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/image-to-editable-ppt-promo-poster.png" aria-label="演示视频">
+  <source src="https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9" type="video/mp4">
+  <a href="https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9">演示视频</a>
+</video>
+
 Image to Editable PPT 是一个把图片、PDF、图片版 PPT 转成**对象级可编辑 PowerPoint**（`.pptx`）的 skill。它先把输入归一化为逐页任务，再重建为 `.pptx`：可读文字尽量恢复为原生文本框，简单几何尽量恢复为 PowerPoint 形状，复杂视觉元素保留为带来源记录的独立图片资产。
 
 ![Image to Editable PPT 项目概览](https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/image-to-editable-ppt-overview.png)
+
+## 赞助
+
+<table>
+<tr>
+<td width="180" align="center"><img src="https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/codia-noteslide-logo.png" alt="Codia NoteSlide" width="64"><br><strong>Codia NoteSlide</strong></td>
+<td><strong>批量图片转 PPT 的高效选择。</strong>大量图片或 PDF 需要转成可编辑 PPT？Codia NoteSlide 提供快速、价格亲民的在线转换服务，适合批量处理。已经订阅 ChatGPT，希望通过 Codex 逐页重建、反复调整文字与布局的用户，可以继续使用本项目。 <a href="https://codia.ai/noteslide/r/12daee802"><strong>体验 Codia NoteSlide →</strong></a></td>
+</tr>
+<tr>
+<td width="180" align="center"><img src="https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/spire-presentation-logo.png" alt="Spire.Presentation for Python" width="64"><br><strong>Spire.Presentation for Python</strong></td>
+<td><strong>把生成的可编辑 PPT 进一步自动化处理。</strong>通过 Python 以编程方式编辑、转换并生成 PowerPoint 文件，支持 AI Agent 借助代码直接完成后续文档操作。 <a href="https://www.e-iceblue.com/Introduce/presentation-for-python.html?aff_id=420"><strong>体验 Spire.Presentation for Python →</strong></a></td>
+</tr>
+</table>
 
 ## 这套文档怎么读
 
@@ -37,6 +55,7 @@ Image to Editable PPT 是一个把图片、PDF、图片版 PPT 转成**对象级
 
 - 支持多种输入：单张图片、多张图片、多页 PDF、图片版 PPT，统一输出可编辑 `.pptx`。
 - 对象级重建：文字恢复为原生文本框，简单几何恢复为 PowerPoint 形状，复杂视觉元素保留为独立图片资产，三类对象可以分开调整。
+- 支持完整的原生曲线路径、虚线样式和端点箭头，可整体调整线条形状与样式；曲线路径不等同于数据驱动图表。 在 PowerPoint 中，右键曲线选择“编辑顶点”，再点端点或顶点，拖动出现的白色控制手柄即可调整曲度。
 - 测量驱动的文字还原：通过 OCR 为每页生成文字标注（框坐标 + 字号 + 字号分组），模型按测量值还原文字，同级文字字号自动保持一致，参见[安装与配置](installation.md)的 OCR Token 一节。
 - 多页并行重建：多页输入由主 agent 分派给 page worker/subagent 并行处理；单页输入由主 agent 本地执行同一重建流程。
 - 图片生成和编辑优先调用当前 agent 的内置 `image_gen.imagegen`；只有满足约定的降级条件时才调用 `editppt image`，由 CLI 在 Codex OAuth 和 OpenAI-compatible API 之间选择后端。
@@ -47,7 +66,7 @@ Image to Editable PPT 是一个把图片、PDF、图片版 PPT 转成**对象级
 
 **这不是轻量转换器。** 本 skill 采用多智能体协作复原流程，AI 会执行「重建 → 自我检查 → 页面内修正」的循环，可能进行多轮迭代，整体比较费 token。复原一个 10 页 PPT 有可能消耗完 ChatGPT 的 5 小时额度，单页复原时间可能在 10 分钟以上。**推荐 ChatGPT Pro 用户使用；Plus 用户请谨慎使用。**
 
-**如果没有强烈的可编辑需求，请不要使用这个 skill。** 更轻量的做法是直接使用 `gpt-image-2` 的图像编辑能力：把不满意的那一页 PPT 图片发给它，让它针对性修改。
+**如果没有强烈的可编辑需求，请不要使用这个 skill。** 更轻量的做法是直接使用 `gpt-image-2.5-sunburst` 的图像编辑能力：把不满意的那一页 PPT 图片发给它，让它针对性修改。
 
 **建议在 Codex 中使用「完全访问权限」执行本 skill**，否则 OCR、图片生成和子 agent 分派等步骤会被审批请求频繁打断，详见[安装与配置](installation.md)。
 

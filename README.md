@@ -2,13 +2,28 @@
 
 **简体中文** · [English](README_en.md) · [한국어](README_ko.md)
 
-[![Docs](https://img.shields.io/badge/docs-%E4%BD%BF%E7%94%A8%E6%96%87%E6%A1%A3-111827)](https://ningzimu.github.io/image-to-editable-ppt-skill/#/) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
+[![文档](https://img.shields.io/badge/%E6%96%87%E6%A1%A3-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97-111827)](https://ningzimu.github.io/image-to-editable-ppt-skill/#/) [![支持](https://img.shields.io/badge/%E6%94%AF%E6%8C%81-%E8%8E%B7%E5%8F%96%E5%B8%AE%E5%8A%A9-2CA5E0)](https://t.me/CodexPPT) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
+
+https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9
 
 ![Image to Editable PPT 项目概览](assets/image-to-editable-ppt-overview.png)
 
 一个用于把图片、PDF、图片版PPT 转成可编辑 PowerPoint 的 skill。它先把输入归一化为逐页任务，再重建为 `.pptx`：可读文字尽量恢复为原生文本框，简单几何尽量恢复为 PowerPoint 形状，复杂视觉元素保留为带来源记录的独立图片资产。
 
 它适合把截图式或图片式幻灯片变成更容易二次编辑的 PPT，让文字、简单形状和视觉素材尽量分开调整。
+
+## 赞助
+
+<table>
+<tr>
+<td width="180" align="center"><img src="assets/codia-noteslide-logo.png" alt="Codia NoteSlide" width="64"><br><strong>Codia NoteSlide</strong></td>
+<td><strong>批量图片转 PPT 的高效选择。</strong>大量图片或 PDF 需要转成可编辑 PPT？Codia NoteSlide 提供快速、价格亲民的在线转换服务，适合批量处理。已经订阅 ChatGPT，希望通过 Codex 逐页重建、反复调整文字与布局的用户，可以继续使用本项目。 <a href="https://codia.ai/noteslide/r/12daee802"><strong>体验 Codia NoteSlide →</strong></a></td>
+</tr>
+<tr>
+<td width="180" align="center"><img src="assets/spire-presentation-logo.png" alt="Spire.Presentation for Python" width="64"><br><strong>Spire.Presentation for Python</strong></td>
+<td><strong>把生成的可编辑 PPT 进一步自动化处理。</strong>通过 Python 以编程方式编辑、转换并生成 PowerPoint 文件，支持 AI Agent 借助代码直接完成后续文档操作。 <a href="https://www.e-iceblue.com/Introduce/presentation-for-python.html?aff_id=420"><strong>体验 Spire.Presentation for Python →</strong></a></td>
+</tr>
+</table>
 
 > [!IMPORTANT]
 > **建议在 Codex 中使用“完全访问权限”执行本 skill。**
@@ -22,7 +37,7 @@
 > ![Codex 完全访问权限设置示意](assets/codex-full-access-permission.png)
 
 > [!WARNING]
-> 目前该skill 采用了多智能体协作复原流程，有着复杂的流程控制，不是轻量转换器。AI 会执行“**重建 → 自我检查 → 页面内修正**”的循环，并可能进行多轮迭代，直到它认为结果足够接近原图。在这个过程中，page worker 可能会对页面做很**多轮尝试**，因此整体上比较费 token。
+> 页面验证失败时优先局部修复并复用已核验的素材；当前输出通过检查后即完成，不因可接受的小毛边重复生成。常规步骤自主执行；缺少 OCR Token 或 OCR 受阻时仍会询问用户。复杂页面仍可能消耗较多 token。
 >
 > **推荐 ChatGPT Pro 用户使用；Plus 用户请谨慎使用。**
 >
@@ -30,7 +45,7 @@
 >
 > **如果没有强烈的可编辑需求，请不要使用这个 skill。**
 >
-> 更轻量的做法是直接使用 gpt-image-2 的图像编辑能力：把你不满意的那一页 PPT 图片发给它，让它针对性修改，并返回修改后的图片。
+> 更轻量的做法是直接使用 gpt-image-2.5-sunburst 的图像编辑能力：把你不满意的那一页 PPT 图片发给它，让它针对性修改，并返回修改后的图片。
 
 > [!TIP]
 > 本 skill 不负责从文章、报告、大纲或想法直接生成全新 PPT。如果你要做的是“生成一份 PPT”，可以使用 [codex-ppt-skill](https://github.com/ningzimu/codex-ppt-skill)。
@@ -74,7 +89,10 @@
 - 多张图片按提供顺序生成页面；PDF 和 `.pptx` 保留原页码顺序。
 - `.pptx` 输入的页面备注会复制到输出对应页，备注内容不改动。
 - 根据具体页面情况决定是否通过已确认 image backend 做图片分层抽取；需要时用稀疏 asset sheet 合并前景素材，优先把图标放在一个素材板上，并保留充足间隙便于后续分离。
+- 素材卡默认使用与主体颜色区分明显的纯色背景，去背后按对象区域裁切，保留分离的小笔画。分割成功不代表图标与原图完全一致，仍需逐项核对。
+- 支持普通行列表格重建为 PowerPoint 原生表格，保留可编辑单元格、行列尺寸、矩形合并和基础样式。
 - 支持复杂视觉页的混合策略：可编辑文字 + 简单形状 + 独立图片资产。
+- 支持完整的原生曲线路径、虚线样式和端点箭头，可整体调整线条形状与样式；曲线路径不等同于数据驱动图表。 在 PowerPoint 中，右键曲线选择“编辑顶点”，再点端点或顶点，拖动出现的白色控制手柄即可调整曲度。
 
 ## 适用场景
 
@@ -209,7 +227,7 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
 - 单页/单图输入可由主 agent 本地重建；多页输入通过 page worker/subagent 并行重建。
 - 复杂视觉资产需要可用的内置图片工具或 CLI fallback；如果两者都无法生成合规资产，对应页面会校验失败，不会用近似图形替代。
 - 对照片、插画、纹理、手绘装饰等复杂视觉元素，通常只能作为独立图片资产移动，不能保证内部对象可编辑。
-- 对表格、图表、流程图等结构化区域，会优先保留可编辑语义，但低置信度时应保留为资产并在验证报告里说明。
+- 原生表格暂不支持斜线表头和单元格内嵌图片；文字、行列或合并关系不清楚时先复查源图与 OCR，仍无法辨认则报告具体缺失，不猜测内容或结构。图表、流程图仍按可编辑结构重建。
 - 视觉相似不等于可编辑。最终判断应同时看 PPTX 结构、文本覆盖、资产来源和预览/diff。
 
 ## 仓库结构
@@ -233,15 +251,9 @@ output/image-to-editable-ppt/{job-id}/        # 单次转换任务目录
 └── README_ko.md                          # 韩文说明文档
 ```
 
-## Star History
+## 支持
 
-[![Star History Chart](https://api.star-history.com/svg?repos=ningzimu/image-to-editable-ppt-skill&type=Date)](https://www.star-history.com/#ningzimu/image-to-editable-ppt-skill&Date)
-
-## 交流群
-
-扫描二维码加入 Skill 交流群，分享使用经验、反馈问题，并获取更新通知。
-
-<img src="assets/image-to-editable-ppt-community-qr.png" alt="Image to Editable PPT Skill 交流群二维码" width="220">
+遇到问题？请查看[使用文档](https://ningzimu.github.io/image-to-editable-ppt-skill/#/)，加入 [CodexPPT](https://t.me/CodexPPT)，或[提交 Issue](https://github.com/ningzimu/image-to-editable-ppt-skill/issues/new)。
 
 ## 许可证
 

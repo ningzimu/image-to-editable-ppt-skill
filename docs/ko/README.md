@@ -1,8 +1,26 @@
 # Image to Editable PPT Skill 사용 설명서
 
+<video controls playsinline preload="none" width="100%" poster="https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/image-to-editable-ppt-promo-poster.png" aria-label="데모 영상">
+  <source src="https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9" type="video/mp4">
+  <a href="https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9">데모 영상</a>
+</video>
+
 Image to Editable PPT는 이미지, PDF, 이미지 기반 PPT를 **객체 단위로 편집 가능한 PowerPoint**(`.pptx`)로 변환하는 skill입니다. 입력을 페이지별 작업으로 정규화한 다음 `.pptx`로 재구성합니다. 읽을 수 있는 텍스트는 가능한 한 네이티브 텍스트 상자로 복원하고, 단순한 도형은 PowerPoint 도형으로 복원하며, 복잡한 시각 요소는 출처가 기록된 독립 이미지 에셋으로 유지합니다.
 
 ![Image to Editable PPT 프로젝트 개요](https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/image-to-editable-ppt-overview.png)
+
+## 스폰서
+
+<table>
+<tr>
+<td width="180" align="center"><img src="https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/codia-noteslide-logo.png" alt="Codia NoteSlide" width="64"><br><strong>Codia NoteSlide</strong></td>
+<td><strong>대량 이미지의 PPT 변환을 위한 효율적인 선택.</strong> 많은 이미지나 PDF를 편집 가능한 PPT로 변환해야 하나요? Codia NoteSlide는 일괄 처리에 적합한 빠르고 합리적인 가격의 온라인 변환 서비스를 제공합니다. 이미 ChatGPT를 구독하고 있으며 Codex로 슬라이드를 한 장씩 재구성하고 텍스트와 레이아웃을 반복해서 다듬고 싶다면 이 프로젝트를 계속 사용할 수 있습니다. <a href="https://codia.ai/noteslide/r/12daee802"><strong>Codia NoteSlide 사용해 보기 →</strong></a></td>
+</tr>
+<tr>
+<td width="180" align="center"><img src="https://raw.githubusercontent.com/ningzimu/image-to-editable-ppt-skill/main/assets/spire-presentation-logo.png" alt="Spire.Presentation for Python" width="64"><br><strong>Spire.Presentation for Python</strong></td>
+<td><strong>생성된 편집 가능한 PPT를 더욱 자동화해 보세요.</strong> Python을 사용하여 PowerPoint 파일을 프로그래밍 방식으로 편집, 변환 및 생성할 수 있으며, AI Agent가 코드를 통해 후속 문서 작업을 직접 처리할 수 있습니다. <a href="https://www.e-iceblue.com/Introduce/presentation-for-python.html?aff_id=420"><strong>Spire.Presentation for Python 사용해 보기 →</strong></a></td>
+</tr>
+</table>
 
 ## 문서 읽는 방법
 
@@ -37,6 +55,7 @@ Image to Editable PPT는 이미지, PDF, 이미지 기반 PPT를 **객체 단위
 
 - 단일 이미지, 여러 이미지, 다중 페이지 PDF, 이미지 기반 PPT 등 다양한 입력을 지원하며 모두 편집 가능한 `.pptx`로 출력합니다.
 - 객체 단위 재구성: 텍스트는 네이티브 텍스트 상자, 단순한 도형은 PowerPoint 도형, 복잡한 시각 요소는 독립 이미지 에셋으로 복원해 세 종류를 따로 조정할 수 있습니다.
+- 완전한 네이티브 곡선 경로, 점선 스타일, 끝점 화살표를 지원해 선 전체의 모양과 스타일을 조정할 수 있습니다. 곡선 경로는 데이터 연동 차트와 다릅니다. PowerPoint에서 곡선을 마우스 오른쪽 버튼으로 클릭해 **점 편집**을 선택한 뒤, 끝점이나 꼭짓점을 클릭하고 흰색 조절 핸들을 드래그하면 곡률을 바꿀 수 있습니다.
 - 측정 기반 텍스트 복원: OCR로 각 페이지의 텍스트 주석(상자 좌표 + 글자 크기 + 크기 그룹)을 생성하고, 모델은 측정값에 따라 텍스트를 복원하며 같은 계층의 글자 크기를 자동으로 일관되게 유지합니다. 자세한 내용은 [설치 및 구성](/ko/installation.md)의 OCR Token 절을 참고하세요.
 - 다중 페이지 병렬 재구성: 다중 페이지 입력은 메인 agent가 page worker/subagent에게 병렬로 분배하고, 단일 페이지 입력은 메인 agent가 같은 재구성 흐름으로 로컬에서 처리합니다.
 - 이미지 생성과 편집은 현재 agent의 내장 `image_gen.imagegen` 도구를 우선 사용합니다. 정해진 폴백 조건을 충족할 때만 `editppt image`를 호출하며, CLI가 Codex OAuth와 OpenAI-compatible API 중 backend를 선택합니다.
@@ -47,7 +66,7 @@ Image to Editable PPT는 이미지, PDF, 이미지 기반 PPT를 **객체 단위
 
 **이것은 가벼운 변환기가 아닙니다.** 이 skill은 멀티 agent 협업 복원 흐름을 사용하며, AI가 “재구성 → 자체 점검 → 페이지 내부 수정” 사이클을 여러 번 반복할 수 있어 token 사용량이 큽니다. 10페이지짜리 PPT 하나를 복원하는 데 ChatGPT의 5시간 한도를 모두 사용할 수도 있고, 한 페이지를 복원하는 데 10분 이상 걸릴 수 있습니다. **ChatGPT Pro 사용자에게 권장하며, Plus 사용자는 신중하게 사용하세요.**
 
-**편집 가능성이 꼭 필요하지 않다면 이 skill을 사용하지 마세요.** 더 가벼운 방법은 `gpt-image-2`의 이미지 편집 기능을 직접 사용해 마음에 들지 않는 PPT 페이지 이미지만 수정하는 것입니다.
+**편집 가능성이 꼭 필요하지 않다면 이 skill을 사용하지 마세요.** 더 가벼운 방법은 `gpt-image-2.5-sunburst`의 이미지 편집 기능을 직접 사용해 마음에 들지 않는 PPT 페이지 이미지만 수정하는 것입니다.
 
 **Codex에서는 “전체 액세스 권한” 사용을 권장합니다.** 그렇지 않으면 OCR, 이미지 생성, 하위 agent 분배 등의 단계가 승인 요청으로 자주 중단될 수 있습니다. 자세한 내용은 [설치 및 구성](/ko/installation.md)을 참고하세요.
 

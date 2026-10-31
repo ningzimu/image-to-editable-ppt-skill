@@ -62,6 +62,8 @@ The skill also works without a Token by falling back to its built-in offline det
 
 Image generation and editing prefer the current agent's built-in `image_gen.imagegen` tool. Only when a defined fallback condition is met does the workflow invoke the `editppt image` CLI, which prefers local Codex OAuth (`~/.codex/auth.json`) and, if that is unavailable, reads OpenAI-compatible API configuration from `~/.editppt/config.yaml` or environment variables.
 
+The CLI requests `gpt-image-2.5-sunburst` by default; select Flare with `--model gpt-image-2.5-flare`. Quality remains `auto`; both 2.5 models accept `--quality xhigh` or `--quality max`. Existing model configuration overrides the default. The built-in tool has no model selector; the requested OAuth model name does not confirm the actual server-side model.
+
 You normally do not need to configure anything yourself. Ask the AI to configure an API fallback only when:
 
 - You explicitly want to use a third-party API or an OpenAI-compatible proxy.

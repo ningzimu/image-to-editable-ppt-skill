@@ -463,8 +463,8 @@ runtime. API keys are masked in command output.
 """,
         formatter_class=HELP_FORMATTER,
         epilog="""Examples:
-  editppt config --api-key "your-api-key" --model gpt-image-2
-  editppt config --api-key "your-api-key" --base-url https://example.test/v1 --model openai/gpt-image-2
+  editppt config --api-key "your-api-key" --model gpt-image-2.5-sunburst
+  editppt config --api-key "your-api-key" --base-url https://example.test/v1 --model openai/gpt-image-2.5-sunburst
   editppt config --clear-base-url
 """,
     )
@@ -551,7 +551,7 @@ Use this when a parent Agent selects image_gen.imagegen or when forcing other ba
         epilog="""Examples:
   editppt run backend <run>
   editppt run backend <run> --mode builtin-imagegen
-  editppt run backend <run> --mode openai-compatible-api --model openai/gpt-image-2
+  editppt run backend <run> --mode openai-compatible-api --model openai/gpt-image-2.5-sunburst
 """,
     )
     backend.add_argument("run", metavar="RUN", help="Run directory or deck_manifest.json path.")
@@ -755,8 +755,8 @@ asset-sheet splitting inside page directories.
 
 Setup:
   codex login
-  editppt config --api-key "your-api-key" --model gpt-image-2
-  editppt config --api-key "your-api-key" --base-url https://example.test/v1 --model openai/gpt-image-2
+  editppt config --api-key "your-api-key" --model gpt-image-2.5-sunburst
+  editppt config --api-key "your-api-key" --base-url https://example.test/v1 --model openai/gpt-image-2.5-sunburst
 
 Parameter surface:
   generate/edit backend requests pass only model, prompt, size, and quality.

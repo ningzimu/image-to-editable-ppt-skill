@@ -62,6 +62,8 @@ ln -s /path/to/image-to-editable-ppt-skill/skills/image-to-editable-ppt ~/.codex
 
 图片生成和编辑优先调用当前 agent 的内置 `image_gen.imagegen`。只有满足约定的降级条件时才进入 `editppt image` CLI；CLI 会优先使用本机 Codex OAuth（`~/.codex/auth.json`），如果不可用，再读取 `~/.editppt/config.yaml` 或环境变量里的 OpenAI-compatible API 配置。
 
+CLI 默认请求模型为 `gpt-image-2.5-sunburst`，可用 `--model gpt-image-2.5-flare` 切换；质量默认保持 `auto`，两款 2.5 模型均可使用 `--quality xhigh` 或 `--quality max`。已有模型配置优先于默认值。内置工具不提供模型选择参数；OAuth 请求中的模型名不代表服务端已确认实际模型。
+
 通常不需要你自己配置。只有这些情况才需要让 AI 帮你配置 API fallback：
 
 - 你明确要求使用第三方 API 或 OpenAI 兼容中转站。

@@ -1,7 +1,9 @@
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 from PIL import Image
 
@@ -18,6 +20,7 @@ from build_pptx_from_manifest import (  # noqa: E402
     render_preview,
     slide_size_type,
     text_box_xml,
+    write_pptx,
 )
 from prepare_deck_run import fit_content_box, slide_for_source  # noqa: E402
 
@@ -96,7 +99,32 @@ class SlideLayoutTest(unittest.TestCase):
 
     def test_non_wide_presentation_size_is_custom(self):
         self.assertEqual("custom", slide_size_type(emu(16), emu(10.6666667)))
-        self.assertEqual("wide", slide_size_type(emu(13.333), emu(7.5)))
+        self.assertEqual("screen16x9", slide_size_type(emu(13.333), emu(7.5)))
+
+    def test_package_has_valid_wide_size_and_complete_theme_style_lists(self):
+        manifest = {"slide": {"width": 13.333, "height": 7.5}}
+        ns = {
+            "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+            "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
+            "ep": "http://schemas.openxmlformats.org/officeDocument/2006/extended-properties",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            pptx = Path(tmp) / "wide.pptx"
+            write_pptx(manifest, pptx, Path(tmp) / "manifest.json")
+            with zipfile.ZipFile(pptx) as archive:
+                presentation = ET.fromstring(archive.read("ppt/presentation.xml"))
+                theme = ET.fromstring(archive.read("ppt/theme/theme1.xml"))
+                properties = ET.fromstring(archive.read("docProps/app.xml"))
+
+        size = presentation.find("p:sldSz", ns)
+        self.assertEqual("screen16x9", size.get("type"))
+        self.assertEqual(str(emu(13.333)), size.get("cx"))
+        self.assertEqual(str(emu(7.5)), size.get("cy"))
+        self.assertEqual("Widescreen", properties.find("ep:PresentationFormat", ns).text)
+        for tag in ("fillStyleLst", "lnStyleLst", "effectStyleLst", "bgFillStyleLst"):
+            with self.subTest(tag=tag):
+                styles = theme.find(f"a:themeElements/a:fmtScheme/a:{tag}", ns)
+                self.assertGreaterEqual(len(styles), 3)
 
     def test_text_font_size_is_clamped_to_source_box(self):
         manifest = {

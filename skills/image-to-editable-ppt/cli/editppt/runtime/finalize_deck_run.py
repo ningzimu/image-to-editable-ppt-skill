@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from deck_run_state import load_deck, load_jobs, now_iso, run_dir_from_target, save_deck, save_jobs, set_run_status, write_json
+from deck_run_state import load_deck, load_jobs, now_iso, run_dir_from_target, save_deck, save_jobs, set_run_status, sha256_file, write_json
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -32,6 +32,20 @@ def assert_pages_ready(run_dir, jobs):
         result = page.get("result") or {}
         if result.get("validation_passed") is not True:
             problems.append(f"{page['page_id']} validation_passed={result.get('validation_passed')}")
+        outputs = result.get("outputs") or {}
+        hashes = result.get("hashes") or {}
+        if not outputs or set(outputs) != set(hashes):
+            problems.append(f"{page['page_id']} missing recorded output hashes; validate and record the page again")
+            continue
+        files = [(outputs[key], digest) for key, digest in hashes.items()]
+        files.extend((result.get("asset_hashes") or {}).items())
+        for relative_path, expected_hash in files:
+            path = Path(run_dir) / relative_path
+            if not path.is_file() or sha256_file(path) != expected_hash:
+                problems.append(
+                    f"{page['page_id']} recorded artifact changed or missing: {relative_path}; "
+                    "repair affected outputs, validate and record the page again"
+                )
     if problems:
         raise SystemExit("Pages are not ready for finalize:\n" + "\n".join(problems))
 

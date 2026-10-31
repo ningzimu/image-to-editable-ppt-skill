@@ -6,10 +6,56 @@ Release notes are generated from this file. Keep changelog entries in English.
 
 ### Documentation
 
+- Replace the Spire.Presentation sponsor icon with the official e-iceblue logo supplied by the sponsor across all README and documentation languages. (#46)
+
+- Point Spire.Presentation sponsor links to the product page while preserving affiliate ID 420 across all README and documentation languages. (#45)
+
+- Add Spire.Presentation for Python sponsor cards and affiliate links below Codia NoteSlide in the Chinese, English, and Korean READMEs and documentation homepages. (#44)
+
+## 0.4.0
+
+### Features
+
+- Build native PowerPoint tables with editable cells, proportional row and column sizing, rectangular merges, and shared build, preview, and validation support. (#38)
+
+### Improvements
+
+- Reuse verified page assets during local recovery and load worker references by task instead of requiring every reference in full. Preserve OCR setup and blocked-OCR user interaction. (#38)
+
+- Add whole-object region splitting that retains disconnected details after chroma-key removal; keep flat-color asset generation as the default and fix processing of already-transparent supplied sheets. (#38)
+
+- Default CLI image requests to GPT Image 2.5 Sunburst, support Flare and model-specific `xhigh`/`max` quality, and retain `auto` quality and built-in-first routing. (#38)
+
+### Fixes
+
+- Validate structured foreground provenance without treating incidental words or negated descriptions as forbidden sources. (#38)
+- Reject changed recorded outputs and image assets before finalization, and report bounded faint isolated region residue as a warning while retaining boundary-cut failures. (#38)
+
+### Documentation
+
+- Add the project demo video to the Chinese, English, and Korean READMEs and documentation home pages. (#42)
+
+- Add Codia NoteSlide sponsor cards and links across Chinese, English, and Korean READMEs and documentation homepages. (#37)
+
+## 0.3.3
+
+### Features
+
+- Build native editable Bézier paths with dash styles and endpoint arrows, keeping each continuous curve in one PowerPoint object. (#36)
+
+### Fixes
+
+- Emit valid slide-size metadata and complete theme style lists to avoid PowerPoint repair prompts. (#36)
+- Render diagonal and curved dashed strokes in previews and validate path contracts, stroke styles, and declared logical-line uniqueness. (#36)
+
+### Documentation
+
+- Specify structural curve granularity, document curve editing, and distinguish editable paths from data-linked charts. (#36)
 - Add complete Korean README and English and Korean versions of the Docsify usage documentation, with synchronized language navigation, search, and pagination. (#26)
 - Align all usage guides with the built-in-first image backend policy and block delivery when compliant image assets cannot be produced. (#26)
+- Add compact documentation, Telegram, and issue support links to all README language versions, and remove the obsolete community QR code. (#28, #29)
 
-## 0.3.2-beta.1
+## 0.3.2
 
 ### Features
 

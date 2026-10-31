@@ -22,7 +22,7 @@ import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib import error, request
 
-DEFAULT_MODEL = "gpt-image-2"
+DEFAULT_MODEL = "gpt-image-2.5-sunburst"
 DEFAULT_SIZE = "auto"
 DEFAULT_QUALITY = "auto"
 DEFAULT_BACKGROUND = "auto"
@@ -34,9 +34,8 @@ DEFAULT_CODEX_RETRY_BASE_DELAY_SECONDS = 0.2
 GPT_IMAGE_MODEL_PREFIX = "gpt-image-"
 
 ALLOWED_LEGACY_SIZES = {"1024x1024", "1536x1024", "1024x1536", "auto"}
-ALLOWED_QUALITIES = {"low", "medium", "high", "auto"}
+ALLOWED_QUALITIES = {"low", "medium", "high", "xhigh", "max", "auto"}
 
-GPT_IMAGE_2_MODEL = "gpt-image-2"
 GPT_IMAGE_2_MIN_PIXELS = 655_360
 GPT_IMAGE_2_MAX_PIXELS = 8_294_400
 GPT_IMAGE_2_MAX_EDGE = 3840
@@ -60,8 +59,8 @@ Backend selection:
 
 Setup:
   codex login
-  editppt config --api-key "your-api-key" --model gpt-image-2
-  editppt config --api-key "your-api-key" --base-url https://example.test/v1 --model openai/gpt-image-2
+  editppt config --api-key "your-api-key" --model gpt-image-2.5-sunburst
+  editppt config --api-key "your-api-key" --base-url https://example.test/v1 --model openai/gpt-image-2.5-sunburst
 
 Input image rules:
   generate creates a new image from prompt only.
@@ -489,14 +488,14 @@ def _validate_gpt_image_2_size(size: str) -> None:
     total_pixels = width * height
 
     if max_edge > GPT_IMAGE_2_MAX_EDGE:
-        _die("gpt-image-2 size maximum edge length must be less than or equal to 3840px.")
+        _die("GPT Image 2/2.5 size maximum edge length must be less than or equal to 3840px.")
     if width % 16 != 0 or height % 16 != 0:
-        _die("gpt-image-2 size width and height must be multiples of 16px.")
+        _die("GPT Image 2/2.5 size width and height must be multiples of 16px.")
     if max_edge / min_edge > GPT_IMAGE_2_MAX_RATIO:
-        _die("gpt-image-2 size long edge to short edge ratio must not exceed 3:1.")
+        _die("GPT Image 2/2.5 size long edge to short edge ratio must not exceed 3:1.")
     if total_pixels < GPT_IMAGE_2_MIN_PIXELS or total_pixels > GPT_IMAGE_2_MAX_PIXELS:
         _die(
-            "gpt-image-2 size total pixels must be at least 655,360 and no more than 8,294,400."
+            "GPT Image 2/2.5 size total pixels must be at least 655,360 and no more than 8,294,400."
         )
 
 
@@ -511,9 +510,11 @@ def _validate_size(size: str, model: str) -> None:
         )
 
 
-def _validate_quality(quality: str) -> None:
+def _validate_quality(quality: str, model: str) -> None:
     if quality not in ALLOWED_QUALITIES:
-        _die("quality must be one of low, medium, high, or auto.")
+        _die("quality must be one of low, medium, high, xhigh, max, or auto.")
+    if quality in {"xhigh", "max"} and not _is_gpt_image_2_5_model(model):
+        _die("xhigh and max quality require gpt-image-2.5-flare or gpt-image-2.5-sunburst.")
 
 
 def _validate_model(model: str) -> None:
@@ -525,8 +526,17 @@ def _validate_model(model: str) -> None:
         )
 
 
+def _is_gpt_image_2_5_model(model: str) -> bool:
+    return bool(re.fullmatch(
+        r"gpt-image-2\.5-(?:flare|sunburst)(?:-\d{4}-\d{2}-\d{2})?",
+        model.rsplit("/", 1)[-1],
+    ))
+
+
 def _is_gpt_image_2_model(model: str) -> bool:
-    return GPT_IMAGE_2_MODEL in model
+    return bool(re.fullmatch(
+        r"gpt-image-2(?:-\d{4}-\d{2}-\d{2})?", model.rsplit("/", 1)[-1]
+    )) or _is_gpt_image_2_5_model(model)
 
 
 def _build_output_paths(out: str) -> List[Path]:
@@ -816,12 +826,12 @@ def _add_shared_args(
     include_prompt: bool = True,
     include_out: bool = True,
 ) -> None:
-    parser.add_argument("--model", default=_default_model(), help="Image model. Defaults to IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL or gpt-image-2.")
+    parser.add_argument("--model", default=_default_model(), help="Requested image model. Defaults to IMAGE_TO_EDITABLE_PPT_IMAGE_MODEL or gpt-image-2.5-sunburst.")
     if include_prompt:
         parser.add_argument("--prompt", help="Prompt text. Use this or --prompt-file.")
         parser.add_argument("--prompt-file", help="Read prompt text from a file, or '-' for stdin.")
     parser.add_argument("--size", default=DEFAULT_SIZE, help="Output size such as auto or 2560x1440.")
-    parser.add_argument("--quality", default=DEFAULT_QUALITY, help="Image quality: low, medium, high, or auto.")
+    parser.add_argument("--quality", default=DEFAULT_QUALITY, help="Image quality: low, medium, high, xhigh, max, or auto (xhigh/max require GPT Image 2.5).")
     if include_out:
         parser.add_argument("--out", default=DEFAULT_OUTPUT_PATH, help="Output file for one image.")
     parser.add_argument("--force", action="store_true", help="Overwrite existing output files.")
@@ -866,7 +876,7 @@ asset sheets in image-to-editable-ppt runs.
     args = parser.parse_args()
     _validate_model(args.model)
     _validate_size(args.size, args.model)
-    _validate_quality(args.quality)
+    _validate_quality(args.quality, args.model)
     if not _codex_available():
         _ensure_api_key(args.dry_run)
 

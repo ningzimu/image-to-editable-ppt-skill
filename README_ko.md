@@ -2,13 +2,28 @@
 
 [简体中文](README.md) · [English](README_en.md) · **한국어**
 
-[![Docs](https://img.shields.io/badge/docs-%EC%82%AC%EC%9A%A9%20%EC%95%88%EB%82%B4-111827)](https://ningzimu.github.io/image-to-editable-ppt-skill/#/ko/) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
+[![문서](https://img.shields.io/badge/%EB%AC%B8%EC%84%9C-%EC%82%AC%EC%9A%A9%20%EC%95%88%EB%82%B4-111827)](https://ningzimu.github.io/image-to-editable-ppt-skill/#/ko/) [![지원](https://img.shields.io/badge/%EC%A7%80%EC%9B%90-%EB%8F%84%EC%9B%80%EB%B0%9B%EA%B8%B0-2CA5E0)](https://t.me/CodexPPT) [![GitHub stars](https://img.shields.io/github/stars/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=stars)](https://github.com/ningzimu/image-to-editable-ppt-skill/stargazers) [![GitHub forks](https://img.shields.io/github/forks/ningzimu/image-to-editable-ppt-skill?style=flat&logo=github&label=forks)](https://github.com/ningzimu/image-to-editable-ppt-skill/forks)
+
+https://github.com/user-attachments/assets/6e60b3a1-4fd9-4225-9a12-ace8f2aa67a9
 
 ![Image to Editable PPT 프로젝트 개요](assets/image-to-editable-ppt-overview.png)
 
 이미지, PDF, 이미지 기반 PPT를 편집 가능한 PowerPoint로 변환하는 skill입니다. 입력을 페이지별 작업으로 정규화한 다음 `.pptx`로 재구성합니다. 읽을 수 있는 텍스트는 가능한 한 네이티브 텍스트 상자로 복원하고, 단순한 도형은 PowerPoint 도형으로 복원하며, 복잡한 시각 요소는 출처가 기록된 독립 이미지 에셋으로 유지합니다.
 
 스크린샷이나 이미지 형태의 슬라이드를 더 쉽게 다시 편집할 수 있는 PPT로 바꾸고, 텍스트·단순 도형·시각 에셋을 가능한 한 분리해 조정하려는 경우에 적합합니다.
+
+## 스폰서
+
+<table>
+<tr>
+<td width="180" align="center"><img src="assets/codia-noteslide-logo.png" alt="Codia NoteSlide" width="64"><br><strong>Codia NoteSlide</strong></td>
+<td><strong>대량 이미지의 PPT 변환을 위한 효율적인 선택.</strong> 많은 이미지나 PDF를 편집 가능한 PPT로 변환해야 하나요? Codia NoteSlide는 일괄 처리에 적합한 빠르고 합리적인 가격의 온라인 변환 서비스를 제공합니다. 이미 ChatGPT를 구독하고 있으며 Codex로 슬라이드를 한 장씩 재구성하고 텍스트와 레이아웃을 반복해서 다듬고 싶다면 이 프로젝트를 계속 사용할 수 있습니다. <a href="https://codia.ai/noteslide/r/12daee802"><strong>Codia NoteSlide 사용해 보기 →</strong></a></td>
+</tr>
+<tr>
+<td width="180" align="center"><img src="assets/spire-presentation-logo.png" alt="Spire.Presentation for Python" width="64"><br><strong>Spire.Presentation for Python</strong></td>
+<td><strong>생성된 편집 가능한 PPT를 더욱 자동화해 보세요.</strong> Python을 사용하여 PowerPoint 파일을 프로그래밍 방식으로 편집, 변환 및 생성할 수 있으며, AI Agent가 코드를 통해 후속 문서 작업을 직접 처리할 수 있습니다. <a href="https://www.e-iceblue.com/Introduce/presentation-for-python.html?aff_id=420"><strong>Spire.Presentation for Python 사용해 보기 →</strong></a></td>
+</tr>
+</table>
 
 > [!IMPORTANT]
 > **Codex에서 이 skill을 실행할 때는 “전체 액세스 권한” 사용을 권장합니다.**
@@ -22,7 +37,7 @@
 > ![Codex 전체 액세스 권한 설정 예시](assets/codex-full-access-permission.png)
 
 > [!WARNING]
-> 현재 이 skill은 멀티 agent 협업 복원 흐름과 복잡한 프로세스 제어를 사용하므로 가벼운 변환기가 아닙니다. AI는 “**재구성 → 자체 점검 → 페이지 내부 수정**” 사이클을 수행하며, 결과가 원본에 충분히 가깝다고 판단할 때까지 여러 번 반복할 수 있습니다. 이 과정에서 page worker가 한 페이지를 **여러 차례 시도**할 수 있어 전체 token 사용량이 큽니다.
+> 페이지 검증 실패 시 검증된 소재를 재사용하며 필요한 부분을 수정합니다. 현재 출력이 검사를 통과하면 완료하며, 허용 가능한 작은 가장자리 흔적만으로 다시 생성하지 않습니다. 일반 단계는 자율적으로 실행하지만 OCR Token이 없거나 OCR이 차단되면 사용자에게 문의합니다. 복잡한 페이지는 여전히 많은 token을 사용할 수 있습니다.
 >
 > **ChatGPT Pro 사용자에게 권장하며, Plus 사용자는 신중하게 사용하세요.**
 >
@@ -30,7 +45,7 @@
 >
 > **편집 가능성이 꼭 필요하지 않다면 이 skill을 사용하지 마세요.**
 >
-> 더 가벼운 방법은 gpt-image-2의 이미지 편집 기능을 직접 사용하는 것입니다. 마음에 들지 않는 PPT 페이지 이미지를 보내고 필요한 부분만 수정한 이미지를 돌려받을 수 있습니다.
+> 더 가벼운 방법은 gpt-image-2.5-sunburst의 이미지 편집 기능을 직접 사용하는 것입니다. 마음에 들지 않는 PPT 페이지 이미지를 보내고 필요한 부분만 수정한 이미지를 돌려받을 수 있습니다.
 
 > [!TIP]
 > 이 skill은 글, 보고서, 개요 또는 아이디어에서 새로운 PPT를 직접 만드는 용도가 아닙니다. “PPT 생성”이 목적이라면 [codex-ppt-skill](https://github.com/ningzimu/codex-ppt-skill)을 사용하세요.
@@ -74,7 +89,10 @@
 - 여러 이미지는 제공된 순서대로 페이지를 생성하고, PDF와 `.pptx`는 원래 페이지 순서를 유지합니다.
 - `.pptx` 입력의 페이지 노트는 내용 변경 없이 출력의 해당 페이지로 복사됩니다.
 - 페이지 상황에 따라 확인된 image backend로 이미지 레이어를 분리할지 결정합니다. 필요한 경우 희소 asset sheet로 전경 소재를 모으며, 아이콘은 충분한 간격을 둔 하나의 소재 보드에 우선 배치해 후속 분리를 쉽게 합니다.
+- 소재 보드는 기본적으로 대상 색상과 구별되는 단색 배경을 사용합니다. 배경 제거 후 객체별 영역으로 잘라 분리된 작은 획을 보존합니다. 분리가 성공해도 각 소재를 원본과 대조해야 합니다.
 - 편집 가능한 텍스트 + 단순 도형 + 독립 이미지 에셋을 결합하는 복잡한 시각 페이지용 혼합 전략을 지원합니다.
+- 일반 행·열 표를 PowerPoint 네이티브 표로 재구성하며, 편집 가능한 셀, 행·열 크기, 직사각형 셀 병합과 기본 스타일을 유지합니다.
+- 완전한 네이티브 곡선 경로, 점선 스타일, 끝점 화살표를 지원해 선 전체의 모양과 스타일을 조정할 수 있습니다. 곡선 경로는 데이터 연동 차트와 다릅니다. PowerPoint에서 곡선을 마우스 오른쪽 버튼으로 클릭해 **점 편집**을 선택한 뒤, 끝점이나 꼭짓점을 클릭하고 흰색 조절 핸들을 드래그하면 곡률을 바꿀 수 있습니다.
 
 ## 사용 사례
 
@@ -209,7 +227,7 @@ output/image-to-editable-ppt/{job-id}/        # 단일 변환 작업 디렉터�
 - 단일 페이지/이미지 입력은 메인 agent가 로컬에서 재구성할 수 있고, 다중 페이지 입력은 page worker/subagent가 병렬로 재구성합니다.
 - 복잡한 시각 에셋에는 사용할 수 있는 내장 이미지 도구 또는 CLI 폴백이 필요합니다. 둘 다 규격에 맞는 에셋을 생성할 수 없으면 해당 페이지는 검증에 실패하며 근사 도형으로 대체하지 않습니다.
 - 사진, 일러스트, 질감, 손그림 장식 등의 복잡한 시각 요소는 일반적으로 독립 이미지 에셋으로 이동할 수 있을 뿐, 내부 객체의 편집 가능성을 보장하지 않습니다.
-- 표, 차트, 순서도 등의 구조화 영역은 편집 가능한 의미 구조를 우선 보존하지만, 신뢰도가 낮으면 에셋으로 유지하고 검증 보고서에 설명합니다.
+- 네이티브 표는 아직 대각선 머리글과 셀 내부 이미지를 지원하지 않습니다. 텍스트, 행·열 또는 병합 관계가 불분명하면 원본과 OCR을 먼저 다시 확인하고, 해결되지 않은 내용을 구체적으로 보고하며 내용이나 구조를 추측하지 않습니다. 차트와 순서도는 계속 편집 가능한 구조 객체로 재구성합니다.
 - 시각적으로 비슷하다는 것이 편집 가능하다는 뜻은 아닙니다. 최종 판단 시 PPTX 구조, 텍스트 커버리지, 에셋 출처, 미리보기/diff를 함께 확인해야 합니다.
 
 ## 저장소 구조
@@ -233,15 +251,9 @@ output/image-to-editable-ppt/{job-id}/        # 단일 변환 작업 디렉터�
 └── README_ko.md                          # 한국어 설명 문서
 ```
 
-## Star History
+## 지원
 
-[![Star History Chart](https://api.star-history.com/svg?repos=ningzimu/image-to-editable-ppt-skill&type=Date)](https://www.star-history.com/#ningzimu/image-to-editable-ppt-skill&Date)
-
-## 커뮤니티
-
-QR 코드를 스캔해 Skill 커뮤니티에 참여하고 사용 경험과 피드백을 공유하며 업데이트 알림을 받아 보세요.
-
-<img src="assets/image-to-editable-ppt-community-qr.png" alt="Image to Editable PPT Skill 커뮤니티 QR 코드" width="220">
+문제가 있나요? [사용 설명서](https://ningzimu.github.io/image-to-editable-ppt-skill/#/ko/)를 확인하고, [CodexPPT](https://t.me/CodexPPT)에 참여하거나, [Issue를 등록하세요](https://github.com/ningzimu/image-to-editable-ppt-skill/issues/new).
 
 ## 라이선스
 
